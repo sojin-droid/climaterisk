@@ -14,6 +14,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import pytest
+
+pytest.importorskip("pydantic")  # backend-only test; the CLIMADA worker env has no pydantic
+
 from climaterisk.runs.store import RunStore, run_kind
 
 if TYPE_CHECKING:
