@@ -233,13 +233,14 @@
 (function () {
   var frame = document.getElementById('frame'), stage = document.getElementById('stage');
   function fit() {
-    var w = Math.min(document.documentElement.clientWidth, 1600);
+    var w = Math.min(document.documentElement.clientWidth || window.innerWidth || 1600, 1600);
+    if (!w) { setTimeout(fit, 100); return; }  // first paint in a 0-width host: retry
     var s = w / 3179;
     frame.style.transform = 'scale(' + s + ')';
     stage.style.width = (3179 * s) + 'px';
     stage.style.height = (4494 * s) + 'px';
   }
-  fit(); window.addEventListener('resize', fit);
+  fit(); window.addEventListener('resize', fit); window.addEventListener('load', fit);
 })();
 </script>
 </body>
