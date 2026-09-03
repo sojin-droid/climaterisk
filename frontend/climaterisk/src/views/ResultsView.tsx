@@ -1,5 +1,5 @@
 import type { PhysicalRunOutput, PhysicalRunResult, Portfolio, Run, TransitionResult } from "../types";
-import { money } from "../lib/format";
+import { formatScenario, impactFormatter, money, quantity } from "../lib/format";
 import { lazy, Suspense } from "react";
 import { ResultsMap } from "../components/ResultsMap";
 import { FreqCurveChart } from "../components/FreqCurveChart";
@@ -10,8 +10,72 @@ const AssetGrid = lazy(() =>
 );
 import { TransitionChart } from "../components/TransitionChart";
 import { MethodNote } from "../components/MethodNote";
+import { MethodFigure } from "../components/MethodFigure";
 import { Aggregation } from "../components/Aggregation";
 import { UncertaintyPanel } from "../components/UncertaintyPanel";
+
+/**
+ * Per-peril data provenance for the method note.
+ *
+ * Every peril states its OWN hazard and vulnerability source. A shared fallback used to
+ * claim river-flood provenance for anything that was not a tropical cyclone, which is a
+ * methodology error, not a cosmetic one — the note is what a reader cites.
+ */
+function perilProvenance(peril: string, targetYear: number | null): string {
+  switch (peril) {
+    case "tropical_cyclone":
+      return (
+        `hazard — CLIMADA Data API tropical-cyclone sets (synthetic tracks perturbed from ` +
+        `IBTrACS; future = RCP × reference year ${targetYear}); vulnerability — Emanuel (2011) ` +
+        `wind-damage function with a per-class v_half.`
+      );
+    case "river_flood":
+    case "coastal_flood":
+      return (
+        `hazard — ${peril === "river_flood" ? "CLIMADA Data API river-flood depth sets " +
+        "(ISIMIP-derived)" : "WRI Aqueduct coastal inundation depth"} (future = RCP × ` +
+        `year-range to ${targetYear}); vulnerability — per-class depth-damage curve ` +
+        `(Huizinga-style).`
+      );
+    case "heat_mortality":
+      return (
+        `hazard — season exceedance degree-days above each location's minimum-mortality ` +
+        `comfort band, from observed E-OBS daily Tmax where available (else a calibrated ` +
+        `synthetic ensemble); vulnerability — age-stratified epidemiological dose-response ` +
+        `(relative risk × baseline mortality), NOT a damage curve.`
+      );
+    case "heatwave":
+      return (
+        `hazard — locally-ingested heat layer (season-peak daily Tmax, degC); vulnerability — ` +
+        `indicative labour-productivity ramp above 30/35/40/45 degC.`
+      );
+    case "wildfire":
+      return (
+        `hazard — CLIMADA Data API wildfire brightness-temperature (historical 2001-2020; no ` +
+        `published future set); vulnerability — per-class burn-severity ramp.`
+      );
+    case "earthquake":
+      return (
+        `hazard — CLIMADA Data API observed earthquake catalogue (MMI; geophysical, so no ` +
+        `climate scenario); vulnerability — per-class MMI damage curve.`
+      );
+    case "european_windstorm":
+      return (
+        `hazard — CLIMADA Data API storm_europe CMIP6 winter windstorms (SSP × ${targetYear}); ` +
+        `vulnerability — per-class wind-damage curve.`
+      );
+    case "tc_surge":
+      return (
+        `hazard — climada_petals TCSurgeBathtub over the TC wind hazard plus a DEM; ` +
+        `vulnerability — per-class depth-damage curve.`
+      );
+    default:
+      return (
+        `hazard — locally-ingested layer from the platform catalog (see the run detail below); ` +
+        `vulnerability — the indicative per-class ramp registered for this peril.`
+      );
+  }
+}
 
 function Kpi({ label, value }: { label: string; value: string }) {
   return (
@@ -35,6 +99,11 @@ function PhysicalResult({ result, currency }: { result: PhysicalRunResult; curre
     );
   }
   const zero = !result.aai_agg;
+  // Health / index perils report persons or a fraction — currency formatting would lie.
+  const kind = result.result_kind ?? "monetary";
+  const isMonetary = kind === "monetary";
+  const isMortality = kind === "mortality";
+  const fmt = impactFormatter(kind, currency);
   return (
     <div className="card">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
@@ -54,16 +123,24 @@ function PhysicalResult({ result, currency }: { result: PhysicalRunResult; curre
       <div className="kpi-grid">
         <Kpi
           label={
-            result.result_kind && result.result_kind !== "monetary"
-              ? (result.metric_unit ?? result.result_kind)
-              : "Avg annual impact"
+            isMonetary ? "Avg annual impact" : (result.metric_unit ?? result.result_kind ?? "")
           }
-          value={`${money(result.aai_agg, currency)}/yr`}
+          // Deaths (mortality) and index metrics are NOT currency — never money-format them.
+          value={`${fmt(result.aai_agg)}/yr`}
         />
-        <Kpi label="Total exposed value" value={money(result.total_value, currency)} />
         <Kpi
-          label="AAI / value"
-          value={`${((result.aai_agg / Math.max(result.total_value, 1)) * 100).toFixed(2)}%`}
+          label={isMortality ? "People exposed" : "Total exposed value"}
+          value={
+            isMortality ? quantity(result.total_value, "persons") : money(result.total_value, currency)
+          }
+        />
+        <Kpi
+          label={isMortality ? "Annual risk per 100k" : "AAI / value"}
+          value={
+            isMortality
+              ? ((result.aai_agg / Math.max(result.total_value, 1)) * 1e5).toFixed(2)
+              : `${((result.aai_agg / Math.max(result.total_value, 1)) * 100).toFixed(2)}%`
+          }
         />
       </div>
       {result.delta_pct != null && result.present_aai_agg != null && (
@@ -73,11 +150,11 @@ function PhysicalResult({ result, currency }: { result: PhysicalRunResult; curre
             {result.delta_pct >= 0 ? "+" : ""}
             {result.delta_pct.toFixed(1)}%
           </strong>{" "}
-          vs present-day baseline (AAI {money(result.present_aai_agg, currency)}/yr → {money(result.aai_agg, currency)}/yr).
+          vs present-day baseline (AAI {fmt(result.present_aai_agg)}/yr → {fmt(result.aai_agg)}/yr).
         </p>
       )}
       <div style={{ marginTop: 14 }}>
-        <ResultsMap impacts={result.per_asset} currency={currency} />
+        <ResultsMap impacts={result.per_asset} currency={currency} format={fmt} />
       </div>
       {result.per_asset.length > 1 && (
         <div style={{ marginTop: 14 }}>
@@ -85,7 +162,7 @@ function PhysicalResult({ result, currency }: { result: PhysicalRunResult; curre
             Per-asset expected annual impact
           </div>
           <Suspense fallback={<p className="hint">Loading grid…</p>}>
-            <AssetGrid impacts={result.per_asset} currency={currency} />
+            <AssetGrid impacts={result.per_asset} currency={currency} format={fmt} />
           </Suspense>
         </div>
       )}
@@ -94,7 +171,22 @@ function PhysicalResult({ result, currency }: { result: PhysicalRunResult; curre
           <div className="section-title" style={{ marginBottom: 6 }}>
             Return-period losses
           </div>
-          <FreqCurveChart curve={result.freq_curve} currency={currency} />
+          <FreqCurveChart curve={result.freq_curve} currency={currency} format={fmt} />
+          {result.freq_curve.max_resolvable_return_period != null &&
+            result.freq_curve.max_resolvable_return_period < 200 && (
+              <p className="hint" style={{ marginTop: 6 }}>
+                Capped at{" "}
+                <strong>
+                  {Math.floor(result.freq_curve.max_resolvable_return_period)} years
+                </strong>
+                {result.freq_curve.record_years != null && (
+                  <> — half of this hazard&apos;s {Math.round(result.freq_curve.record_years)}-year
+                  event record</>
+                )}
+                . A 1-in-N-year value estimated from an N-year record rests on a single event, so
+                longer periods are extrapolation rather than estimation and are not shown.
+              </p>
+            )}
         </div>
       )}
       {result.yearset && (result.result_kind ?? "monetary") === "monetary" && (
@@ -139,27 +231,19 @@ function PhysicalResult({ result, currency }: { result: PhysicalRunResult; curre
           </p>
         </div>
       )}
+      <MethodFigure
+        peril={result.peril}
+        caption="Produced by this peril's analysis script over the same science core the run uses: where the risk is (map), the local minimum-mortality comfort band (adaptation), and why absolute temperature explains per-capita risk far worse than temperature relative to that band."
+      />
       <MethodNote>
         <strong>Probability × impact.</strong> <em>Avg Annual Impact = Σ events (frequency × damage)</em>,
         computed by CLIMADA over a probabilistic hazard event set × a per-asset vulnerability curve ×
         your asset value. The return-period curve is the loss exceeded once per N years; the delta
         compares the future horizon to a present-day baseline hazard set.
         <br />
-        <strong>Data:</strong>{" "}
-        {result.peril === "tropical_cyclone" ? (
-          <>
-            hazard — CLIMADA Data API tropical-cyclone sets (synthetic tracks perturbed from IBTrACS;
-            future = RCP × reference year {result.target_year}); vulnerability — Emanuel (2011)
-            wind-damage function with a per-class <code>v_half</code>.
-          </>
-        ) : (
-          <>
-            hazard — CLIMADA Data API river-flood depth sets (ISIMIP-derived; future = RCP ×
-            year-range to {result.target_year}); vulnerability — per-class depth-damage curve
-            (Huizinga-style).
-          </>
-        )}{" "}
-        exposure — your inputs. ({result.detail}.)
+        <strong>Data:</strong> {perilProvenance(result.peril, result.target_year)} exposure —{" "}
+        {isMortality ? "on-site headcount or a population layer" : "your inputs"}. ({result.detail}
+        .)
       </MethodNote>
     </div>
   );
@@ -254,7 +338,7 @@ export function ResultsView({
       <div className="card">
         <p className="hint">
           <strong>{model.assets.length}</strong> facility(ies) · climate{" "}
-          <span className="pill">{model.scenario.climate}</span> · transition{" "}
+          <span className="pill">{formatScenario(model.scenario.climate)}</span> · transition{" "}
           <span className="pill">{model.scenario.transition.replace(/_/g, " ")}</span> · perils{" "}
           {model.run_config.perils.map((p) => (
             <span key={p} className="pill">

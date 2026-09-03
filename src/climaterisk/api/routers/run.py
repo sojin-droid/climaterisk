@@ -95,11 +95,27 @@ def submit_hazard_preview(
     scenario: str = "historical",
     region: str = "global",
     year: int | None = None,
+    bbox: str | None = None,
 ) -> Run:
-    """Render a local-catalog hazard's intensity field to a map raster (polled via run-status)."""
+    """Render a local-catalog hazard's intensity field to a map raster (polled via run-status).
+
+    ``bbox`` optionally crops the render to "south,west,north,east" (degrees) — e.g. a
+    window around the portfolio's assets — with the color scale normalized to that area.
+    """
     if store.get(session_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="session not found")
-    return manager.submit_hazard_preview(session_id, peril, scenario, region, year)
+    bbox_vals: list[float] | None = None
+    if bbox:
+        try:
+            bbox_vals = [float(x) for x in bbox.split(",")]
+        except ValueError:
+            bbox_vals = []
+        if len(bbox_vals) != 4 or bbox_vals[0] >= bbox_vals[2] or bbox_vals[1] >= bbox_vals[3]:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail="bbox must be 'south,west,north,east' with south<north and west<east",
+            )
+    return manager.submit_hazard_preview(session_id, peril, scenario, region, year, bbox_vals)
 
 
 @router.get("/{session_id}/run/{run_id}/preview.png")
@@ -180,6 +196,20 @@ def submit_ingest(session_id: str, body: IngestBody, store: StoreDep, manager: M
     anchor = portfolio.scenario.anchor_years
     year = body.year or (max(anchor) if anchor else 2050)
     return manager.submit_ingest(portfolio, body.source, body.peril, scenario, year)
+
+
+@router.get("/{session_id}/latest-runs", response_model=dict[str, Run])
+def get_latest_runs(session_id: str, store: StoreDep, manager: ManagerDep) -> dict[str, Run]:
+    """The most recent finished run of each kind, so a reloaded page can re-attach.
+
+    Runs are persisted, but the browser only remembers the ids it submitted — after a
+    refresh the Results view had nothing to show even though the analysis was done. The
+    keys are the kinds from ``runs.store.run_kind`` (``physical``, ``litpop``,
+    ``uncertainty``, ``cost_benefit``, …).
+    """
+    if store.get(session_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="session not found")
+    return manager.latest_runs(session_id)
 
 
 @router.get("/{session_id}/run/{run_id}", response_model=Run)

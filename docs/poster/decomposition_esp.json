@@ -1,0 +1,12 @@
+{
+  "baseline": 2117.0136709086087,
+  "climate_only_total": 3737.394690237299,
+  "ageing_only_total": 3434.912847012113,
+  "both_total": 6065.199848276992,
+  "climate_effect": 1620.3810193286904,
+  "ageing_effect": 1317.8991761035045,
+  "interaction": 1009.9059819361887,
+  "warming_c": 1.5,
+  "demography_year": 2050,
+  "n_seasons": 200
+}

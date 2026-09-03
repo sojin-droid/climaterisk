@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  getLatestRuns,
   getRun,
   submitCalibration,
   submitCostBenefit,
@@ -61,6 +62,29 @@ export function useResults(sessionId: string) {
   // status==="error" via a successful fetch.
   const [pollTick, setPollTick] = useState(0);
   const repoll = () => setPollTick((n) => n + 1);
+
+  // Re-attach to already-finished runs for this session (survives a page reload).
+  useEffect(() => {
+    if (!sessionId) return; // session not created yet — nothing to restore
+    let alive = true;
+    (async () => {
+      try {
+        const latest = await getLatestRuns(sessionId);
+        if (!alive) return;
+        // Only adopt runs that actually carry output, and never clobber a run this page
+        // already started (in-flight state is fresher than anything persisted).
+        if (latest.physical?.output) setPhysRun((cur) => cur ?? latest.physical);
+        if (latest.litpop?.output) setLitpopRun((cur) => cur ?? latest.litpop);
+        if (latest.uncertainty?.output) setUncRun((cur) => cur ?? latest.uncertainty);
+        if (latest.cost_benefit?.output) setCbRun((cur) => cur ?? latest.cost_benefit);
+      } catch {
+        // No session yet, or the backend is still starting — nothing to restore.
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [sessionId]);
 
   // Reset everything when the session changes.
   const sid = useRef(sessionId);

@@ -93,6 +93,7 @@ class Peril(StrEnum):
     EARTHQUAKE = "earthquake"
     COASTAL_FLOOD = "coastal_flood"
     HEATWAVE = "heatwave"
+    HEAT_MORTALITY = "heat_mortality"  # heat-attributable deaths (health, not currency)
     DROUGHT = "drought"
     HAIL = "hail"
     TC_RAIN = "tc_rain"

@@ -76,9 +76,19 @@ export function Aggregation({
   const country = new Map<string, string>();
   const phys = new Map<string, number>();
   const physOutput = run?.output as PhysicalRunOutput | null;
+  // Perils excluded from the currency rollup because their impact is not money: deaths
+  // (mortality) or a fraction (productivity / yield). Summing them into a monetary AAI —
+  // and from there into EBITDA / DSCR / rating — would be meaningless. Mirrors the
+  // backend rule in `finance/service.py::per_asset_aai`.
+  const nonMonetary: string[] = [];
   if (physOutput?.results) {
     for (const r of physOutput.results) {
       if (r.status !== "ok") continue;
+      if ((r.result_kind ?? "monetary") !== "monetary") {
+        nonMonetary.push(r.peril.replace(/_/g, " "));
+        for (const a of r.per_asset) if (a.country) country.set(a.id, a.country);
+        continue;
+      }
       for (const a of r.per_asset) {
         phys.set(a.id, (phys.get(a.id) ?? 0) + a.eai);
         if (a.country) country.set(a.id, a.country);
@@ -119,6 +129,13 @@ export function Aggregation({
       <p className="hint">
         Physical AAI summed across perils and transition NPV, grouped by sector
         {hasCountry ? " and country (national view)" : ""}.
+        {nonMonetary.length > 0 && (
+          <>
+            {" "}
+            <strong>Excluded from the currency total:</strong> {nonMonetary.join(", ")} — reported in
+            persons or as an index, not money. See that peril's own card for its result.
+          </>
+        )}
       </p>
       <div className="kpi-grid" style={{ marginTop: 10 }}>
         <div className="kpi">

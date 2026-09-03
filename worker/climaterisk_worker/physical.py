@@ -38,6 +38,51 @@ from climaterisk_worker._params import (
 _RETURN_PERIODS = [10, 25, 50, 100, 250]
 
 
+# Fraction of the event record a return period may reach. Estimating a 1-in-N-year value
+# from a record of exactly N years rests on a single event, so the tail is unstable well
+# before the record ends; half the record is the conservative convention.
+_RP_RECORD_FRACTION = 0.5
+
+
+def _resolvable_return_periods(imp, requested: list[float] | None = None):  # type: ignore[no-untyped-def]
+    """Trim the requested return periods to what the event set can actually support.
+
+    Two separate limits matter:
+
+    * **the record** — where the rarest event carries annual frequency ``f_min``, nothing
+      beyond ``1 / f_min`` years was ever observed, yet ``calc_freq_curve`` will happily
+      keep extending the curve;
+    * **the sampling error** — near the end of the record a return period is estimated from
+      one or two events, so it is noise. We therefore stop at
+      ``_RP_RECORD_FRACTION`` of the record.
+
+    An observed 45-summer E-OBS hazard is reported to 22 years, not 45 and certainly not
+    250. A Data-API tropical-cyclone set (tens of thousands of low-frequency events) is
+    unaffected — its record is far longer than any requested period.
+
+    Args:
+        imp: A CLIMADA ``Impact`` (or ``Hazard``) — anything carrying per-event
+            ``frequency``. Taken from the impact so every runner calls this identically.
+        requested: Return periods in years (defaults to ``_RETURN_PERIODS``).
+
+    Returns:
+        ``(periods, max_supported, record_years)`` — the kept periods (never empty: the
+        shortest requested period survives so the curve still renders), the applied cap in
+        years, and the record length behind it. The last two are None when unknown.
+    """
+    import numpy as np
+
+    want = list(requested if requested is not None else _RETURN_PERIODS)
+    freq = np.asarray(getattr(imp, "frequency", []), dtype=float)
+    freq = freq[freq > 0]
+    if freq.size == 0:  # pragma: no cover - a computed Impact always has frequencies
+        return want, None, None
+    record_years = float(1.0 / freq.min())
+    max_rp = _RP_RECORD_FRACTION * record_years
+    kept = [rp for rp in want if rp <= max_rp]
+    return (kept or [min(want)]), max_rp, record_years
+
+
 def climada_available() -> bool:
     """Return True if the CLIMADA package can be imported in this environment."""
     try:
@@ -66,6 +111,19 @@ def _single_country_iso3(iso3s: list[str | None]) -> str | None:
     """Return the common ISO3 if all assets share one country, else None."""
     uniq = {c for c in iso3s if c is not None}
     return next(iter(uniq)) if len(uniq) == 1 and None not in iso3s else None
+
+
+def _majority_iso3(iso3s: list[str | None]) -> str | None:
+    """Return the most common non-null ISO3, or None if there are none.
+
+    A gridded country exposure inevitably includes cells whose point-in-country lookup
+    returns None (coastline, offshore, small islands), so the strict
+    :func:`_single_country_iso3` is too brittle for resolving a country hazard layer.
+    """
+    from collections import Counter
+
+    counts = Counter(c for c in iso3s if c is not None)
+    return counts.most_common(1)[0][0] if counts else None
 
 
 def _footprint_points(geom: dict[str, Any], res_deg: float = 0.02, max_points: int = 64):  # type: ignore[no-untyped-def]
@@ -195,9 +253,49 @@ def _warn_levels(haz, exp, n_levels: int = 5):  # type: ignore[no-untyped-def]
         return None
 
 
+# Padding (deg) around the exposure bbox when cropping a hazard. Must stay above the
+# ~100 km centroid-assignment threshold (≈2° of longitude at 60° latitude) so every
+# asset keeps its nearest centroid and the impact is identical to the uncropped run.
+_CROP_PAD_DEG = 2.0
+
+
+def _crop_hazard(haz, lats, lons, pad_deg: float = _CROP_PAD_DEG):  # type: ignore[no-untyped-def]
+    """Crop a hazard's centroids to a padded bbox around the given points.
+
+    National/global hazard sets carry far more centroids than a compact portfolio
+    touches; ``Hazard.select(extent=...)`` keeps every event and frequency but drops
+    the distant centroids, so centroid assignment and warn-level scans run on the
+    local window only. Returns the original hazard when cropping fails or is moot.
+    """
+    import numpy as np
+
+    try:
+        la = np.asarray(lats, dtype=float)
+        lo = np.asarray(lons, dtype=float)
+        if la.size == 0:
+            return haz
+        sel = haz.select(
+            extent=(
+                float(lo.min()) - pad_deg,
+                float(lo.max()) + pad_deg,
+                float(la.min()) - pad_deg,
+                float(la.max()) + pad_deg,
+            )
+        )
+        if sel is None or sel.centroids.lat.size == 0:
+            return haz
+        n0, n1 = haz.centroids.lat.size, sel.centroids.lat.size
+        if n1 < n0:
+            print(f"cropped hazard to assets bbox ±{pad_deg}°: {n0} → {n1} centroids", flush=True)
+        return sel
+    except Exception:
+        return haz  # any cropping issue → fall back to the full hazard (correct, just slower)
+
+
 def _impact(exp, impf_set, haz):  # type: ignore[no-untyped-def]
     from climada.engine import ImpactCalc
 
+    haz = _crop_hazard(haz, exp.latitude, exp.longitude)
     imp = ImpactCalc(exp, impf_set, haz).impact(save_mat=True, assign_centroids=True)
     imp._warn = _warn_levels(haz, exp)  # stash warn-level breakdown for the result builder
     return imp
@@ -309,7 +407,8 @@ def _run_tropical_cyclone(
     present = _impact(exp, impf_set, present_haz)
 
     eai = _eai_by_asset(future, src_idx, len(assets))
-    fc = future.calc_freq_curve(_RETURN_PERIODS)
+    _rps, _max_rp, _rec_yrs = _resolvable_return_periods(future)
+    fc = future.calc_freq_curve(_rps)
     _ys = _yearset_summary(future)
     _warn = getattr(future, "_warn", None)
     present_aai = float(present.aai_agg)
@@ -333,6 +432,10 @@ def _run_tropical_cyclone(
         "freq_curve": {
             "return_periods": [float(x) for x in fc.return_per],
             "impact": [float(x) for x in fc.impact],
+            # Applied cap and the record behind it: periods past the cap were dropped
+            # rather than extrapolated (see _resolvable_return_periods).
+            "max_resolvable_return_period": _max_rp,
+            "record_years": _rec_yrs,
         },
         "detail": f"{src}; Emanuel v_half {v_halves}",
     }
@@ -401,7 +504,8 @@ def _run_river_flood(
     src = "local catalog" if cat_haz is not None else f"{iso3 or 'global'} {scenario} {year_range}"
 
     eai = _eai_by_asset(future, src_idx, len(assets))
-    fc = future.calc_freq_curve(_RETURN_PERIODS)
+    _rps, _max_rp, _rec_yrs = _resolvable_return_periods(future)
+    fc = future.calc_freq_curve(_rps)
     _ys = _yearset_summary(future)
     _warn = getattr(future, "_warn", None)
     present_aai = float(present.aai_agg)
@@ -425,6 +529,10 @@ def _run_river_flood(
         "freq_curve": {
             "return_periods": [float(x) for x in fc.return_per],
             "impact": [float(x) for x in fc.impact],
+            # Applied cap and the record behind it: periods past the cap were dropped
+            # rather than extrapolated (see _resolvable_return_periods).
+            "max_resolvable_return_period": _max_rp,
+            "record_years": _rec_yrs,
         },
         "detail": f"{src} RF set",
     }
@@ -470,7 +578,8 @@ def _run_wildfire(
     exp, src_idx = _build_exposures(assets, f"impf_{htype}", impf_ids)
     imp = _impact(exp, impf_set, haz)
     eai = _eai_by_asset(imp, src_idx, len(assets))
-    fc = imp.calc_freq_curve(_RETURN_PERIODS)
+    _rps, _max_rp, _rec_yrs = _resolvable_return_periods(imp)
+    fc = imp.calc_freq_curve(_rps)
     _ys = _yearset_summary(imp)
     _warn = getattr(imp, "_warn", None)
     return {
@@ -490,6 +599,10 @@ def _run_wildfire(
         "freq_curve": {
             "return_periods": [float(x) for x in fc.return_per],
             "impact": [float(x) for x in fc.impact],
+            # Applied cap and the record behind it: periods past the cap were dropped
+            # rather than extrapolated (see _resolvable_return_periods).
+            "max_resolvable_return_period": _max_rp,
+            "record_years": _rec_yrs,
         },
         "detail": f"{iso3} wildfire ({wf_src}; historical 2001–2020, no future set)",
     }
@@ -546,7 +659,8 @@ def _run_european_windstorm(
             present_aai = None
 
     eai = _eai_by_asset(future, src_idx, len(assets))
-    fc = future.calc_freq_curve(_RETURN_PERIODS)
+    _rps, _max_rp, _rec_yrs = _resolvable_return_periods(future)
+    fc = future.calc_freq_curve(_rps)
     _ys = _yearset_summary(future)
     _warn = getattr(future, "_warn", None)
     future_aai = float(future.aai_agg)
@@ -572,6 +686,10 @@ def _run_european_windstorm(
         "freq_curve": {
             "return_periods": [float(x) for x in fc.return_per],
             "impact": [float(x) for x in fc.impact],
+            # Applied cap and the record behind it: periods past the cap were dropped
+            # rather than extrapolated (see _resolvable_return_periods).
+            "max_resolvable_return_period": _max_rp,
+            "record_years": _rec_yrs,
         },
         "detail": f"Europe storm_europe CMIP6 {gcm} {ssp} ({which} impf; SSP future vs present)",
     }
@@ -620,7 +738,8 @@ def _run_earthquake(
     exp, src_idx = _build_exposures(assets, f"impf_{htype}", impf_ids)
     imp = _impact(exp, impf_set, haz)
     eai = _eai_by_asset(imp, src_idx, len(assets))
-    fc = imp.calc_freq_curve(_RETURN_PERIODS)
+    _rps, _max_rp, _rec_yrs = _resolvable_return_periods(imp)
+    fc = imp.calc_freq_curve(_rps)
     _ys = _yearset_summary(imp)
     _warn = getattr(imp, "_warn", None)
     return {
@@ -640,6 +759,10 @@ def _run_earthquake(
         "freq_curve": {
             "return_periods": [float(x) for x in fc.return_per],
             "impact": [float(x) for x in fc.impact],
+            # Applied cap and the record behind it: periods past the cap were dropped
+            # rather than extrapolated (see _resolvable_return_periods).
+            "max_resolvable_return_period": _max_rp,
+            "record_years": _rec_yrs,
         },
         "detail": f"{iso3} earthquake (observed catalogue; geophysical, no climate scenario)",
     }
@@ -699,7 +822,8 @@ def _run_coastal_flood(
     present_aai = float(_impact(exp, impf_set, present).aai_agg) if present is not None else None
 
     eai = _eai_by_asset(fut, src_idx, len(assets))
-    fc = fut.calc_freq_curve(_RETURN_PERIODS)
+    _rps, _max_rp, _rec_yrs = _resolvable_return_periods(fut)
+    fc = fut.calc_freq_curve(_rps)
     _ys = _yearset_summary(fut)
     _warn = getattr(fut, "_warn", None)
     future_aai = float(fut.aai_agg)
@@ -725,6 +849,10 @@ def _run_coastal_flood(
         "freq_curve": {
             "return_periods": [float(x) for x in fc.return_per],
             "impact": [float(x) for x in fc.impact],
+            # Applied cap and the record behind it: periods past the cap were dropped
+            # rather than extrapolated (see _resolvable_return_periods).
+            "max_resolvable_return_period": _max_rp,
+            "record_years": _rec_yrs,
         },
         "detail": f"local catalog coastal flood (WRI Aqueduct), region {region}",
     }
@@ -768,7 +896,13 @@ def _run_tc_surge(
     iso3 = _single_country_iso3(iso3s)
     slr = float((options or {}).get("sea_level_rise_m", 0.0))
 
-    wind = _tc_hazard(iso3, climate_scenario, ref_year)
+    # Crop the wind field before deriving surge — the bathtub DEM sampling is the
+    # expensive step, so restrict it to the assets' window up front.
+    wind = _crop_hazard(
+        _tc_hazard(iso3, climate_scenario, ref_year),
+        [a["lat"] for a in assets],
+        [a["lon"] for a in assets],
+    )
     surge = TCSurgeBathtub.from_tc_winds(wind, topo_path=dem, add_sea_level_rise=slr)
     htype = surge.haz_type  # surge height (m)
 
@@ -794,7 +928,8 @@ def _run_tc_surge(
     exp, src_idx = _build_exposures(assets, f"impf_{htype}", impf_ids)
     imp = _impact(exp, impf_set, surge)
     eai = _eai_by_asset(imp, src_idx, len(assets))
-    fc = imp.calc_freq_curve(_RETURN_PERIODS)
+    _rps, _max_rp, _rec_yrs = _resolvable_return_periods(imp)
+    fc = imp.calc_freq_curve(_rps)
     _ys = _yearset_summary(imp)
     _warn = getattr(imp, "_warn", None)
     return {
@@ -814,6 +949,10 @@ def _run_tc_surge(
         "freq_curve": {
             "return_periods": [float(x) for x in fc.return_per],
             "impact": [float(x) for x in fc.impact],
+            # Applied cap and the record behind it: periods past the cap were dropped
+            # rather than extrapolated (see _resolvable_return_periods).
+            "max_resolvable_return_period": _max_rp,
+            "record_years": _rec_yrs,
         },
         "detail": f"{iso3 or 'global'} TC surge (TCSurgeBathtub bathtub model, SLR +{slr} m)",
     }
@@ -942,7 +1081,8 @@ def _run_catalog_peril(
     exp, src_idx = _build_exposures(assets, f"impf_{haz_type}", impf_ids)
     imp = _impact(exp, impf_set, haz)
     eai = _eai_by_asset(imp, src_idx, len(assets))
-    fc = imp.calc_freq_curve(_RETURN_PERIODS)
+    _rps, _max_rp, _rec_yrs = _resolvable_return_periods(imp)
+    fc = imp.calc_freq_curve(_rps)
     _ys = _yearset_summary(imp)
     _warn = getattr(imp, "_warn", None)
     return {
@@ -962,6 +1102,10 @@ def _run_catalog_peril(
         "freq_curve": {
             "return_periods": [float(x) for x in fc.return_per],
             "impact": [float(x) for x in fc.impact],
+            # Applied cap and the record behind it: periods past the cap were dropped
+            # rather than extrapolated (see _resolvable_return_periods).
+            "max_resolvable_return_period": _max_rp,
+            "record_years": _rec_yrs,
         },
         "result_kind": result_kind,
         "metric_unit": metric_unit,
@@ -969,8 +1113,129 @@ def _run_catalog_peril(
     }
 
 
+_DEFAULT_HEADCOUNT = 250  # people per site when an asset carries no headcount
+
+
+def _run_heat_mortality(
+    assets: list[dict[str, Any]],
+    climate_scenario: str,
+    anchor_years: list[int],
+    options: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Heat-attributable **deaths** among each site's exposed people (not a money loss).
+
+    The health counterpart of the ``heatwave`` peril (which reports productivity). The
+    hazard is a season **exceedance degree-days** layer above each location's
+    minimum-mortality comfort band; the CLIMADA impact functions carry the age-stratified
+    non-linear dose-response, so ``impact = headcount * mdd * paa`` comes out in deaths.
+
+    Exposure headcount comes from ``asset["headcount"]`` when set, else
+    ``options["default_headcount"]``, else ``_DEFAULT_HEADCOUNT`` — the assumption used is
+    always stated in ``detail``. Each site is split into <65 / >=65 rows using the age
+    structure of the nearest reference location, and both bands are computed in one
+    ``ImpactCalc`` pass.
+
+    Returns:
+        A PhysicalRunResult dict with ``result_kind="mortality"``; ``aai_agg`` and every
+        ``per_asset.eai`` are **expected annual deaths**, not currency.
+    """
+    import numpy as np
+    import pandas as pd
+    from climada.entity import Exposures
+
+    from climaterisk_worker import heat_mortality as hm
+
+    opts = options or {}
+    target = max(anchor_years) if anchor_years else 2050
+    iso3s = _per_asset_iso3([a["lat"] for a in assets], [a["lon"] for a in assets])
+    iso3 = _single_country_iso3(iso3s)
+    # A country-wide population grid contains coastal/offshore cells whose ISO3 resolves to
+    # None, which would collapse `_single_country_iso3` to None. Callers that already know
+    # the country (the modeled-exposure path) state it explicitly; otherwise fall back to
+    # the assets' common ISO3, then to the majority non-null ISO3.
+    region = str(opts.get("country_iso3") or iso3 or _majority_iso3(iso3s) or "global")
+
+    # Resolve the hazard FIRST so a missing layer fails fast with the standard message.
+    haz = catalog.load_hazard("heat_mortality", "historical", region, target)
+    if haz is None:
+        raise ValueError(
+            "heat_mortality has no local hazard for this portfolio — ingest a heat "
+            "exceedance-degree-days hazard first (scripts/heatwave_europe.py --register)."
+        )
+
+    default_headcount = float(opts.get("default_headcount") or _DEFAULT_HEADCOUNT)
+    assumed = [a for a in assets if not float(a.get("headcount") or 0.0) > 0.0]
+
+    impf_set, impf_ids = hm.build_impact_functions(haz_type=haz.haz_type)
+    impf_col = f"impf_{haz.haz_type}"
+
+    # One exposure row per (site, age band); value = people in that band at that site.
+    lats: list[float] = []
+    lons: list[float] = []
+    vals: list[float] = []
+    impfs: list[int] = []
+    source_idx: list[int] = []
+    for i, a in enumerate(assets):
+        head = float(a.get("headcount") or 0.0) or default_headcount
+        share65 = hm.share_over65_for(
+            float(a["lat"]), float(a["lon"]), iso3s[i], opts.get("share_over65")
+        )
+        for band in hm.AGE_BANDS:
+            frac = share65 if band.key == "o65" else 1.0 - share65
+            lats.append(float(a["lat"]))
+            lons.append(float(a["lon"]))
+            vals.append(head * frac)
+            impfs.append(impf_ids[band.key])
+            source_idx.append(i)
+
+    exp = Exposures(
+        pd.DataFrame({"latitude": lats, "longitude": lons, "value": vals, impf_col: impfs}),
+        value_unit="persons",
+    )
+    src_idx = np.array(source_idx, dtype=int)
+    imp = _impact(exp, impf_set, haz)
+    eai = _eai_by_asset(imp, src_idx, len(assets))
+    _rps, _max_rp, _rec_yrs = _resolvable_return_periods(imp)
+    fc = imp.calc_freq_curve(_rps)
+    head_note = (
+        f"headcount assumed {default_headcount:.0f}/site for {len(assumed)} of {len(assets)} assets"
+        if assumed
+        else "headcount taken from every asset"
+    )
+    return {
+        "peril": "heat_mortality",
+        "status": "ok",
+        "target_year": target,
+        "aai_agg": float(imp.aai_agg),
+        "present_aai_agg": None,
+        "delta_pct": None,
+        "total_value": float(sum(v for v in vals)),
+        "per_asset": [
+            {"id": a["id"], "lat": a["lat"], "lon": a["lon"], "eai": eai[i], "country": iso3s[i]}
+            for i, a in enumerate(assets)
+        ],
+        "yearset": None,
+        "warn_levels": getattr(imp, "_warn", None),
+        "freq_curve": {
+            "return_periods": [float(x) for x in fc.return_per],
+            "impact": [float(x) for x in fc.impact],
+            # Applied cap and the record behind it: periods past the cap were dropped
+            # rather than extrapolated (see _resolvable_return_periods).
+            "max_resolvable_return_period": _max_rp,
+            "record_years": _rec_yrs,
+        },
+        "result_kind": "mortality",
+        "metric_unit": "expected annual heat-attributable deaths",
+        "detail": (
+            f"{region} heat mortality (local catalog; exceedance degree-days above the "
+            f"minimum-mortality comfort band, age-stratified dose-response; {head_note})"
+        ),
+    }
+
+
 _RUNNERS = {
     "tropical_cyclone": _run_tropical_cyclone,
+    "heat_mortality": _run_heat_mortality,
     "river_flood": _run_river_flood,
     "wildfire": _run_wildfire,
     "european_windstorm": _run_european_windstorm,

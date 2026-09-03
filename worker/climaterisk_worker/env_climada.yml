@@ -22,10 +22,13 @@ channels:
 dependencies:
   - python=3.11
   - climada>=6.1
-  - climada_petals>=6.1  # coastal flood, TC surge/rain, landslide, supply-chain, forecast, …
   # climada_petals SupplyChain (input-output) optional deps:
   - pymrio
   - country_converter
   - progressbar2
   # To run the engine regression test (tests/test_physical_regression.py) in this env.
   - pytest>=8.0
+  - pip
+  # climada_petals is not on conda-forge — pip-install it on top of the conda climada stack.
+  - pip:
+      - climada_petals>=6.1  # coastal flood, TC surge/rain, landslide, supply-chain, forecast, …

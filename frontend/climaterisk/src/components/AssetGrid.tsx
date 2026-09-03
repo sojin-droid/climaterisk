@@ -22,7 +22,17 @@ const darkTheme = themeQuartz.withParams({
 });
 
 /** Sortable per-asset expected-annual-impact grid (AG-Grid) — scales to large portfolios. */
-export function AssetGrid({ impacts, currency }: { impacts: AssetImpact[]; currency: string }) {
+export function AssetGrid({
+  impacts,
+  currency,
+  format,
+}: {
+  impacts: AssetImpact[];
+  currency: string;
+  /** Overrides currency formatting — health/index perils are not money. */
+  format?: (value: number) => string;
+}) {
+  const fmt = format ?? ((v: number) => money(v, currency));
   const num3 = (p: ValueFormatterParams) =>
     typeof p.value === "number" ? p.value.toFixed(3) : "";
   const cols: ColDef[] = [
@@ -36,7 +46,7 @@ export function AssetGrid({ impacts, currency }: { impacts: AssetImpact[]; curre
       flex: 1,
       sort: "desc",
       sortable: true,
-      valueFormatter: (p) => (typeof p.value === "number" ? money(p.value, currency) : ""),
+      valueFormatter: (p) => (typeof p.value === "number" ? fmt(p.value) : ""),
     },
   ];
   const h = Math.min(360, 88 + impacts.length * 34);

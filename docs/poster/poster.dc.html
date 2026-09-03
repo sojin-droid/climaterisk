@@ -1,0 +1,216 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@400;700&family=Roboto:wght@400;500;700&display=swap">
+  <style>
+    body { margin: 0; background: #FFFFFF; }
+    .poster { font-family: "Roboto", Arial, Helvetica, sans-serif; color: #000000; -webkit-font-smoothing: antialiased; }
+    .cond, .poster h1, .poster h2 { font-family: "Roboto Condensed", "Arial Narrow", "Helvetica Condensed", Arial, sans-serif; }
+    .mono { font-family: "Roboto Mono", Menlo, Consolas, monospace; }
+    a { color: #0174BE; } a:hover { color: #0C356A; }
+    .poster table { border-collapse: collapse; width: 100%; }
+    .poster th { background: #0C356A; color: #FFFFFF; font-weight: 700; font-size: 27px; padding: 12px 14px; text-align: left; letter-spacing: 0.02em; }
+    .poster td { padding: 12px 14px; text-align: left; border-bottom: 2px solid #D3D3D3; font-size: 29px; line-height: 1.28; }
+    .poster tr:nth-child(even) td { background: #F5F7FA; }
+    .poster td.num, .poster th.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .eyebrow { font-size: 26px; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 700; color: #0174BE; }
+    .sec { font-size: 48px; line-height: 1.05; font-weight: 700; margin: 0; color: #0C356A; }
+    .body { font-size: 32px; line-height: 1.4; margin: 0; text-wrap: pretty; }
+    .cap { font-size: 27px; line-height: 1.4; color: #666666; margin: 0; }
+    .step { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 18px; align-items: start; }
+    .stepno { width: 60px; height: 60px; border-radius: 30px; background: #0174BE; color: #FFFFFF; font-weight: 700; font-size: 30px; display: flex; align-items: center; justify-content: center; margin-top: 2px; }
+    .chip { border: 2px solid #D3D3D3; border-radius: 10px; padding: 12px 16px; display: flex; flex-direction: column; gap: 4px; background: #FFFFFF; }
+    .chip .name { font-weight: 700; font-size: 27px; color: #0C356A; }
+    .chip .src { font-size: 22px; color: #8D8D8D; line-height: 1.3; }
+  </style>
+</helmet>
+
+<div class="poster" style="width: 3179px; height: 4494px; box-sizing: border-box; padding: 80px 100px; display: flex; flex-direction: column; gap: 34px; background: #FFFFFF;">
+
+  <!-- ===== Header (report style: logo top-left, navy rule) ===== -->
+  <div style="display: flex; flex-direction: column; gap: 20px;">
+    <div style="display: flex; justify-content: space-between; align-items: flex-end; gap: 40px;">
+      <img src="planit-logo.png" alt="PLANiT" style="width: 520px; height: auto; display: block;">
+      <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 6px; text-align: right;">
+        <span style="font-size: 28px; color: #0C356A; font-weight: 700;">[Conference name · Session] · [City, Month 2026]</span>
+        <span style="font-size: 26px; color: #8D8D8D;">Discovering transition pathways with model-based solutions</span>
+      </div>
+    </div>
+    <div style="height: 8px; background: #0C356A;"></div>
+    <h1 style="margin: 12px 0 0; font-size: 112px; line-height: 1.0; font-weight: 700; color: #0C356A; letter-spacing: -0.01em; max-width: 2900px; text-wrap: balance;">Adaptation sets the threshold; ageing sets the toll.</h1>
+    <p style="margin: 0; font-size: 40px; line-height: 1.3; color: #000000; max-width: 2860px; text-wrap: pretty;">Heat-attributable deaths in Spain, modelled as a peril in <strong>CLIMADA</strong> (ETH Zürich’s open-source climate-risk platform) and checked against 45 observed summers and Spain’s mortality surveillance (MoMo) — plus what the same platform quantifies for typhoon, flood, wildfire and earthquake risk.</p>
+    <div style="display: flex; gap: 48px; align-items: baseline;">
+      <span style="font-size: 30px; font-weight: 700; color: #000000;">[Presenter name] · [Co-authors]</span>
+      <span style="font-size: 28px; color: #8D8D8D;">PLANiT, Seoul · [contact email]</span>
+    </div>
+  </div>
+
+  <!-- ===== KPI band (navy cover style) ===== -->
+  <div style="background: #0C356A; color: #FFFFFF; border-radius: 16px; padding: 36px 56px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 56px;">
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <span class="cond" style="font-size: 112px; line-height: 0.95; font-weight: 700; letter-spacing: -0.01em;">3,522</span>
+      <span class="body" style="font-weight: 700; color: #FFFFFF;">heat-attributable deaths per year</span>
+      <span class="cap" style="color: #D3D3D3;">Spain, mean of 45 observed summers 1980–2024, 46.8 M people</span>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <span class="cond" style="font-size: 112px; line-height: 0.95; font-weight: 700; letter-spacing: -0.01em;">7.5</span>
+      <span class="body" style="font-weight: 700; color: #FFFFFF;">deaths per 100,000 per year</span>
+      <span class="cap" style="color: #D3D3D3;">Two age bands, under and over 65, each with its own dose-response</span>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <span class="cond" style="font-size: 112px; line-height: 0.95; font-weight: 700; letter-spacing: -0.01em; color: #FFC436;">2022</span>
+      <span class="body" style="font-weight: 700; color: #FFFFFF;">ranks #1 of 45 summers — as observed</span>
+      <span class="cap" style="color: #D3D3D3;">2003 in the top five. The model finds the record year without being told.</span>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <span class="cond" style="font-size: 112px; line-height: 0.95; font-weight: 700; letter-spacing: -0.01em; color: #FFC436;">97 %</span>
+      <span class="body" style="font-weight: 700; color: #FFFFFF;">of modelled deaths are people aged 65+</span>
+      <span class="cap" style="color: #D3D3D3;">Provinces with the oldest populations carry the highest per-capita risk (r = +0.69), not the hottest ones</span>
+    </div>
+  </div>
+
+  <!-- ===== Row A: figure (main) + method ===== -->
+  <div style="display: grid; grid-template-columns: minmax(0, 1fr) 980px; gap: 48px;">
+
+    <!-- Figure column (main) -->
+    <div style="display: flex; flex-direction: column; gap: 20px;">
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <span class="eyebrow">1 · Results — where the risk is, and what drives it</span>
+        <h2 class="sec">Risk follows adaptation and age, not the thermometer.</h2>
+      </div>
+      <div style="border: 2px solid #D3D3D3; border-radius: 12px; padding: 16px; display: flex; background: #FFFFFF;">
+        <img src="poster-figure.jpg" alt="Four panels: map of per-capita heat mortality in Spain; comfort bands by province; deaths per 100,000 against the share of population aged 65 and over; and the 2020–2050 increase split into warming, ageing and their amplification" style="width: 100%; height: auto; display: block; border-radius: 6px;">
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px 28px; font-size: 24px;">
+        <p class="cap" style="font-size: 24px;"><strong style="color: #0C356A;">A Where.</strong> Deaths per 100,000 (colour), population (size). The hot south sits at the bottom of the scale; Castile’s cooler, older provinces at the top.</p>
+        <p class="cap" style="font-size: 24px;"><strong style="color: #0C356A;">B Adaptation.</strong> The comfort band is the temperature range where mortality is lowest; deaths start above its upper edge, and hotter provinces have higher bands. Raw temperature explains risk at r = −0.24; heat above the band at r = +0.90.</p>
+        <p class="cap" style="font-size: 24px;"><strong style="color: #0C356A;">C Ageing.</strong> The share aged 65+ explains most of the remaining spread (r = +0.69). The hot south sits low for two reasons: a higher comfort band (B) and a younger population (C).</p>
+        <p class="cap" style="font-size: 24px;"><strong style="color: #0C356A;">D Future.</strong> Same model, 2020 → 2050, 15 reference provinces (27.2 M people): +3,948 deaths/yr = 1,620 from warming (+1.5 °C) + 1,318 from ageing + 1,010 extra because the new elderly also live through the new hot days. Scenario, not a forecast.</p>
+      </div>
+    </div>
+
+    <!-- Method column -->
+    <div style="display: flex; flex-direction: column; gap: 22px;">
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <span class="eyebrow">2 · Method — how the Spain run was computed</span>
+        <h2 class="sec">Physics in the Hazard, biology in the impact function.</h2>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 14px;">
+        <div class="step"><div class="stepno">1</div><p class="body"><strong>Observed daily Tmax.</strong> E-OBS, Europe’s gridded station dataset (0.25°), Jun–Sep 1980–2024; 827 land cells, 45 complete summers.</p></div>
+        <div class="step"><div class="stepno">2</div><p class="body"><strong>Local comfort band.</strong> Each cell’s minimum-mortality threshold H<sub>c</sub> from its own climatology — acclimatisation sits in the hazard.</p></div>
+        <div class="step"><div class="stepno">3</div><p class="body"><strong>Hazard = exceedance degree-days.</strong> One CLIMADA event per summer, intensity in °C·days above H<sub>c</sub>, frequency 1/45, tagged with its calendar year.</p></div>
+        <div class="step"><div class="stepno">4</div><p class="body"><strong>Exposure = people.</strong> WorldPop 1 km → 8,245 cells, 46.8 M persons, split &lt;65 / ≥65; <span class="mono">value_unit = persons</span>.</p></div>
+        <div class="step"><div class="stepno">5</div><p class="body"><strong>Vulnerability = age dose-response.</strong> Two impact functions from RR = e<sup>β(T−H)</sup>; <span class="mono">ImpactCalc</span> returns expected annual deaths, per-event deaths and the return-period curve.</p></div>
+      </div>
+      <div style="background: #0C356A; color: #FFFFFF; border-radius: 12px; padding: 26px 30px; display: flex; flex-direction: column; gap: 12px;">
+        <div class="mono" style="font-size: 25px; line-height: 1.5; color: #FFC436;">D[c,y] = Σ<sub>d</sub> max(0, Tmax[c,y,d] − H<sub>c</sub>)&nbsp;&nbsp;[°C·days]</div>
+        <div class="mono" style="font-size: 25px; line-height: 1.5;">H<sub>c</sub> = a + b·T̄<sub>c</sub>,&nbsp; width = clip(0.35·(H<sub>c</sub> − 22), 1.5, 8)</div>
+        <div class="mono" style="font-size: 25px; line-height: 1.5;">deaths = N<sub>age</sub> · m₀<sub>,age</sub> · dose(D),&nbsp; β<sub>&lt;65</sub> = 0.010, β<sub>≥65</sub> = 0.034</div>
+      </div>
+      <table>
+        <tbody>
+          <tr><th style="width: 270px;">CLIMADA object</th><th>Spain heat run</th></tr>
+          <tr><td class="mono">Hazard</td><td>45 events × 827 centroids, °C·days, real years</td></tr>
+          <tr><td class="mono">Exposures</td><td>8,245 cells, 46.8 M persons, two age bands</td></tr>
+          <tr><td class="mono">ImpactFuncSet</td><td>Age-band dose-response; impact = headcount · mdd · paa</td></tr>
+          <tr><td class="mono">ImpactCalc</td><td>aai_agg, at_event, freq curve, Warn.bin_map</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ===== Row B: validation · beyond heat · Korea ===== -->
+  <div style="display: grid; grid-template-columns: 900px minmax(0, 1fr) 880px; gap: 48px; border-top: 4px solid #0C356A; padding-top: 28px;">
+
+    <!-- Validation + limits -->
+    <div style="display: flex; flex-direction: column; gap: 22px;">
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <span class="eyebrow">3 · Validation against MoMo</span>
+        <h2 class="sec">Every event is a real year, so the model can be checked — and it was.</h2>
+      </div>
+      <p class="body">MoMo (ISCIII) publishes observed excess deaths. The model reproduces the observed ranking without tuning; the size of the extremes does not yet match:</p>
+      <table>
+        <tbody>
+          <tr><th class="num" style="width: 80px;">#</th><th>Summer</th><th class="num">°C·days</th><th class="num">Modelled</th><th class="num">MoMo</th></tr>
+          <tr><td class="num">1</td><td><strong>2022</strong></td><td class="num">241.6</td><td class="num"><strong>8,876</strong></td><td class="num">≈ 20,300</td></tr>
+          <tr><td class="num">2</td><td>2023</td><td class="num">179.6</td><td class="num">6,693</td><td class="num">–</td></tr>
+          <tr><td class="num">3</td><td>2024</td><td class="num">169.9</td><td class="num">5,686</td><td class="num">–</td></tr>
+          <tr><td class="num">5</td><td><strong>2003</strong></td><td class="num">165.3</td><td class="num">6,189</td><td class="num">≈ 18,000</td></tr>
+          <tr><td class="num">45</td><td>1997 (coolest)</td><td class="num">37.0</td><td class="num">1,390</td><td class="num">–</td></tr>
+        </tbody>
+      </table>
+      <div style="background: #FFF0CE; border: 3px solid #FFC436; border-radius: 12px; padding: 26px 30px; display: flex; flex-direction: column; gap: 12px;">
+        <span class="cond" style="font-size: 36px; font-weight: 700; color: #0C356A; line-height: 1.1;">Limitations: the mean is right, the tail is 2.3× too low; cities are not yet resolved.</span>
+        <p class="body" style="font-size: 26px;">2022: 8,876 modelled against ≈ 20,291 reported. Causes: 0.25° cell means smooth the peaks an exponential dose responds to most, and the attribution window is narrower than MoMo’s. Return periods stop at half the record (22 years); β and bands are literature-informed constants.</p>
+        <p class="body" style="font-size: 26px;"><strong>Not yet in the model:</strong> the urban heat island and the built environment — housing quality, air conditioning, green cover, health-system capacity. Within-city differences are therefore invisible. Adding them, from 1 km urban climate grids and building data, is our next development step.</p>
+      </div>
+    </div>
+
+    <!-- Beyond heat -->
+    <div style="display: flex; flex-direction: column; gap: 22px;">
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <span class="eyebrow">4 · Beyond heat — the same platform, the other perils</span>
+        <h2 class="sec">One open risk engine for a portfolio: hazards, climate deltas, uncertainty, adaptation economics, finance.</h2>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px;">
+        <div class="chip"><span class="name">Tropical cyclone</span><span class="src">IBTrACS synthetic tracks · RCP deltas 2040–2080</span></div>
+        <div class="chip"><span class="name">TC surge · TC rain</span><span class="src">Sub-perils of the same track set</span></div>
+        <div class="chip"><span class="name">River flood</span><span class="src">ISIMIP global hazard · national maps on-ramp</span></div>
+        <div class="chip"><span class="name">Coastal flood</span><span class="src">WRI Aqueduct, sea-level scenarios</span></div>
+        <div class="chip"><span class="name">Wildfire</span><span class="src">MODIS burn severity, 2001–2020</span></div>
+        <div class="chip"><span class="name">Earthquake</span><span class="src">Observed catalogue, 41,710 events</span></div>
+        <div class="chip"><span class="name">Windstorm (EU)</span><span class="src">CMIP6 storm sets, SSP scenarios</span></div>
+        <div class="chip"><span class="name">Heat · drought · low flow</span><span class="src">Productivity ramps; heat mortality (this poster)</span></div>
+        <div class="chip"><span class="name">Landslide · hail · crop yield</span><span class="src">Regional hazard layers</span></div>
+      </div>
+      <p class="cap" style="font-weight: 700; color: #0C356A;">What a portfolio assessment delivers</p>
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <p class="body" style="font-size: 28px;"><strong>Average annual impact and return-period losses</strong> per asset and portfolio, with the tail truncated at what the record supports.</p>
+        <p class="body" style="font-size: 28px;"><strong>Climate-change deltas</strong> under RCP/SSP scenarios on the same event set (e.g. +16.5 % typhoon loss by 2040, RCP4.5).</p>
+        <p class="body" style="font-size: 28px;"><strong>Uncertainty decomposition</strong> (Sobol, total-order): vulnerability 83 %, exposure 20 %, hazard frequency 9 % in the Korean example.</p>
+        <p class="body" style="font-size: 28px;"><strong>Adaptation cost-benefit</strong> (Economics of Climate Adaptation) and <strong>finance channels</strong>: debt-service coverage and rating stress, NGFS carbon-price transition cost, input-output supply-chain losses.</p>
+      </div>
+      <p class="cap">Any gridded national dataset enters through one standardized import format (cell × year × intensity). The Korea Meteorological Administration’s 1 km scenarios and national flood-risk maps are being ingested this way.</p>
+    </div>
+
+    <!-- Korea worked example -->
+    <div style="background: #F5F7FA; border: 2px solid #D3D3D3; border-radius: 12px; padding: 28px 30px; display: flex; flex-direction: column; gap: 12px; align-self: start;">
+      <span class="cond" style="font-size: 38px; font-weight: 700; color: #0C356A; line-height: 1.1;">Worked example — a three-site Korean demo portfolio</span>
+      <p class="cap">Seoul · Busan · Ulsan, industrial assets, 2024 KRW. Scenario results, not forecasts.</p>
+      <table>
+        <tbody>
+          <tr><th>Output</th><th class="num">Value</th></tr>
+          <tr><td>Typhoon expected annual loss</td><td class="num">KRW 1.23 bn / yr</td></tr>
+          <tr><td>Change by 2040, RCP4.5</td><td class="num">+16.5 %</td></tr>
+          <tr><td>Earthquake expected annual loss</td><td class="num">KRW 46 M / yr</td></tr>
+          <tr><td>Stressed DSCR (from 2.68)</td><td class="num">2.54</td></tr>
+          <tr><td>Wind retrofit benefit / cost</td><td class="num">1.99</td></tr>
+          <tr><td>Transition cost NPV, Net Zero 2050</td><td class="num">KRW 46.4 bn</td></tr>
+        </tbody>
+      </table>
+      <p class="cap">Vulnerability curves are global defaults pending calibration on Korean loss records — the next step we are taking.</p>
+    </div>
+  </div>
+
+  <!-- ===== Footer ===== -->
+  <div style="margin-top: auto; border-top: 2px solid #D3D3D3; padding-top: 26px; display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 60px; align-items: end;">
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <p class="cap"><strong style="color: #000000;">Data</strong> — E-OBS v31 daily Tmax, 0.25° (ECA&amp;D / Copernicus) · WorldPop 2020 1 km · MoMo (ISCIII) excess mortality · Natural Earth 1:110m · CLIMADA 6.1 (ETH Zürich, GPL-3.0). Comfort bands, β and baseline mortality are literature-informed.</p>
+      <p class="cap"><strong style="color: #000000;">Code</strong> — open source: github.com/sojin-droid/climaterisk. <strong style="color: #000000;">PLANiT</strong> — www.planit.institute · contact@planit.institute · Seoul, Republic of Korea. Licensed CC BY 4.0.</p>
+    </div>
+    <div style="display: flex; align-items: center; justify-content: flex-end; gap: 24px;">
+      <span class="cap" style="text-align: right; max-width: 150px;">Scan for code and the full method note</span>
+      <div style="width: 160px; height: 160px; border: 3px dashed #8D8D8D; border-radius: 8px; display: flex; align-items: center; justify-content: center;"><span class="cap" style="text-align: center;">[QR]</span></div>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

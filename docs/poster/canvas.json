@@ -1,0 +1,9 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 3179, "h": 4494, "title": "A0 poster — PLANiT brand", "print": "fixed" }
+  ],
+  "annotations": [
+    { "id": "fill-in", "x": 3300, "y": 0, "w": 620, "text": "A0 portrait (841 × 1189 mm at 96 px/in), PLANiT brand kit: Deep Navy #0C356A, Bright Blue #0174BE, Golden Yellow highlight, Roboto Condensed / Roboto.\n\nFill in: [Conference name · Session], [City, Month 2026], [Presenter name], [Co-authors], [contact email], [QR]." }
+  ],
+  "launch": { "view": "focused", "file": "Main.dc.html" }
+}

@@ -110,6 +110,12 @@ class Asset(BaseModel):
     geographic_scale: GeographicScale = GeographicScale.POINT
     value: float = Field(default=0.0, ge=0.0, description="Asset value at risk, in `currency`.")
     currency: str = "USD"
+    headcount: int | None = Field(
+        default=None,
+        ge=0,
+        description="People present on site (workforce). Exposure for health perils such "
+        "as `heat_mortality`; when unset those runners fall back to a stated default.",
+    )
     annual_emissions_tco2e: float | None = Field(
         default=None, ge=0.0, description="Scope-1 emissions; if None, proxied from sector factors."
     )

@@ -126,12 +126,17 @@ class Settings(BaseSettings):
         """Return the CLIMADA worker's python interpreter.
 
         Always the PROJECT-LOCAL conda env — never a global/named conda env. The
-        explicit ``worker_python`` setting wins if given; otherwise it is
-        ``<worker_env_dir>/bin/python`` inside the repo.
+        explicit ``worker_python`` setting wins if given; otherwise it is the
+        interpreter inside ``worker_env_dir`` (``bin/python`` on POSIX,
+        ``python.exe`` at the env root on Windows conda layouts).
         """
         if self.worker_python:
             return self.worker_python
-        return str(self.worker_env_path / "bin" / "python")
+        posix = self.worker_env_path / "bin" / "python"
+        windows = self.worker_env_path / "python.exe"
+        if not posix.exists() and windows.exists():
+            return str(windows)
+        return str(posix)
 
 
 @lru_cache(maxsize=1)

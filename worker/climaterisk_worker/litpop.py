@@ -25,8 +25,18 @@ _DEFAULT_VULN: dict[str, Any] = {
 }
 
 
-def _grid_to_assets(exp: Any, currency: str) -> list[dict[str, Any]]:
-    """Turn a CLIMADA Exposures grid into the asset-dict list the peril runners consume."""
+def _grid_to_assets(exp: Any, currency: str, is_population: bool = False) -> list[dict[str, Any]]:
+    """Turn a CLIMADA Exposures grid into the asset-dict list the peril runners consume.
+
+    Args:
+        exp: The gridded exposure.
+        currency: Value unit label for monetary grids.
+        is_population: True when each cell's ``value`` is **people** rather than money
+            (``population_ref`` / ``raster`` sources). Then the cell population is passed
+            as ``headcount`` — the exposure health perils such as ``heat_mortality``
+            consume — and ``value`` is left at 0 so no damage peril mistakes people for
+            currency.
+    """
     import numpy as np
 
     gdf = exp.gdf
@@ -42,7 +52,8 @@ def _grid_to_assets(exp: Any, currency: str) -> list[dict[str, Any]]:
             "id": f"cell_{i}",
             "lat": float(lat[i]),
             "lon": float(lon[i]),
-            "value": float(val[i]),
+            "value": 0.0 if is_population else float(val[i]),
+            "headcount": float(val[i]) if is_population else None,
             "currency": currency,
             **_DEFAULT_VULN,
         }
@@ -58,7 +69,12 @@ def compute_litpop_exposure(request: dict[str, Any]) -> dict[str, Any]:
     """
     import numpy as np
 
-    from climaterisk_worker.exposures import EXPOSURE_SOURCES, ExposureUnavailable, build_exposure
+    from climaterisk_worker.exposures import (
+        EXPOSURE_SOURCES,
+        POPULATION_SOURCES,
+        ExposureUnavailable,
+        build_exposure,
+    )
     from climaterisk_worker.physical import _RUNNERS, _interpret_result
 
     country = request.get("country")
@@ -85,13 +101,18 @@ def compute_litpop_exposure(request: dict[str, Any]) -> dict[str, Any]:
 
     currency = exp.value_unit or "USD"
     total_value = float(np.nansum(np.asarray(exp.gdf["value"], dtype=float)))
-    grid_assets = _grid_to_assets(exp, currency)
+    # Population grids expose PEOPLE, not money: pass them as headcount so health perils
+    # (heat_mortality) get a real exposed population instead of a per-site default.
+    is_population = source in POPULATION_SOURCES or (exp.value_unit or "").lower() == "persons"
+    grid_assets = _grid_to_assets(exp, currency, is_population=is_population)
     if not grid_assets:
         return {"status": "error", "source": source, "detail": "modeled exposure produced no cells"}
 
     # Run the chosen peril on the modeled grid via the shared runner (impf + hazard +
-    # freq-curve + yearset identical to a hand-built portfolio).
-    res = runner(grid_assets, scenario, anchor, options)
+    # freq-curve + yearset identical to a hand-built portfolio). The country is stated
+    # explicitly: a gridded exposure has coastal/offshore cells whose ISO3 lookup is None,
+    # which would otherwise defeat per-asset country resolution.
+    res = runner(grid_assets, scenario, anchor, {**options, "country_iso3": country})
     if res.get("status") != "ok":
         return {"status": "error", "source": source, "peril": peril, "detail": res.get("detail")}
 

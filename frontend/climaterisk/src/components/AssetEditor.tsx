@@ -195,6 +195,25 @@ export function AssetEditor({
       </div>
 
       <div className="field">
+        <label>People on site (headcount) — optional</label>
+        <input
+          type="number"
+          min={0}
+          step={1}
+          placeholder="e.g. 1200"
+          value={asset.headcount ?? ""}
+          onChange={(e) =>
+            onChange({ headcount: e.target.value === "" ? null : Math.max(0, num(e.target.value)) })
+          }
+        />
+        <p className="hint">
+          Exposure for <strong>health</strong> perils — heat mortality counts deaths among these
+          people, not damage to the asset's value. Left empty, that peril falls back to a default
+          and says so in its result detail.
+        </p>
+      </div>
+
+      <div className="field">
         <label>Annual emissions (tCO₂e) — optional</label>
         <input
           type="number"

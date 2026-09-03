@@ -148,13 +148,24 @@ class RunManager:
         return run
 
     def submit_hazard_preview(
-        self, session_id: str, peril: str, scenario: str, region: str, year: int | None
+        self,
+        session_id: str,
+        peril: str,
+        scenario: str,
+        region: str,
+        year: int | None,
+        bbox: list[float] | None = None,
     ) -> Run:
         """Render a catalog hazard's intensity field to a map raster (PNG in the run dir)."""
         run_id = uuid.uuid4().hex
         run = self._store.create(run_id, session_id, scenario, ["hazard_preview"])
         request = HazardPreviewRequest(
-            session_id=session_id, peril=peril, scenario=scenario, region=region, year=year
+            session_id=session_id,
+            peril=peril,
+            scenario=scenario,
+            region=region,
+            year=year,
+            bbox=bbox,
         )
         self._spawn(run_id, self._settings.runs_path / run_id, request.model_dump_json(indent=2))
         run.status = "running"
@@ -199,6 +210,10 @@ class RunManager:
         self._spawn(run_id, self._settings.runs_path / run_id, request.model_dump_json(indent=2))
         run.status = "running"
         return run
+
+    def latest_runs(self, session_id: str) -> dict[str, Run]:
+        """Most recent finished run of each kind for a session (see ``RunStore``)."""
+        return self._store.latest_by_kind(session_id)
 
     def poll(self, run_id: str) -> Run | None:
         """Return the current run, finalizing it if its worker has exited."""

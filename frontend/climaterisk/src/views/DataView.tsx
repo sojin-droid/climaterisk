@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { fetchOpenData, getHazardCatalog, getRun, submitIngest } from "../lib/api";
+import { formatScenario } from "../lib/format";
 import type {
   DataSource,
   HazardCatalog,
@@ -100,7 +101,7 @@ function IngestControls({
         <select value={scenario} onChange={(e) => setScenario(e.target.value)}>
           {climate.map((c) => (
             <option key={c.id} value={c.id}>
-              {c.id}
+              {formatScenario(c.id)}
             </option>
           ))}
         </select>
@@ -196,7 +197,7 @@ function DownloadControls({ source }: { source: DataSource }) {
           <input
             value={country}
             onChange={(e) => setCountry(e.target.value.toUpperCase())}
-            placeholder="e.g. JPN"
+            placeholder="e.g. KOR"
             maxLength={3}
             style={{ width: 64, textTransform: "uppercase" }}
           />
@@ -388,7 +389,7 @@ export function DataView({ model, libraries }: { model: Portfolio; libraries: Li
               {catalog.entries.map((e, i) => (
                 <tr key={i}>
                   <td>{e.peril.replace(/_/g, " ")}</td>
-                  <td>{e.climate_scenario}</td>
+                  <td>{formatScenario(e.climate_scenario)}</td>
                   <td>{e.region}</td>
                   <td>{e.year ?? "—"}</td>
                   <td className="num">

@@ -19,6 +19,37 @@ def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
 
+# Non-physical submissions are recorded with a sentinel in place of a peril list (see
+# ``RunManager.submit_*``), so the kind of a persisted run is recoverable without a schema
+# change. Anything not in this set is a physical-risk run over real peril ids.
+_KIND_SENTINELS = frozenset(
+    {
+        "cost_benefit",
+        "uncertainty",
+        "litpop",
+        "hazard_preview",
+        "supplychain",
+        "calibration",
+        "forecast",
+    }
+)
+
+
+def run_kind(perils: list[str]) -> str:
+    """Classify a persisted run from its ``perils`` field.
+
+    Returns the sentinel kind (``"litpop"``, ``"uncertainty"``, …), ``"ingest"`` for an
+    ingest run, or ``"physical"`` when the list holds real peril ids.
+    """
+    if len(perils) == 1:
+        only = perils[0]
+        if only in _KIND_SENTINELS:
+            return only
+        if only.startswith("ingest:"):
+            return "ingest"
+    return "physical"
+
+
 class Run(BaseModel):
     """A submitted physical-risk run and (once finished) its engine output."""
 
@@ -107,6 +138,35 @@ class RunStore:
         with self._connect() as conn:
             row = conn.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
         return self._row_to_run(row) if row else None
+
+    def latest_by_kind(self, session_id: str) -> dict[str, Run]:
+        """Most recent **finished** run of each kind for a session.
+
+        Lets the UI re-attach to results after a page reload — runs are persisted here, but
+        the browser only holds the run ids it started, so a refresh used to blank the
+        Results view even though the analysis was complete.
+
+        The kind is derived from ``perils`` (see :func:`run_kind`), which already carries a
+        sentinel for every non-physical submission, so no schema change is needed.
+
+        Args:
+            session_id: Portfolio/session id.
+
+        Returns:
+            ``{kind: Run}`` for kinds that have at least one ``done`` run, newest first.
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                """SELECT * FROM runs
+                   WHERE session_id = ? AND status = 'done'
+                   ORDER BY created_at DESC, updated_at DESC""",
+                (session_id,),
+            ).fetchall()
+        latest: dict[str, Run] = {}
+        for row in rows:
+            run = self._row_to_run(row)
+            latest.setdefault(run_kind(run.perils), run)
+        return latest
 
     def fail_stale_runs(self, detail: str) -> int:
         """Mark any run still ``queued``/``running`` as ``error`` (called on backend start).

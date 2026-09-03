@@ -39,10 +39,17 @@ def test_unknown_source_degrades() -> None:
 
 
 @pytest.mark.parametrize("source", ["crop", "osm", "raster"])
-def test_file_gated_sources_fast_fail_with_actionable_help(source: str) -> None:
+def test_file_gated_sources_fast_fail_with_actionable_help(
+    source: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     # These need an explicit local data file we cannot synthesise, so they must fail
-    # fast with the actionable message — without importing CLIMADA. ("raster" fast-fails
-    # only when no GeoTIFF is on disk for the country, which holds in the test env.)
+    # fast with the actionable message — without importing CLIMADA. Point the resolvers
+    # at an empty tmp dir so real data under ~/climada/data can't defeat the fast-fail.
+    import climaterisk_worker.exposures as exposures
+
+    monkeypatch.setattr(exposures, "_HOME_CLIMADA", tmp_path)
+    monkeypatch.setattr(exposures, "_OSM_DIR", tmp_path / "osm")
+    monkeypatch.delenv("CLIMATERISK_EXPOSURE_RASTER", raising=False)
     with pytest.raises(ExposureUnavailable) as exc:
         build_exposure(source, "JPN")
     assert exc.value.source == source
