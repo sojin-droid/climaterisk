@@ -73,6 +73,58 @@ layer** that converts each source into a CLIMADA-ready hazard and files it in a 
 - **CLIMADA's own cache** — `~/climada/data/` (managed by CLIMADA). The only manual drop-in is the
   GPW population raster for LitPop (login-gated). See `assets/libraries/data_sources.json`.
 
+## Reproduce the analyses from a fresh clone
+
+Everything needed is public and scripted except the login-gated Korean files. Seeds are pinned
+(`--seed 42`), so the numbers come out identical. Times are rough, on a laptop with a normal
+connection.
+
+```bash
+# 0. Environments (once; ~15 min, several GB for the conda env) — see Setup above
+uv sync --all-extras && npm --prefix frontend/climaterisk install
+conda env create -f worker/climaterisk_worker/env_climada.yml --prefix ./.climada-env
+
+# 1. Observed climate for the heat perils: E-OBS daily Tmax, 0.25° ensemble mean (843 MB, no login)
+mkdir -p ~/climada/data
+curl -sSfL -o ~/climada/data/tx_ens_mean_0.25deg_reg_v31.0e.nc \
+  https://knmi-ecad-assets-prd.s3.amazonaws.com/ensembles/data/Grid_0.25deg_reg_ensemble/tx_ens_mean_0.25deg_reg_v31.0e.nc
+
+# 2. Country boundaries + population (both login-free). Either use the app's Data tab
+#    (Natural Earth 110m, WorldPop) or fetch WorldPop directly, e.g. Spain and Korea:
+for iso in ESP KOR; do lo=$(echo $iso | tr A-Z a-z); \
+  curl -sSfL -o ~/climada/data/${lo}_ppp_2020_1km_Aggregated.tif \
+  https://data.worldpop.org/GIS/Population/Global_2000_2020_1km/2020/${iso}/${lo}_ppp_2020_1km_Aggregated.tif; done
+
+# 3. Spain heat mortality — build the observed hazard (827 cells × 45 summers) and file it in the
+#    local catalog, then the synthetic reference-city run, the 2050 climate-vs-ageing split and the figures
+./.climada-env/bin/python scripts/heatwave_europe.py --country ESP --register      # ~2–5 min, reads E-OBS
+./.climada-env/bin/python scripts/heatwave_europe.py --country ESP --seasons 300 --seed 42 --decompose
+./.climada-env/bin/python scripts/heatwave_poster_figure.py --recompute            # docs/poster figure
+
+# 4. Run everything through the platform
+./run.command      # then: Map → place assets (or "Modeled exposure" → population) → Results → Run analysis
+```
+
+What each step reproduces:
+
+| Result | Where it comes from | Deterministic? |
+|---|---|---|
+| Spain heat mortality on observed summers (3,522 deaths/yr, 2022 ranked first) | step 3, `--register`, then a `heat_mortality` run in the app on a population exposure | yes (observed input) |
+| Reference-city figure, comfort bands, 2020→2050 warming/ageing split | step 3, `--decompose` + `heatwave_poster_figure.py` | yes (seed 42) |
+| Korean typhoon / river flood / wildfire / earthquake runs | no step needed — runners fetch from the CLIMADA Data API on first use and cache under `data/hazard_db/` (or pre-cache via `scripts/build_hazard.py cache …` / the Data tab) | yes |
+| Supply-chain (WIOD16, ~900 MB), uncertainty, cost-benefit, finance, transition | first run downloads what it needs | yes (seeded) |
+
+Not reproducible without a human step (all free, but gated):
+
+| Data | Gate | Where it plugs in |
+|---|---|---|
+| KMA 남한상세 1 km scenarios (Korean heat) | 기후변화 상황지도 account | drop under `~/climada/data/kma/`, then `scripts/heat_korea.py register` — file list in `docs/KMA_DOWNLOAD_LIST.md` |
+| GPW v4 population (LitPop) | NASA Earthdata login | `~/climada/data/` — WorldPop above is the login-free alternative |
+| 재해연보 loss statistics, KOSIS age structure | 공공데이터포털 / KOSIS API key | vulnerability calibration (`docs/RISK_REGISTER.md` §C) |
+| 홍수위험지도 SHP (4.9 GB) | none, but non-commercial licence | `scripts/fetch_floodmap_kor.py` |
+
+Run results themselves (`data/app.db`, `data/runs/`) are not committed: re-run them; they come out the same.
+
 ## Develop & test
 
 ```bash
