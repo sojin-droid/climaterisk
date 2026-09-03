@@ -1035,6 +1035,13 @@ def main() -> None:
         except Exception:
             observed_years = None
     _print_surge_planning(results, observed_years)
+    if args.decompose and args.warming_c == 0.0 and args.demography_year <= 2020:
+        print(
+            "--decompose needs a future to attribute: pass --warming-c (e.g. 1.5) and/or "
+            "--demography-year (e.g. 2050); with today's climate and today's people all four "
+            "corners are identical."
+        )
+
     if args.decompose:
         _print_decomposition(
             decompose_climate_vs_ageing(

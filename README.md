@@ -90,16 +90,23 @@ curl -sSfL -o ~/climada/data/tx_ens_mean_0.25deg_reg_v31.0e.nc \
   https://knmi-ecad-assets-prd.s3.amazonaws.com/ensembles/data/Grid_0.25deg_reg_ensemble/tx_ens_mean_0.25deg_reg_v31.0e.nc
 
 # 2. Country boundaries + population (both login-free). Either use the app's Data tab
-#    (Natural Earth 110m, WorldPop) or fetch WorldPop directly, e.g. Spain and Korea:
+#    (Natural Earth 110m, WorldPop) or fetch them directly. The Natural Earth layer is what
+#    `--register` uses to clip a country's grid to its land — without it the clip silently
+#    falls back to the bounding box (neighbouring countries' cells leak in).
+mkdir -p data/downloads && curl -sSfL -o data/downloads/ne_110m_admin_0_countries.geojson \
+  https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_admin_0_countries.geojson
 for iso in ESP KOR; do lo=$(echo $iso | tr A-Z a-z); \
   curl -sSfL -o ~/climada/data/${lo}_ppp_2020_1km_Aggregated.tif \
   https://data.worldpop.org/GIS/Population/Global_2000_2020_1km/2020/${iso}/${lo}_ppp_2020_1km_Aggregated.tif; done
 
-# 3. Spain heat mortality — build the observed hazard (827 cells × 45 summers) and file it in the
-#    local catalog, then the synthetic reference-city run, the 2050 climate-vs-ageing split and the figures
-./.climada-env/bin/python scripts/heatwave_europe.py --country ESP --register      # ~2–5 min, reads E-OBS
-./.climada-env/bin/python scripts/heatwave_europe.py --country ESP --seasons 300 --seed 42 --decompose
+# 3. Spain heat mortality, one run (~4 min, reads E-OBS): files the observed hazard
+#    (827 cells × 45 summers) in the local catalog, runs the synthetic reference-city ensemble,
+#    and attributes the 2020→2050 increase to warming (+1.5 °C) vs ageing. Then the poster figure.
+./.climada-env/bin/python scripts/heatwave_europe.py --country ESP --seasons 300 --seed 42 \
+  --register --decompose --warming-c 1.5 --demography-year 2050
 ./.climada-env/bin/python scripts/heatwave_poster_figure.py --recompute            # docs/poster figure
+#    (Run them in this order and as one command: every heatwave_europe.py run rewrites
+#     data/heatwave_europe/results.json, which the figure script reads.)
 
 # 4. Run everything through the platform
 ./run.command      # then: Map → place assets (or "Modeled exposure" → population) → Results → Run analysis
@@ -110,7 +117,7 @@ What each step reproduces:
 | Result | Where it comes from | Deterministic? |
 |---|---|---|
 | Spain heat mortality on observed summers (3,522 deaths/yr, 2022 ranked first) | step 3, `--register`, then a `heat_mortality` run in the app on a population exposure | yes (observed input) |
-| Reference-city figure, comfort bands, 2020→2050 warming/ageing split | step 3, `--decompose` + `heatwave_poster_figure.py` | yes (seed 42) |
+| Reference-city figure, comfort bands, 2020→2050 warming/ageing split (baseline 2,117 → 6,065 deaths/yr: +1,620 warming, +1,318 ageing, +1,010 joint) | step 3, `--decompose --warming-c 1.5 --demography-year 2050` + `heatwave_poster_figure.py` | yes (seed 42) |
 | Korean typhoon / river flood / wildfire / earthquake runs | no step needed — runners fetch from the CLIMADA Data API on first use and cache under `data/hazard_db/` (or pre-cache via `scripts/build_hazard.py cache …` / the Data tab) | yes |
 | Supply-chain (WIOD16, ~900 MB), uncertainty, cost-benefit, finance, transition | first run downloads what it needs | yes (seeded) |
 
@@ -130,8 +137,8 @@ Run results themselves (`data/app.db`, `data/runs/`) are not committed: re-run t
 ```bash
 uv run ruff check . && uv run ruff format --check . && uv run mypy src/ && uv run pytest
 
-# Engine regression (needs CLIMADA — runs in the worker env):
-./.climada-env/bin/python -m pytest tests/test_physical_regression.py
+# Engine + heat-peril tests (need CLIMADA — run in the worker env; backend-only tests skip themselves there):
+./.climada-env/bin/python -m pytest tests/test_physical_regression.py tests/test_heat_mortality.py tests/test_kma_scenario.py
 ```
 
 The backend suite runs CLIMADA-free (the engine regression is auto-skipped); it is pinned against a
