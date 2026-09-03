@@ -52,6 +52,7 @@ ignore = ["RUF001", "RUF002", "RUF003", "RUF012"]
 "worker/climaterisk_worker/hazard_convert.py" = ["E501"]
 "worker/climaterisk_worker/cost_benefit.py" = ["E501"]
 "worker/climaterisk_worker/uncertainty.py" = ["E501"]
+"scripts/heatwave_poster_figure.py" = ["E501"]
 
 [tool.mypy]
 python_version = "3.11"

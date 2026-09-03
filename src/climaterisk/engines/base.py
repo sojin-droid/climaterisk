@@ -33,6 +33,7 @@ class AssetSpec(BaseModel):
     sector: str
     value: float
     currency: str
+    headcount: int | None = None  # people on site; exposure for health perils
     vulnerability_class: str
     tc_v_half: float  # Emanuel TC: wind speed (m/s) at 50% mean damage
     wf_max_mdd: float  # wildfire: max mean damage ratio above the fire-intensity threshold
@@ -73,6 +74,7 @@ def resolve_asset_specs(portfolio: Portfolio) -> list[AssetSpec]:
                 sector=a.sector,
                 value=a.value,
                 currency=a.currency,
+                headcount=a.headcount,
                 vulnerability_class=vc["id"],
                 tc_v_half=tc_v_half,
                 wf_max_mdd=wf,
@@ -125,6 +127,11 @@ class FreqCurve(BaseModel):
 
     return_periods: list[float]
     impact: list[float]
+    # Applied cap: the longest return period this event set supports. Set to half the
+    # record, because a 1-in-N-year value estimated from an N-year record rests on a single
+    # event. Periods beyond it are dropped, not extrapolated.
+    max_resolvable_return_period: float | None = None
+    record_years: float | None = None  # length of the event record behind that cap
 
 
 class Yearset(BaseModel):
@@ -170,8 +177,9 @@ class PhysicalRunResult(BaseModel):
     freq_curve: FreqCurve | None = None
     yearset: Yearset | None = None  # sampled annual-loss distribution (CLIMADA yearsets)
     warn_levels: WarnLevels | None = None  # per-asset hazard-intensity warning bands
-    # "monetary" (AAI in currency) | "yield" | "productivity" — non-damage perils
-    # (heatwave, drought, crop yield) report a fractional/index metric, not currency.
+    # "monetary" (AAI in currency) | "yield" | "productivity" | "mortality" — non-damage
+    # perils (heatwave, drought, crop yield) report a fractional/index metric, and
+    # heat_mortality reports expected annual deaths (persons). Never currency.
     result_kind: str = "monetary"
     metric_unit: str | None = None  # label for non-monetary metrics (e.g. "% yield loss")
     interpretation: str | None = None  # plain-language meaning (disambiguates a 0 / error)
@@ -357,6 +365,9 @@ class HazardPreviewRequest(BaseModel):
     scenario: str = "historical"
     region: str = "global"
     year: int | None = None
+    # Optional crop window [south, west, north, east] (deg) — render only this area,
+    # with the color scale normalized to it (local contrast instead of nationwide).
+    bbox: list[float] | None = None
 
 
 # --- Data ingestion (download & refine real sources into the local catalog) ---

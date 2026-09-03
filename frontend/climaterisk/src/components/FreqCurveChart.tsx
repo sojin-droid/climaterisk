@@ -3,7 +3,17 @@ import { money } from "../lib/format";
 
 // Compact SVG return-period (exceedance) curve. Log x-axis (return periods),
 // linear y-axis (impact). No chart library — keeps the bundle small.
-export function FreqCurveChart({ curve, currency }: { curve: FreqCurve; currency: string }) {
+export function FreqCurveChart({
+  curve,
+  currency,
+  format,
+}: {
+  curve: FreqCurve;
+  currency: string;
+  /** Overrides currency formatting — health/index perils are not money. */
+  format?: (value: number) => string;
+}) {
+  const fmt = format ?? ((v: number) => money(v, currency));
   const W = 460;
   const H = 240;
   const m = { l: 64, r: 16, t: 16, b: 36 };
@@ -42,7 +52,7 @@ export function FreqCurveChart({ curve, currency }: { curve: FreqCurve; currency
             opacity={0.5}
           />
           <text x={m.l - 8} y={py(yMax * f) + 4} textAnchor="end" fontSize="10" fill="var(--muted)">
-            {money(yMax * f, currency)}
+            {fmt(yMax * f)}
           </text>
         </g>
       ))}

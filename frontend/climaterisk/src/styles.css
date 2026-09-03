@@ -131,7 +131,11 @@ body { background: var(--bg); color: var(--text); font-size: 14px; }
 input:focus-visible, select:focus-visible, textarea:focus-visible { box-shadow: var(--focus-ring); }
 
 /* Generic panel view (scenarios, results) */
-.panelview { padding: 24px; overflow-y: auto; height: 100%; max-width: 720px; }
+/* The panel is the scroll container, so it must span the whole workspace: with the
+   width capped here, wheel events over the blank right-hand area hit .content (which
+   does not scroll) and the page looks frozen on wide screens. Cap the *content* instead. */
+.panelview { padding: 24px; overflow-y: auto; height: 100%; }
+.panelview > * { max-width: 720px; }
 .panelview h2 { margin: 0 0 16px; font-size: 19px; font-weight: 600; letter-spacing: -0.2px; }
 .panelview h3 { margin: 14px 0 6px; font-size: 14px; font-weight: 600; color: var(--text); }
 .card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; margin-bottom: 16px; box-shadow: var(--shadow-card); }

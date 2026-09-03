@@ -14,6 +14,7 @@ export interface Asset {
   geographic_scale: GeographicScale;
   value: number;
   currency: string;
+  headcount?: number | null; // people on site; exposure for health perils (heat_mortality)
   annual_emissions_tco2e: number | null;
   vulnerability_class: string | null;
   geometry?: Record<string, unknown> | null; // GeoJSON footprint (Polygon/MultiPolygon)
@@ -300,6 +301,10 @@ export interface AssetImpact {
 export interface FreqCurve {
   return_periods: number[];
   impact: number[];
+  /** Applied cap (half the record); longer periods were dropped, not extrapolated. */
+  max_resolvable_return_period?: number | null;
+  /** Length of the event record behind that cap, in years. */
+  record_years?: number | null;
 }
 export interface Yearset {
   n_years: number;
@@ -342,7 +347,7 @@ export interface PhysicalRunResult {
   freq_curve: FreqCurve | null;
   yearset?: Yearset | null;
   warn_levels?: WarnLevels | null;
-  result_kind?: "monetary" | "yield" | "productivity";
+  result_kind?: "monetary" | "yield" | "productivity" | "mortality";
   metric_unit?: string | null;
   interpretation?: string | null;
   detail: string | null;

@@ -179,10 +179,18 @@ def resolve_rating_method(
 
 
 def per_asset_aai(run_output: dict[str, Any]) -> dict[str, float]:
-    """Sum each asset's expected annual impact across all OK perils in a physical run."""
+    """Sum each asset's expected annual **monetary** impact across all OK perils.
+
+    Only ``result_kind == "monetary"`` perils are summed. Non-damage perils report in
+    other units entirely — a fraction (``productivity``, ``yield``) or persons
+    (``mortality``) — so adding them into a currency total would be meaningless and, for
+    deaths, actively misleading downstream (EBITDA / DSCR / rating).
+    """
     loss: dict[str, float] = {}
     for r in run_output.get("results", []):
         if r.get("status") != "ok":
+            continue
+        if (r.get("result_kind") or "monetary") != "monetary":
             continue
         for pa in r.get("per_asset", []):
             loss[pa["id"]] = loss.get(pa["id"], 0.0) + float(pa.get("eai", 0.0) or 0.0)

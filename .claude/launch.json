@@ -2,9 +2,31 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "climaterisk-backend",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": [
+        "run",
+        "uvicorn",
+        "climaterisk.api.main:app",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8099",
+        "--reload",
+        "--reload-dir",
+        "src"
+      ],
+      "port": 8099
+    },
+    {
       "name": "climaterisk-frontend",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "frontend/climaterisk", "run", "dev"],
+      "runtimeArgs": [
+        "--prefix",
+        "frontend/climaterisk",
+        "run",
+        "dev"
+      ],
       "autoPort": true,
       "port": 5174
     }

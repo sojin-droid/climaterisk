@@ -58,16 +58,19 @@ export async function getHazardCatalog(): Promise<HazardCatalog> {
   return http<HazardCatalog>("/api/hazard-catalog");
 }
 
-/** Submit a hazard-layer raster preview for a catalog entry (peril/scenario/region/year). */
+/** Submit a hazard-layer raster preview for a catalog entry (peril/scenario/region/year).
+ *  Optional bbox [south, west, north, east] crops the render to that window. */
 export async function submitHazardPreview(
   sessionId: string,
   peril: string,
   scenario: string,
   region: string,
   year: number | null,
+  bbox?: [number, number, number, number],
 ): Promise<Run> {
   const qs = new URLSearchParams({ peril, scenario, region });
   if (year != null) qs.set("year", String(year));
+  if (bbox) qs.set("bbox", bbox.map((v) => v.toFixed(5)).join(","));
   return http<Run>(`/api/session/${sessionId}/hazard-preview?${qs.toString()}`, { method: "POST" });
 }
 
@@ -93,6 +96,16 @@ export async function submitRun(sessionId: string): Promise<Run> {
 
 export async function getRun(sessionId: string, runId: string): Promise<Run> {
   return http<Run>(`/api/session/${sessionId}/run/${runId}`);
+}
+
+/**
+ * The most recent finished run of each kind for a session.
+ *
+ * Runs live on the server; the browser only remembers ids it submitted this page-load, so
+ * this is what lets a reloaded page re-attach to completed results instead of blanking.
+ */
+export async function getLatestRuns(sessionId: string): Promise<Record<string, Run>> {
+  return http<Record<string, Run>>(`/api/session/${sessionId}/latest-runs`);
 }
 
 export async function submitTransition(sessionId: string): Promise<TransitionResult> {

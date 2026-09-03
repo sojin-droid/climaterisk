@@ -39,6 +39,7 @@ def compute_hazard_preview(request: dict[str, Any]) -> dict[str, Any]:
     scenario = request.get("scenario", "historical")
     region = request.get("region", "global")
     year = request.get("year")
+    bbox = request.get("bbox")  # optional [south, west, north, east] crop window (deg)
     out_dir = Path(request["out_dir"])
 
     haz = catalog.load_hazard(peril, scenario, region, year)
@@ -55,6 +56,22 @@ def compute_hazard_preview(request: dict[str, Any]) -> dict[str, Any]:
     lat = np.asarray(haz.centroids.lat, dtype=float)
     lon = np.asarray(haz.centroids.lon, dtype=float)
     inten = np.asarray(haz.intensity.max(axis=0).todense()).ravel().astype(float)
+    cropped = False
+    if bbox is not None and lat.size > 0:
+        south, west, north, east = (float(x) for x in bbox)
+        mask = (lat >= south) & (lat <= north) & (lon >= west) & (lon <= east)
+        # Gridding needs a few points; a near-empty window means the hazard isn't there.
+        if int(mask.sum()) < 4:
+            return {
+                "status": "error",
+                "peril": peril,
+                "detail": (
+                    f"{peril} has almost no hazard centroids inside the requested window — "
+                    "widen the area or disable the crop to preview the full extent."
+                ),
+            }
+        lat, lon, inten = lat[mask], lon[mask], inten[mask]
+        cropped = True
     if lat.size == 0 or float(np.nanmax(inten)) <= 0:
         return {"status": "error", "peril": peril, "detail": f"{peril} hazard has no intensity."}
 
@@ -89,5 +106,8 @@ def compute_hazard_preview(request: dict[str, Any]) -> dict[str, Any]:
         "bounds": [[float(lat.min()), float(lon.min())], [float(lat.max()), float(lon.max())]],
         "n_centroids": int(lat.size),
         "image": "preview.png",
-        "detail": f"{peril} {scenario} {region}: peak intensity field ({haz.units}).",
+        "detail": (
+            f"{peril} {scenario} {region}: peak intensity field ({haz.units})"
+            + ("; cropped to the requested window, color scale local to it." if cropped else ".")
+        ),
     }

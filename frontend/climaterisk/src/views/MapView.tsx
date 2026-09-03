@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   CircleMarker,
   ImageOverlay,
@@ -7,8 +7,10 @@ import {
   Polyline,
   TileLayer,
   Tooltip,
+  useMap,
   useMapEvents,
 } from "react-leaflet";
+import { LatLngBounds } from "leaflet";
 import type {
   Asset,
   HazardCatalog,
@@ -21,7 +23,7 @@ import type {
 } from "../types";
 import { AssetEditor } from "../components/AssetEditor";
 import { getHazardCatalog, getRun, hazardPreviewImageUrl, submitHazardPreview } from "../lib/api";
-import { money } from "../lib/format";
+import { formatScenario, money } from "../lib/format";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -83,6 +85,76 @@ function ClickToAdd({ onAdd }: { onAdd: (lat: number, lon: number) => void }) {
   return null;
 }
 
+/** Fly the map to a search result ([lat, lon, zoom]) whenever it changes. */
+function FlyTo({ target }: { target: [number, number, number] | null }) {
+  const map = useMap();
+  useEffect(() => {
+    if (target) map.flyTo([target[0], target[1]], target[2]);
+  }, [target, map]);
+  return null;
+}
+
+/**
+ * Frame the portfolio on first load, so a saved session opens where its assets are.
+ *
+ * Runs **once** per mount: after that the camera belongs to the user. Re-fitting on every
+ * asset change would yank the view back while they are panning or placing points, and a
+ * single asset gets a sensible zoom instead of Leaflet's maximum.
+ */
+function FitToAssets({ assets }: { assets: Asset[] }) {
+  const map = useMap();
+  const done = useRef(false);
+  useEffect(() => {
+    if (done.current || assets.length === 0) return;
+    const fit = () => {
+      const el = map.getContainer();
+      // A 0-size container (pane collapsed, tab not yet laid out) makes Leaflet fit the
+      // whole world instead. Do not consume the one-shot until the box is real, or the map
+      // stays stuck on the Atlantic for the rest of the session.
+      if (el.clientWidth === 0 || el.clientHeight === 0) return false;
+      map.invalidateSize();
+      if (assets.length === 1) {
+        map.setView([assets[0].lat, assets[0].lon], 9);
+      } else {
+        map.fitBounds(new LatLngBounds(assets.map((a) => [a.lat, a.lon])).pad(0.4), {
+          maxZoom: 9,
+        });
+      }
+      done.current = true;
+      return true;
+    };
+    if (fit()) return;
+    const obs = new ResizeObserver(() => {
+      if (fit()) obs.disconnect();
+    });
+    obs.observe(map.getContainer());
+    return () => obs.disconnect();
+  }, [map, assets]);
+  return null;
+}
+
+interface PlaceHit {
+  name: string;
+  lat: number;
+  lon: number;
+}
+
+/** Geocode a place name via OSM Nominatim (same provider as the base tiles). */
+async function searchPlaces(query: string): Promise<PlaceHit[]> {
+  const qs = new URLSearchParams({
+    format: "jsonv2",
+    limit: "5",
+    "accept-language": "ko,en",
+    q: query,
+  });
+  const resp = await fetch(`https://nominatim.openstreetmap.org/search?${qs.toString()}`, {
+    headers: { Accept: "application/json" },
+  });
+  if (!resp.ok) throw new Error(`place search failed (${resp.status})`);
+  const rows = (await resp.json()) as { display_name: string; lat: string; lon: string }[];
+  return rows.map((r) => ({ name: r.display_name, lat: Number(r.lat), lon: Number(r.lon) }));
+}
+
 export function MapView({
   model,
   libraries,
@@ -103,7 +175,31 @@ export function MapView({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [drawMode, setDrawMode] = useState<"point" | "polygon" | "line">("point");
   const [draft, setDraft] = useState<[number, number][]>([]); // [lat, lon] vertices in progress
-  const [litpopCountry, setLitpopCountry] = useState("JPN");
+  const [litpopCountry, setLitpopCountry] = useState("KOR");
+
+  // Place search (Nominatim) — pans the map to the picked result.
+  const [searchQ, setSearchQ] = useState("");
+  const [searchHits, setSearchHits] = useState<PlaceHit[]>([]);
+  const [searchBusy, setSearchBusy] = useState(false);
+  const [searchErr, setSearchErr] = useState<string | null>(null);
+  const [flyTarget, setFlyTarget] = useState<[number, number, number] | null>(null);
+
+  async function doSearch() {
+    const q = searchQ.trim();
+    if (!q || searchBusy) return;
+    setSearchBusy(true);
+    setSearchErr(null);
+    setSearchHits([]);
+    try {
+      const hits = await searchPlaces(q);
+      setSearchHits(hits);
+      if (hits.length === 0) setSearchErr("No results.");
+    } catch (e) {
+      setSearchErr(String(e));
+    } finally {
+      setSearchBusy(false);
+    }
+  }
   const [litpopSource, setLitpopSource] = useState("litpop");
   const [litpopPeril, setLitpopPeril] = useState("tropical_cyclone");
 
@@ -114,6 +210,7 @@ export function MapView({
   const [layerBusy, setLayerBusy] = useState(false);
   const [layerErr, setLayerErr] = useState<string | null>(null);
   const [opacity, setOpacity] = useState(0.75);
+  const [cropToAssets, setCropToAssets] = useState(true);
   useEffect(() => {
     getHazardCatalog()
       .then(setCatalog)
@@ -123,7 +220,30 @@ export function MapView({
   const entryKey = (e: HazardCatalogEntry) =>
     `${e.peril}|${e.climate_scenario}|${e.region}|${e.year ?? ""}`;
 
-  async function showLayer(key: string) {
+  /** Padded bbox [south, west, north, east] around all assets (points + footprint vertices). */
+  function assetsBbox(pad = 0.5): [number, number, number, number] | null {
+    const lats: number[] = [];
+    const lons: number[] = [];
+    for (const a of model.assets) {
+      lats.push(a.lat);
+      lons.push(a.lon);
+      const g = geomPositions(a.geometry);
+      if (g)
+        for (const [la, lo] of g.pos) {
+          lats.push(la);
+          lons.push(lo);
+        }
+    }
+    if (lats.length === 0) return null;
+    return [
+      Math.min(...lats) - pad,
+      Math.min(...lons) - pad,
+      Math.max(...lats) + pad,
+      Math.max(...lons) + pad,
+    ];
+  }
+
+  async function showLayer(key: string, crop: boolean = cropToAssets) {
     setLayerKey(key);
     setLayer(null);
     setLayerErr(null);
@@ -132,7 +252,15 @@ export function MapView({
     if (!e) return;
     setLayerBusy(true);
     try {
-      let r = await submitHazardPreview(model.id, e.peril, e.climate_scenario, e.region, e.year);
+      const bbox = crop ? assetsBbox() : null;
+      let r = await submitHazardPreview(
+        model.id,
+        e.peril,
+        e.climate_scenario,
+        e.region,
+        e.year,
+        bbox ?? undefined,
+      );
       for (let i = 0; i < 120 && (r.status === "queued" || r.status === "running"); i++) {
         await sleep(1500);
         r = await getRun(model.id, r.id);
@@ -152,6 +280,13 @@ export function MapView({
   const selected = model.assets.find((a) => a.id === selectedId) ?? null;
   const litpop = litpopRun?.status === "done" ? (litpopRun.output as LitPopResult | null) : null;
   const litpopRunning = litpopRun?.status === "queued" || litpopRun?.status === "running";
+
+  // Modeled-exposure result points: the top cells of a country-scale run, colored by their
+  // computed impact. The worker already caps this list, so it is safe to draw directly.
+  const litpopPoints = litpop?.per_point ?? [];
+  const lpMax = litpopPoints.length ? Math.max(...litpopPoints.map((p) => p.eai)) : 0;
+  const lpFrac = (v: number) => (lpMax > 0 ? v / lpMax : 0);
+  const litpopIsMortality = litpop?.peril === "heat_mortality";
 
   // Exposure-value layer: color asset markers by value (client-side; no run needed).
   const exposureLayer = layerKey === EXPOSURE_LAYER;
@@ -203,12 +338,15 @@ export function MapView({
   return (
     <div className="mapview">
       <div className="map">
-        <MapContainer center={[25, 15]} zoom={2} scrollWheelZoom>
+        <MapContainer center={[36.2, 127.9]} zoom={7} scrollWheelZoom>
+          {/* The literal center above is only the cold-start view (no assets yet). */}
+          <FitToAssets assets={model.assets} />
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
           <ClickToAdd onAdd={onMapClick} />
+          <FlyTo target={flyTarget} />
           {draft.length > 0 &&
             (drawMode === "polygon" ? (
               <Polygon positions={draft} pathOptions={{ color: "#3aa0ff", dashArray: "5" }} />
@@ -237,6 +375,28 @@ export function MapView({
               <Polyline key={`g-${a.id}`} positions={g.pos} pathOptions={{ ...opts, weight: 3 }} />
             );
           })}
+          {/* Country-scale modeled-exposure result: top cells by computed impact. Drawn
+              before the asset markers so hand-placed facilities stay on top. */}
+          {litpopPoints.map((pt, i) => (
+            <CircleMarker
+              key={`lp-${i}`}
+              center={[pt.lat, pt.lon]}
+              radius={3 + 5 * lpFrac(pt.eai)}
+              pathOptions={{
+                color: turboAt(lpFrac(pt.eai)),
+                fillColor: turboAt(lpFrac(pt.eai)),
+                fillOpacity: 0.8,
+                weight: 0.5,
+              }}
+            >
+              <Tooltip>
+                {litpopIsMortality
+                  ? `${pt.eai.toFixed(2)} deaths/yr`
+                  : `${money(pt.eai, litpop?.currency ?? "USD")}/yr`}
+                {` · ${(litpop?.peril ?? "").replace(/_/g, " ")}`}
+              </Tooltip>
+            </CircleMarker>
+          ))}
           {model.assets.map((a) => (
             <CircleMarker
               key={a.id}
@@ -280,6 +440,50 @@ export function MapView({
           />
         ) : (
           <>
+            <div style={{ marginBottom: 4 }}>
+              <div className="section-title">Search location</div>
+              <div className="form-row" style={{ marginTop: 6 }}>
+                <input
+                  className="field-inline"
+                  style={{ flex: 1, minWidth: 0 }}
+                  value={searchQ}
+                  placeholder="Region, address, or place…"
+                  onChange={(e) => setSearchQ(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") doSearch();
+                  }}
+                />
+                <button className="btn" onClick={doSearch} disabled={searchBusy || !searchQ.trim()}>
+                  {searchBusy ? <span className="spinner" /> : "Search"}
+                </button>
+              </div>
+              {searchErr && (
+                <p className="hint" style={{ color: "var(--danger)", marginTop: 4 }}>
+                  {searchErr}
+                </p>
+              )}
+              {searchHits.length > 0 && (
+                <div className="assetlist" style={{ marginTop: 6 }}>
+                  {searchHits.map((h, i) => (
+                    <div
+                      key={`${h.lat},${h.lon},${i}`}
+                      className="row"
+                      onClick={() => {
+                        setFlyTarget([h.lat, h.lon, 11]);
+                        setSearchHits([]);
+                      }}
+                    >
+                      <div>
+                        <div className="nm">{h.name}</div>
+                        <div className="sub">
+                          {h.lat.toFixed(4)}, {h.lon.toFixed(4)}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
             <div style={{ marginBottom: 4 }}>
               <div className="section-title">Draw on map</div>
               <div className="form-row" style={{ marginTop: 6 }}>
@@ -341,13 +545,30 @@ export function MapView({
                     )}
                     {(catalog?.entries ?? []).map((e) => (
                       <option key={entryKey(e)} value={entryKey(e)}>
-                        {e.peril.replace(/_/g, " ")} · {e.region} · {e.climate_scenario}
+                        {e.peril.replace(/_/g, " ")} · {e.region} ·{" "}
+                        {formatScenario(e.climate_scenario)}
                         {e.year ? ` ${e.year}` : ""}
                       </option>
                     ))}
                   </select>
                   {layerBusy && <span className="spinner" />}
                 </div>
+                {model.assets.length > 0 && (
+                  <label className="checkrow" style={{ marginTop: 6 }}>
+                    <input
+                      type="checkbox"
+                      checked={cropToAssets}
+                      onChange={(e) => {
+                        setCropToAssets(e.target.checked);
+                        if (layerKey && layerKey !== EXPOSURE_LAYER)
+                          showLayer(layerKey, e.target.checked);
+                      }}
+                    />
+                    <span className="hint">
+                      Only around my assets (faster; color scale rescales to the local area)
+                    </span>
+                  </label>
+                )}
                 {layerErr && (
                   <div className="status-box error" style={{ marginTop: 6 }}>
                     {layerErr}
@@ -427,9 +648,11 @@ export function MapView({
             <div className="section-divider">
               <div className="section-title">Modeled exposure</div>
               <p className="hint">
-                Model a whole country's asset values instead of hand-entering assets, then run any
-                peril on the grid. LitPop (population × nightlights) is built in; other sources are
-                login-gated or large and report what to download if absent.
+                Model a whole country's exposure instead of hand-entering assets, then run any
+                peril on the grid. <strong>Population raster (WorldPop)</strong> and{" "}
+                <strong>reference-city population</strong> need no login and are the right exposure
+                for health perils such as heat mortality. LitPop, BlackMarble, GDP2Asset and crop
+                need login-gated or large downloads and will tell you exactly what to fetch.
               </p>
               <div className="form-row" style={{ marginTop: 8 }}>
                 <select
@@ -443,7 +666,8 @@ export function MapView({
                   <option value="gdp">GDP2Asset (gridded GDP)</option>
                   <option value="crop">Crop production (ISIMIP/SPAM)</option>
                   <option value="osm">OSM buildings (osm-flex)</option>
-                  <option value="raster">Population raster (WorldPop/GHSL)</option>
+                  <option value="raster">Population raster (WorldPop/GHSL) — no login</option>
+                  <option value="population_ref">Reference-city population — no data needed</option>
                 </select>
                 <select
                   className="field-inline"
