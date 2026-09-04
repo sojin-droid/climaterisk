@@ -112,6 +112,17 @@ for iso in ESP KOR; do lo=$(echo $iso | tr A-Z a-z); \
 ./run.command      # then: Map → place assets (or "Modeled exposure" → population) → Results → Run analysis
 ```
 
+Check your setup against these numbers (a `heat_mortality` run, RCP4.5 / 2020, two point assets
+with 1,000 people each, ~90 s including the worker start-up):
+
+| Asset | Expected annual heat-attributable deaths | per 100,000 |
+|---|---:|---:|
+| Madrid (40.42 N, 3.70 W) | 0.085 | 8.5 |
+| Zamora (41.50 N, 5.75 W) | 0.167 | 16.7 |
+
+Return periods stop at 22.5 years (half of the 45-summer record). These came out identical on a
+fresh clone with a freshly built worker env (2026-09-04).
+
 What each step reproduces:
 
 | Result | Where it comes from | Deterministic? |
