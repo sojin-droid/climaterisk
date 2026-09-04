@@ -14,6 +14,20 @@ The platform is a **framework + UI that orchestrates open-source risk engines** 
 climate science. Physical risk is computed by **CLIMADA** (run as a separate conda worker process);
 transition risk uses bundled **NGFS** scenarios + **EDGAR** emission factors.
 
+## Quick start
+
+```bash
+git clone https://github.com/sojin-droid/climaterisk.git && cd climaterisk
+uv sync --all-extras && npm --prefix frontend/climaterisk install
+conda env create -f worker/climaterisk_worker/env_climada.yml --prefix ./.climada-env
+./run.command          # Windows: run.bat
+```
+
+Then in the browser: **Map** (place assets or model a country's exposure) → **Scenarios** →
+**Results → Run analysis**. Full walkthrough of every tab, the CLI tools, data access and
+troubleshooting: **[docs/USER_GUIDE.md](docs/USER_GUIDE.md)** (한국어 요약:
+[docs/USER_GUIDE_KO.md](docs/USER_GUIDE_KO.md)).
+
 ## Architecture (three processes)
 
 ```
