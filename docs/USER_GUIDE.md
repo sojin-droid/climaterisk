@@ -99,7 +99,9 @@ WorldPop, …), ingest hazards (CLIMADA Data API, WRI Aqueduct) into the catalog
 P=./.climada-env/bin/python
 $P scripts/build_hazard.py list                                  # what is in the local catalog
 $P scripts/build_hazard.py cache --data-type tropical_cyclone --peril tropical_cyclone \
-     --scenario rcp45 --region KOR --year 2040 --props '{}'       # pre-cache a Data API hazard
+     --scenario rcp45 --region KOR --year 2040 \
+     --props '{"spatial_coverage":"country","country_iso3alpha":"KOR","climate_scenario":"rcp45","ref_year":"2040"}'
+                                                                 # pre-cache a Data API hazard (props = Data API filters)
 $P scripts/heatwave_europe.py --country ESP --seasons 300 --seed 42 \
      --register --decompose --warming-c 1.5 --demography-year 2050   # Spain heat: hazard + figure inputs
 $P scripts/heatwave_poster_figure.py --recompute                 # poster figure
