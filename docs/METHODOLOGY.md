@@ -47,14 +47,49 @@ before the Data API, which is how coastal flood / heat / drought / custom local 
 are added. See `docs/ARCHITECTURE.md` → *Perils database*. Record each ingested source's
 provenance + licence in the catalog entry's `source`/`license` fields.
 
+## Per-peril methodology (as implemented — verified 2026-09-06)
+
+What each peril actually computes today. "Vulnerability default" is what a **new asset gets
+with zero clicks**; published presets exist in the Vuln studio but are opt-in.
+
+| Peril | Hazard | Vulnerability default | Maturity / caveat |
+|---|---|---|---|
+| Tropical cyclone | Data API synthetic sets, present + rcp×year future | Emanuel `v_half` per class (residential **70**, infra 110) — **indicative, not regional** | Eberenz 2021 regional presets exist but are opt-in → GAP G1 |
+| River flood | ISIMIP depth | JRC-style depth-damage per class — the residential default equals the JRC **Europe** curve | Region misapplication outside Europe → GAP G2; Korea floodmap onramp in progress (RISK_REGISTER C3) |
+| Coastal flood / SLR | WRI Aqueduct (ingest-gated) | same flood curve family | same G2 caveat |
+| TC storm surge | petals `TCSurgeBathtub` (wind + DEM, opt. SLR) | flood depth-damage | bathtub = no hydrodynamics, **no seawalls**; separate peril — not event-combined with wind (GAP G5) |
+| TC rainfall | R-CLIPER ingester (physical mm) | **indicative ramp** | catalog-ramp peril → GAP G4 |
+| Wildfire | historical brightness temperature | sigmoid `x0=325 K` from 295 K, per-class max MDD | **no ignition threshold** — overstates low-intensity seasons vs the Lüthi-calibrated form → GAP G3 |
+| European windstorm | WISC/Schwierz sets | calibrated **Schwierz** (default) ↔ Welker toggle | the one peril with a calibrated default |
+| Earthquake | observed catalog | EMS-98/HAZUS-style MMI classes | labelled indicative; no published CLIMADA impf exists |
+| Heat mortality | exceedance degree-days (E-OBS obs / KMA SSP onramp) | age-band dose-response, comfort *band* | validated vs 2022 Europe ranking; ~2.3× under on extreme years (RISK_REGISTER B2) |
+| Heatwave / drought / low_flow / hail / landslide / crop_yield | local catalog only | **indicative ramps** scaled by the class `wf_max_mdd` | honest "needs ingestion" errors; ramps are not calibrated → GAP G4 |
+
+Cross-cutting rigor already in place: return periods capped at half the event record;
+yearset annual-loss distributions; Sobol sensitivity (vulnerability ≈ 83 % of variance);
+non-monetary results excluded from currency aggregation; result interpretation strings
+disambiguating every zero.
+
+**Methodology gaps and their fixes are tracked in `docs/GAP_ANALYSIS_KO.md`** (defaults,
+bands, sub-peril combination, pluvial absence) and **`docs/RISK_REGISTER.md`** (Korea data).
+
 ## Known data caveats
 
 - **IEA WEO** free dataset is **non-commercial** — do not bundle for commercial use without a license.
 - **Asset-level production data** for full PACTA alignment is not freely available → design for
   user-supplied data.
+- **홍수위험지도 SHP** (Korea floodmap): non-commercial, no-derivatives — internal validation only.
+- **EM-DAT**: commercial use requires a paid licence; 재해연보 API has no such restriction.
 
-## Current status
+## Current status (revised 2026-09-06)
 
-The bundled library values in `assets/libraries/*.json` are **PLACEHOLDER** illustrative values
-(sector emission intensities, impact-function catalogue). They must be replaced with the cited
-sources above before any result is presented as authoritative.
+Earlier revisions called all `assets/libraries/*.json` values "PLACEHOLDER". That is now
+**only partially true** — be precise about which is which:
+
+- **Authentic (published, citable):** `impact_function_presets.json` — Eberenz 2021 regional
+  TC v½, JRC Huizinga 2017 continental flood curves (regenerated from CLIMADA by
+  `scripts/build_impf_presets.py`); NGFS carbon prices; windstorm Schwierz/Welker.
+- **Indicative (must not be presented as calibrated):** the per-class *defaults* in
+  `impact_functions.json` (TC v½ 70–110, flood/EQ class curves, `wf_max_mdd`),
+  `finance_channels.json`, sector emission intensities. These drive results whenever the
+  user does not pick a preset — which is why GAP G1/G2 (geographic auto-defaults) matter.

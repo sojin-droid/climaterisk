@@ -171,10 +171,19 @@ captured CLIMADA baseline and run in the worker env.
 
 ## Status
 
-Asset-level **physical risk** (CLIMADA — tropical cyclone, river flood, wildfire, earthquake,
-European windstorm; cost-benefit + Monte-Carlo uncertainty + LitPop exposure) and **transition risk**
-(NGFS Phase-5 carbon-cost passthrough) are working end-to-end. Next: portfolio- and national-level
-aggregation and the TCFD/ISSB report. See the build plan for the full roadmap.
+Asset-level **physical risk** (CLIMADA — 15 perils incl. TC + surge + rainfall, river/coastal
+flood, wildfire, earthquake, European windstorm, heat mortality; cost-benefit, **Sobol**
+uncertainty, ECMWF TC forecast, 7 exposure sources, EM-DAT calibration runner) and
+**transition risk** (NGFS Phase-5 carbon-cost passthrough) plus the TCFD/ISSB report and the
+finance CRP view are working end-to-end — the capability-by-capability record (each with the
+implementing module) is **[docs/CLIMADA_COVERAGE.md](docs/CLIMADA_COVERAGE.md)**, audited
+against the code 2026-09-06.
+
+What each peril computes, and with which vulnerability defaults:
+**[docs/METHODOLOGY.md](docs/METHODOLOGY.md)**. Known methodology gaps (uncalibrated
+defaults, missing bands, sub-peril combination) with severity and fixes:
+**[docs/GAP_ANALYSIS_KO.md](docs/GAP_ANALYSIS_KO.md)** (한국어). Korea data localization
+plan and source licences: **[docs/RISK_REGISTER.md](docs/RISK_REGISTER.md)**.
 
 
 ## Conference poster
