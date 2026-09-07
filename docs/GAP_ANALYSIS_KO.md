@@ -104,8 +104,8 @@ CLIMADA(코어 ≥6.1 + petals ≥6.1 pip)에서 의사결정에 쓰이는 표�
 
 ### G2. 홍수 계열 기본 곡선 = JRC **Europe** 고정 — **한국 과소평가(16–31%)** 〔심각도 상〕
 - 현상: 기본 residential `flood_mdr = [0, .25, .40, .60, .75, .85, .92, .95]`는 JRC
-  Huizinga 2017 **유럽** 주거 곡선과 동일하며, 하천홍수·해안침수·TC해일 3계열이 국가 불문
-  이 계열을 쓴다. JRC **아시아** 곡선은 16–31% 높다(7월 실측: 인천 해일 EAD +18.4%).
+  Huizinga 2017 **유럽** 주거 곡선과 4 m까지 동일하고(5–6 m는 .92/.95 vs 프리셋 .95/1.0)
+  하천홍수·해안침수·TC해일 3계열이 국가 불문 이 계열을 쓴다. JRC **아시아** 곡선은 16–31% 높다(7월 실측: 인천 해일 EAD +18.4%).
 - 완화 요소: 6대륙 JRC 프리셋 존재(수동).
 - 해법: `country_converter`로 대륙 판정 → `ImpfRiverFlood.from_jrc_region_sector(region,
   sector)` 자동 선택(하드코딩 금지 — 7월 구현은 KOR→Asia·USA→N.America·DEU→Europe 등
@@ -119,7 +119,7 @@ CLIMADA(코어 ≥6.1 + petals ≥6.1 pip)에서 의사결정에 쓰이는 표�
   1 km 값은 축퇴로 기각) — 직접 대입이 아니라 **보정 형태 채택 + 해상도군 밴드**가 정답.
 - 해법: 하자드 격자 간격을 측정해 대표 i_half 선택 + 밴드 병기. 공수: 중.
 
-### G4. 카탈로그 재해 6종의 지시적 램프 + 파라미터 차용 〔심각도 중〕
+### G4. 카탈로그 재해 7종의 지시적 램프 + 파라미터 차용 〔심각도 중〕
 - 현상: hail·drought·low_flow·landslide·crop_yield·heatwave·tc_rain은 임의 램프 impf를
   쓰며, 스케일 파라미터로 **산불용 `wf_max_mdd`를 차용**한다. 물리 하자드(TC호우 R-CLIPER)
   까지 지시적 곡선으로 평가된다.
@@ -208,6 +208,7 @@ CLIMADA(코어 ≥6.1 + petals ≥6.1 pip)에서 의사결정에 쓰이는 표�
 | 어떻게 쓰나 | USER_GUIDE.md (KO 요약 있음) |
 | 무슨 방법론인가 | **METHODOLOGY.md** (재해별 표 — 이번 보완) |
 | CLIMADA를 얼마나 덮나 | **CLIMADA_COVERAGE.md** (이번 전면 갱신) |
+| 무엇이 CLIMADA 네이티브이고 무엇이 자체 구현인가 | **CLIMADA_METHODS.md** (2026-09-07 방법론 감사 — 재해별·구성요소별 태그, 문서 정합성 감사 포함) |
 | 무엇이 부족한가 (모델) | **본 문서 §3** |
 | 무엇이 부족한가 (국내 데이터) | RISK_REGISTER.md C1–C6 + §E 접근성 실사 |
 | 원본 도구와 뭐가 다른가 | MODEL_COMPARISON.md |

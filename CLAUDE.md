@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 Scientific modelling project (data science / energy / finance / economic).
-Full team handbook: `docs/HANDBOOK.md`. Algorithm docs: `docs/ALGORITHM.md`.
+Docs: `docs/ARCHITECTURE.md` (structure), `docs/METHODOLOGY.md` + `docs/CLIMADA_METHODS.md` (methods, native-vs-custom audit), `docs/CLIMADA_COVERAGE.md`, `docs/GAP_ANALYSIS_KO.md`, `docs/RISK_REGISTER.md`, `docs/USER_GUIDE.md`.
 
 ## Commands
 
@@ -58,9 +58,9 @@ src/<pkg>/
   config.py   loads .env, validates types
   logger.py   centralized logging
 tests/        mirrors src/
-docs/         ALGORITHM.md (math), HANDBOOK.md (team standards), API.md
+docs/         ARCHITECTURE.md, METHODOLOGY.md, CLIMADA_METHODS.md, CLIMADA_COVERAGE.md, GAP_ANALYSIS_KO.md, RISK_REGISTER.md, USER_GUIDE.md, API.md
 .env, .env.example
 pyproject.toml    single source of truth
 ```
 
-See `docs/HANDBOOK.md` for: full directory layout, docstring template, ready-to-copy `config.py` / `logger.py` / CI workflow, code review checklist, deprecation strategy, experiment tracking patterns.
+There is no `docs/HANDBOOK.md`; directory layout is in `docs/ARCHITECTURE.md`, and the per-peril method record in `docs/METHODOLOGY.md` / `docs/CLIMADA_METHODS.md`.

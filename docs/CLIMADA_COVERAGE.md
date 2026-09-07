@@ -11,6 +11,9 @@ badly — forecast, Sobol, raster/OSM exposures, calibration and TC surge were a
 
 Status legend: [x] done (code cited) · [~] partial · [ ] not implemented.
 
+Native-vs-custom classification of every component (what is CLIMADA, what is ours, what is
+missing) is in **`docs/CLIMADA_METHODS.md`** (audit 2026-09-07); this file tracks *coverage*.
+
 ## A. Engine — impact
 
 - [x] `ImpactCalc` → AAI, `eai_exp`, return-period curve, present↔future delta
@@ -26,16 +29,17 @@ Status legend: [x] done (code cited) · [~] partial · [ ] not implemented.
 - [ ] Impact matrix / per-event drill-down surfaced to the UI
 - [ ] eai/aai plot layers beyond the current per-asset map overlay
 
-## B. Adaptation — cost-benefit  (DONE)
+## B. Adaptation — cost-benefit  (DONE — **tropical cyclone only**; the worker ignores `CostBenefitRequest.peril`; no computation test)
 
 - [x] Measure / MeasureSet (hazard freq cutoff, MDD/PAA modifiers, risk transfer
       attach/cover) → `CostBenefit.calc` — `worker/climaterisk_worker/cost_benefit.py`
 - [x] Adapt view: measure editor + per-measure benefit/cost, NPV, discount rates
 
-## C. Uncertainty & sensitivity  (DONE — proper Sobol)
+## C. Uncertainty & sensitivity  (DONE — proper Sobol; **TC only**; bounds U[0.8,1.2] / U[0.9,1.1] / U[0.85,1.15] are platform assumptions without a cited source)
 
-- [x] **Saltelli sampling + Sobol S1/ST** (SALib — the same engine CLIMADA's `unsequa`
-      uses) over exposure value / vulnerability / hazard frequency —
+- [x] **Saltelli sampling + Sobol S1/ST** implemented directly with SALib (the sampler
+      `unsequa` also uses; `unsequa` itself is **not** imported) over exposure value /
+      Emanuel `v_half` / hazard frequency (frequency applied as a post-hoc AAI multiplier) —
       `worker/climaterisk_worker/uncertainty.py`
 - [x] AAI mean/std/percentiles + histogram; present computed at base inputs
       (CalcDeltaImpact-style delta)
@@ -51,10 +55,13 @@ Status legend: [x] done (code cited) · [~] partial · [ ] not implemented.
       `physical.py::_footprint_points`, MapView draw tools
 - [x] LitPop (GPW Earthdata download gated — clear actionable message until provisioned) —
       `worker/climaterisk_worker/litpop.py`
-- [x] **Population/value raster** (WorldPop/GHSL GeoTIFF, `Exposures.from_raster`) —
+- [x] **Population/value raster** (WorldPop/GHSL GeoTIFF read with `rasterio`, block-summed
+      into `Exposures(DataFrame)` — `Exposures.from_raster` itself is not called) —
       `exposures.py` `"raster"` source (no login; the recommended default)
 - [x] **OSM buildings** (osm-flex, Geofabrik `.osm.pbf`) — `exposures.py` `"osm"`
-- [x] BlackMarble nightlights · GDP2Asset · Crop production — `exposures.py`
+- [x] BlackMarble nightlights · GDP2Asset — `exposures.py`
+- [~] Crop production — listed as a source but `exposures.py` always raises
+      `ExposureUnavailable("crop")` (needs an ISIMIP NetCDF path that is not wired)
 - [x] Population sources for health perils (headcount carried separately from value so
       people are never priced as money — RISK_REGISTER A13)
 - [ ] Value units / deductible / cover columns on Exposures
@@ -67,8 +74,11 @@ Status legend: [x] done (code cited) · [~] partial · [ ] not implemented.
       `scripts/build_impf_presets.py`): Eberenz et al. 2021 regional TC v½ (10 regions),
       JRC Huizinga 2017 continental flood curves (6 regions), EMS-98/HAZUS-style
       indicative EQ classes (labelled as indicative)
-- [x] **Calibration runner** — fit TC v½ to observed losses (EM-DAT path,
-      `CLIMATERISK_EMDAT_PATH`) — `worker/climaterisk_worker/calibration.py`
+- [x] **Calibration runner** — fit TC v½ to observed EM-DAT annual losses
+      (`CLIMATERISK_EMDAT_PATH`) — `worker/climaterisk_worker/calibration.py`. Uses CLIMADA
+      `emdat_to_impact` + `ImpactCalc` with a **`scipy.optimize.minimize_scalar`** fit of one
+      scalar (AAI); `climada.util.calibrate` is not used. The result is displayed, not written
+      back to assets or presets. No 재해연보/KOSIS loader exists yet.
 - [x] European windstorm: calibrated Schwierz (default) ↔ Welker toggle
       (`windstorm_impf` option)
 - [ ] **Default-by-geography switching** — presets exist but are *opt-in clicks*; a new
@@ -82,20 +92,26 @@ Native runners (`physical.py`):
 - [x] tropical_cyclone — Data API present + future sets (rcp × year); catalog-first
 - [x] river_flood — ISIMIP; catalog-first
 - [x] wildfire — historical brightness-temperature; sigmoid impf (see GAP G3)
-- [x] european_windstorm — WISC/Schwierz sets
+- [x] european_windstorm — CMIP6 `storm_europe` Data API sets (first GCM listed), Schwierz/Welker impact function
 - [x] earthquake — observed catalog, MMI classes
 - [x] coastal_flood — WRI Aqueduct layers (ingest-gated, clear message)
 - [x] **tc_surge** — `climada_petals` TCSurgeBathtub from TC winds + DEM, optional SLR —
       `_run_tc_surge` (bathtub caveat documented in the runner)
-- [x] **tc_rain** — R-CLIPER physical rainfall ingester (`ingest.py`); runs via the
-      catalog runner with an indicative ramp (GAP G4)
+- [~] **tc_rain** — R-CLIPER physical rainfall ingester exists in the worker (`ingest.py`)
+      but the API whitelist (`api/routers/run.py`) does not accept `source="tcrain"`, so the
+      Data-tab entry fails with 400; runs via the catalog runner with an indicative ramp (GAP G4)
 - [x] **heat_mortality** — exceedance degree-days hazard × age-band dose-response
-      (deaths), E-OBS (Europe) + **KMA SSP 1 km onramp** (`kma_scenario.py`,
-      `scripts/heat_korea.py`); heatwave (productivity) separate
+      (deaths), E-OBS (Europe) + **KMA 1 km onramp** (`kma_scenario.py`,
+      `scripts/heat_korea.py`). **Present climate only:** the runner resolves
+      `climate_scenario="historical"` unconditionally (`physical.py::_run_heat_mortality`), so
+      KMA *SSP* mortality layers are registered but not selectable; only the `heatwave`
+      (productivity) layer follows the run scenario. Custom peril on the CLIMADA engine (no
+      CLIMADA heat class exists) — see CLIMADA_METHODS.md §5.8
 - [x] Catalog perils with indicative ramps: hail, drought, low_flow, landslide,
       crop_yield, heatwave — `_run_catalog_peril` (honest "needs ingestion" errors)
-- [ ] `apply_climate_scenario_knu` frequency-scaling controls (future sets preferred;
-      scaling documented in METHODOLOGY.md as the fallback)
+- [x] `apply_climate_scenario_knu` frequency-only scaling — opt-in via
+      `options.tc_future_method="knutson"` (Scenarios view toggle); Data API future sets
+      remain the default. 50th percentile fixed; TC only
 - [ ] GCM-ensemble hazard spread; event-level inspection UI
 
 ## G. Perils database (custom hazard ingestion)  (DONE, growing)
@@ -106,7 +122,8 @@ Native runners (`physical.py`):
       synthetic files), 홍수위험지도 SHP fetcher (`scripts/fetch_floodmap_kor.py`,
       **non-commercial licence — internal validation only**), RSMC Tokyo best track
       downloaded — see RISK_REGISTER.md §E
-- [ ] UI catalog browser + ingestion wizard (CLI only today)
+- [x] UI catalog list + ingest buttons (Data tab, `DataView.tsx`); a guided multi-step
+      wizard is not implemented
 
 ## H. Forecast  (DONE)
 
@@ -137,10 +154,13 @@ Native runners (`physical.py`):
 
 ## Status summary (2026-09-06)
 
-DONE & verified: A engine (+RP cap, yearsets, warn) · B cost-benefit · C Sobol ·
-D exposures (7 sources + footprints) · E studio + presets + calibration runner ·
-F 15 perils incl. surge/rain/heat-mortality · G perils DB + Korea onramps · H forecast ·
-I reporting · J finance/supply-chain.
+Implemented (code cited above): A engine (+RP cap, yearsets, warn) · B cost-benefit (TC only,
+no computation test) · C Sobol (TC only) · D exposures (6 working sources + footprints; crop is
+a stub) · E studio + presets + calibration hook (TC v½, display-only) · F 15 peril runners
+(8 native hazards, 7 catalog-only with indicative curves; tc_rain ingester not reachable via
+API) · G perils DB + Korea onramps (tested on synthetic files only) · H forecast · I reporting ·
+J finance/supply-chain. "Verified" here means the code path exists and is cited — not that a
+computation test or an observed-loss validation exists (see CLIMADA_METHODS.md §10).
 
 The open items that matter are no longer *breadth* but **defaults and rigor**: geographic
 auto-switching of calibrated impact functions, vulnerability bands, sub-peril combination,

@@ -119,7 +119,7 @@ python3 scripts/fetch_floodmap_kor.py                            # 환경부 flo
 | WIOD16 MRIOT (supply chain) | automatic, ~900 MB | CLIMADA cache |
 | KMA 남한상세 1 km scenarios (Korea heat) | **account** at 기후변화 상황지도 — see `KMA_DOWNLOAD_LIST.md` | `~/climada/data/kma/` |
 | GPW v4 population (LitPop) | **NASA Earthdata login** | `~/climada/data/` |
-| Korean loss statistics (재해연보), KOSIS age structure | **API key** — for vulnerability calibration | `POST /api/session/{id}/calibration` |
+| Korean loss statistics (재해연보), KOSIS age structure | **API key** — intended for vulnerability calibration; the current `POST /api/session/{id}/calibration` reads only an EM-DAT CSV (`CLIMATERISK_EMDAT_PATH`), so a 재해연보 loader is still to be written | (not wired yet) |
 
 Vulnerability curves are global defaults until calibrated on national loss records; results for a
 new country should be read as *relative* until then (`RISK_REGISTER.md` §C).
