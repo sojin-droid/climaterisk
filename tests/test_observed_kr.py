@@ -201,22 +201,71 @@ def test_parser_contract_series_declares_its_provenance_and_basis() -> None:
     losses, _ = _reference_extract(FIXTURE_XML, "typhoon", seq="1")
     series = val.ObservedSeries(
         source=FIXTURE_SOURCE,
-        # The API publishes NO unit element; the fixture states one only to exercise the
-        # unit checks. The real unit is still unconfirmed — spec §5.
-        unit="KRW thousand",
+        # Unit confirmed 2026-09-07 from the source table (행정안전 통계연보 7-3-2-2:
+        # "(단위: 백만원) (Unit: KRW million)", identical across the 2024/2025/2026 editions)
+        # — spec §5-A. The API itself publishes no unit element.
+        unit="KRW million",
         losses=losses,
         peril="tropical_cyclone",
         currency="KRW",
         covers_subperils=val.TC_AGGREGATE_SUBPERILS,
         scope="national:KOR",
         price_basis="nominal",
-        notes="fixture; 재해연보 재산피해 is 당해연도 가격 — deflate before comparing",
+        notes=(
+            "fixture; source table is 당해연도 가격 (nominal) in KRW million — the edition notes\n"
+            "claiming 환산가격 contradict their own unchanged values (spec §5-A)"
+        ),
     )
     assert "synthetic unit-test fixture" in series.source
     assert series.years() == [2019, 2020]
-    assert series.unit_spec().currency == "KRW" and series.unit_spec().multiplier == 1e3
+    assert series.unit_spec().currency == "KRW" and series.unit_spec().multiplier == 1e6
     assert series.price_basis == "nominal"
     assert series.mean_annual_loss() == pytest.approx(1750.0)
+
+
+# ------------------------------------------------- source defects the loader must survive
+# Found 2026-09-07 by comparing three 행정안전 통계연보 editions against the 2024 재해연보 —
+# docs/OBSERVED_LOSSES_KR_SPEC.md §5-B. These are properties of the SOURCE, not of our code, so
+# they are frozen here as requirements on F1 rather than as behaviour of anything already built.
+
+#: The source table's own confirmed unit (all three editions, English gloss included).
+SOURCE_UNIT = "KRW million"
+#: Causes the source table carries that the API does not expose (spec §4, §5-B item 3).
+CAUSES_MISSING_FROM_API = ("우박", "폭풍·해일", "냉해·동해")
+#: 2023 row of table 7-3-2-2, verbatim (백만원): the published total and the three dropped causes.
+ROW_2023_TOTAL = 958_221
+ROW_2023_MISSING = {"우박": 2_293, "폭풍·해일": 16, "냉해·동해": 110_354}
+#: 2024 row as published in the 2026 edition (천원 despite a 백만원 header) vs 재해연보 (백만원).
+ROW_2024_AS_PUBLISHED_THOUSANDS = {"합계": 910_713_075, "태풍": 106_342, "호우": 423_947_425}
+ROW_2024_YEARBOOK_MILLIONS = {"합계": 910_713, "태풍": 106, "호우": 423_947}
+
+
+def test_source_unit_parses_to_krw_millions() -> None:
+    """The unit string the loader must record resolves to KRW x 1e6, not thousands."""
+    spec = val.parse_unit(SOURCE_UNIT)
+    assert spec.currency == "KRW" and spec.multiplier == 1e6
+    # And it must NOT compare equal to the thousands form that the detail tables use.
+    assert val.check_units(SOURCE_UNIT, "KRW thousand")["status"] == val.STATUS_MISMATCH
+
+
+def test_api_columns_do_not_sum_to_the_published_total() -> None:
+    """`tot` is not the sum of the causes the API exposes — 11.8 % short in 2023."""
+    dropped = sum(ROW_2023_MISSING.values())
+    assert set(ROW_2023_MISSING) == set(CAUSES_MISSING_FROM_API)
+    assert dropped == 112_663
+    available = ROW_2023_TOTAL - dropped
+    assert available == 845_558
+    assert dropped / ROW_2023_TOTAL == pytest.approx(0.1176, abs=5e-4)
+
+
+def test_latest_year_row_is_published_a_thousand_times_too_large() -> None:
+    """2026 edition, 2024 row: 천원 under a 백만원 header — a x1000 trap on the newest year."""
+    for cause, thousands in ROW_2024_AS_PUBLISHED_THOUSANDS.items():
+        millions = ROW_2024_YEARBOOK_MILLIONS[cause]
+        assert round(thousands / 1000) == millions, cause
+    # A loader that took the header at face value would report 106,342 KRW million of typhoon
+    # damage for 2024 where the yearbook reports 106.
+    assert ROW_2024_AS_PUBLISHED_THOUSANDS["태풍"] / ROW_2024_YEARBOOK_MILLIONS["태풍"] > 900
 
 
 # --------------------------------------------------------------- unit guards
