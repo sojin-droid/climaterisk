@@ -35,6 +35,7 @@ if str(WORKER) not in sys.path:
 
 from climaterisk_worker import heat_mortality as hm  # noqa: E402
 from climaterisk_worker import kma_scenario as kma  # noqa: E402
+from climaterisk_worker._params import HEATWAVE_HAZ_TYPE  # noqa: E402
 
 COUNTRY = "KOR"
 FUTURE_WINDOWS: tuple[tuple[int, int, int], ...] = (
@@ -109,7 +110,9 @@ def _heatwave_grid(obs, cells, years, scenario: str, year: int) -> dict:  # type
     p95 = np.percentile(obs.tmax, 95, axis=2)  # (cells, years) degC
     return {
         "peril": "heatwave",
-        "haz_type": hm.HAZ_TYPE,
+        # Must match the runner's heatwave tag ("HW"); hm.HAZ_TYPE ("HM") is the
+        # degree-day *mortality* layer and would leave ImpactCalc without an impf column.
+        "haz_type": HEATWAVE_HAZ_TYPE,
         "units": "degC",
         "climate_scenario": scenario,
         "region": COUNTRY,

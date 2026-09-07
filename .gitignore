@@ -24,6 +24,9 @@ data/runs/
 data/hazard_db/
 # Open-data files fetched via the Data tab (Natural Earth, WorldPop, …) — re-fetchable.
 data/downloads/
+# Persisted impact-function calibration records (worker/climaterisk_worker/vulnerability.py);
+# derived from login-gated loss data, re-created by a calibration run.
+data/calibrations/
 
 # Project-local CLIMADA conda env (multi-GB, machine-specific) — rebuild from
 # worker/climaterisk_worker/env_climada.yml, never committed.

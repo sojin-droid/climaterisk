@@ -32,6 +32,7 @@ def compute_supplychain(request: dict[str, Any]) -> dict[str, Any]:
         from climada_petals.engine import get_mriot
         from climada_petals.engine.supplychain import DirectShocksSet, StaticIOModel
 
+        from climaterisk_worker import vulnerability
         from climaterisk_worker.cost_benefit import _tc_hazard
         from climaterisk_worker.physical import (
             _TC_REF_YEARS,
@@ -45,15 +46,18 @@ def compute_supplychain(request: dict[str, Any]) -> dict[str, Any]:
 
     # --- direct tropical-cyclone impact on the portfolio --------------------------
     ref_year = _nearest(_TC_REF_YEARS, max(anchor_years) if anchor_years else _TC_REF_YEARS[0])
-    iso3 = _single_country_iso3(
-        _per_asset_iso3([a["lat"] for a in assets], [a["lon"] for a in assets])
+    iso3s = _per_asset_iso3([a["lat"] for a in assets], [a["lon"] for a in assets])
+    iso3 = _single_country_iso3(iso3s)
+    # Same geography-aware v_half default as the impact run.
+    vh_per_asset, _vh_src, _vh_note = vulnerability.resolve_tc_vhalf(
+        assets, iso3s, request.get("options")
     )
-    v_halves = sorted({round(float(a["tc_v_half"]), 1) for a in assets})
+    v_halves = sorted({round(v, 1) for v in vh_per_asset})
     id_by = {v: i + 1 for i, v in enumerate(v_halves)}
     impf_set = ImpactFuncSet(
         [ImpfTropCyclone.from_emanuel_usa(impf_id=i + 1, v_half=v) for i, v in enumerate(v_halves)]
     )
-    impf_ids = [id_by[round(float(a["tc_v_half"]), 1)] for a in assets]
+    impf_ids = [id_by[round(v, 1)] for v in vh_per_asset]
     exp, _ = _build_exposures(assets, "impf_TC", impf_ids)
 
     # The I/O model aggregates exposure by region_id (numeric country code) and maps it to

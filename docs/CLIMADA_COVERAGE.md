@@ -29,13 +29,13 @@ missing) is in **`docs/CLIMADA_METHODS.md`** (audit 2026-09-07); this file track
 - [ ] Impact matrix / per-event drill-down surfaced to the UI
 - [ ] eai/aai plot layers beyond the current per-asset map overlay
 
-## B. Adaptation — cost-benefit  (DONE — **tropical cyclone only**; the worker ignores `CostBenefitRequest.peril`; no computation test)
+## B. Adaptation — cost-benefit  (**tropical cyclone only** — since 2026-09-07 the worker honours `CostBenefitRequest.peril` and returns a structured error for any other peril; synthetic-hazard computation test in `tests/test_cost_benefit_peril.py`, CLIMADA env)
 
 - [x] Measure / MeasureSet (hazard freq cutoff, MDD/PAA modifiers, risk transfer
       attach/cover) → `CostBenefit.calc` — `worker/climaterisk_worker/cost_benefit.py`
 - [x] Adapt view: measure editor + per-measure benefit/cost, NPV, discount rates
 
-## C. Uncertainty & sensitivity  (DONE — proper Sobol; **TC only**; bounds U[0.8,1.2] / U[0.9,1.1] / U[0.85,1.15] are platform assumptions without a cited source)
+## C. Uncertainty & sensitivity  (SALib Sobol wrapper around ImpactCalc — **not** CLIMADA `unsequa`; **TC only**; bounds U[0.8,1.2] / U[0.9,1.1] / U[0.85,1.15] are **indicative platform assumptions** without a cited source, labelled as such in code, result and UI since 2026-09-07; sampling seeded)
 
 - [x] **Saltelli sampling + Sobol S1/ST** implemented directly with SALib (the sampler
       `unsequa` also uses; `unsequa` itself is **not** imported) over exposure value /
@@ -77,13 +77,22 @@ missing) is in **`docs/CLIMADA_METHODS.md`** (audit 2026-09-07); this file track
 - [x] **Calibration runner** — fit TC v½ to observed EM-DAT annual losses
       (`CLIMATERISK_EMDAT_PATH`) — `worker/climaterisk_worker/calibration.py`. Uses CLIMADA
       `emdat_to_impact` + `ImpactCalc` with a **`scipy.optimize.minimize_scalar`** fit of one
-      scalar (AAI); `climada.util.calibrate` is not used. The result is displayed, not written
-      back to assets or presets. No 재해연보/KOSIS loader exists yet.
+      scalar (AAI); `climada.util.calibrate` is not used. Since 2026-09-07 the result is
+      **persisted** (`data/calibrations/<peril>_<param>_<ISO3>.json`, with observed source /
+      period, objective, method, bounds, timestamp, schema) and **applied** by later runs when
+      `options.tc_impf_default="calibrated"` (`fit_status="fitted"`, not validated). No
+      재해연보/KOSIS loader exists yet — the runner reads EM-DAT only.
 - [x] European windstorm: calibrated Schwierz (default) ↔ Welker toggle
       (`windstorm_impf` option)
-- [ ] **Default-by-geography switching** — presets exist but are *opt-in clicks*; a new
-      asset defaults to the indicative class curve regardless of country. This is the
-      platform's single largest methodology gap → `docs/GAP_ANALYSIS_KO.md` G1/G2.
+- [x] **Geography-aware preset selection** (2026-09-07) — a new asset's inherited class
+      `tc_v_half` / `flood_mdr` is replaced by the bundled **regional preset** for its country
+      (Eberenz region via CLIMADA `get_countries_per_region`; JRC region via CLIMADA
+      `NatRegIDs.csv`), falling back to the **generic class curve** when no preset lists the
+      country; explicit studio overrides are never replaced; `options.tc_impf_default` /
+      `flood_impf_default` = `class` restores the old behaviour —
+      `worker/climaterisk_worker/vulnerability.py`, used by every TC / flood-family runner,
+      cost-benefit, uncertainty, forecast and supply chain. Result `detail` names the source.
+      Not yet validated against Korean losses (GAP_ANALYSIS_KO G1/G2 → RISK_REGISTER C2/C5).
 - [ ] Vulnerability *bands* (e.g. Eberenz RMSF↔TDR as a range, not a point) — GAP G6
 
 ## F. Hazards  (15 perils flagged `supported_mvp`)
@@ -97,16 +106,18 @@ Native runners (`physical.py`):
 - [x] coastal_flood — WRI Aqueduct layers (ingest-gated, clear message)
 - [x] **tc_surge** — `climada_petals` TCSurgeBathtub from TC winds + DEM, optional SLR —
       `_run_tc_surge` (bathtub caveat documented in the runner)
-- [~] **tc_rain** — R-CLIPER physical rainfall ingester exists in the worker (`ingest.py`)
-      but the API whitelist (`api/routers/run.py`) does not accept `source="tcrain"`, so the
-      Data-tab entry fails with 400; runs via the catalog runner with an indicative ramp (GAP G4)
+- [x] **tc_rain** — R-CLIPER physical rainfall ingester (`ingest.py`), reachable from the
+      Data tab since 2026-09-07 (`run.py::INGEST_SOURCES`, `tests/test_ingest_sources.py`);
+      runs via the catalog runner with an indicative ramp (GAP G4)
 - [x] **heat_mortality** — exceedance degree-days hazard × age-band dose-response
       (deaths), E-OBS (Europe) + **KMA 1 km onramp** (`kma_scenario.py`,
-      `scripts/heat_korea.py`). **Present climate only:** the runner resolves
-      `climate_scenario="historical"` unconditionally (`physical.py::_run_heat_mortality`), so
-      KMA *SSP* mortality layers are registered but not selectable; only the `heatwave`
-      (productivity) layer follows the run scenario. Custom peril on the CLIMADA engine (no
-      CLIMADA heat class exists) — see CLIMADA_METHODS.md §5.8
+      `scripts/heat_korea.py`). Since 2026-09-07 the runner resolves the **requested scenario
+      first** and falls back to `historical`, naming the fallback in `detail`
+      (`physical.py::_resolve_heat_hazard`), so KMA *SSP* mortality layers are selectable; the
+      Korean `heatwave` layer now carries the runner's `HW` tag (`_params.HEATWAVE_HAZ_TYPE`).
+      No present→future delta for heat. Exercised end-to-end on synthetic spec-conformant KMA
+      files only (`tests/test_kma_scenario.py`, CLIMADA env). Custom peril on the CLIMADA engine
+      (no CLIMADA heat class exists) — see CLIMADA_METHODS.md §5.8
 - [x] Catalog perils with indicative ramps: hail, drought, low_flow, landslide,
       crop_yield, heatwave — `_run_catalog_peril` (honest "needs ingestion" errors)
 - [x] `apply_climate_scenario_knu` frequency-only scaling — opt-in via
@@ -155,11 +166,14 @@ Native runners (`physical.py`):
 ## Status summary (2026-09-06)
 
 Implemented (code cited above): A engine (+RP cap, yearsets, warn) · B cost-benefit (TC only,
-no computation test) · C Sobol (TC only) · D exposures (6 working sources + footprints; crop is
-a stub) · E studio + presets + calibration hook (TC v½, display-only) · F 15 peril runners
-(8 native hazards, 7 catalog-only with indicative curves; tc_rain ingester not reachable via
-API) · G perils DB + Korea onramps (tested on synthetic files only) · H forecast · I reporting ·
-J finance/supply-chain. "Verified" here means the code path exists and is cited — not that a
+other perils rejected explicitly; CLIMADA-env computation test) · C Sobol wrapper (TC only,
+seeded, indicative bounds labelled) · D exposures (6 working sources + footprints; crop is a
+stub) · E studio + presets + **geography-aware regional defaults** + calibration hook (TC v½,
+persisted and opt-in applied) · F 15 peril runners (8 native hazards, 7 catalog-only with
+indicative curves; tc_rain ingester reachable) · G perils DB + Korea onramps (tested on
+synthetic files only; heat SSP layers now resolvable) · H forecast · I reporting ·
+J finance/supply-chain · validation framework (`validation.py`, arithmetic only — no observed
+Korean series). "Verified" here means the code path exists and is cited — not that a
 computation test or an observed-loss validation exists (see CLIMADA_METHODS.md §10).
 
 The open items that matter are no longer *breadth* but **defaults and rigor**: geographic

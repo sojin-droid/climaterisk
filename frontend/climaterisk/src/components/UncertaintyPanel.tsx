@@ -101,10 +101,13 @@ export function UncertaintyPanel({
             fmt={(v) => v.toFixed(2)}
           />
           <MethodNote>
-            {u.n_samples} model evaluations on a Saltelli design (SALib, the engine behind
-            CLIMADA <code>unsequa</code>); bars are total-order Sobol indices — each input&apos;s
-            share of AAI variance including interactions. AAI scales linearly with value &amp;
-            frequency, non-linearly with vulnerability (Emanuel v½). {u.detail}
+            {u.n_samples} model evaluations on a Saltelli design — a platform SALib Sobol wrapper
+            re-running CLIMADA <code>ImpactCalc</code> (not CLIMADA&apos;s <code>unsequa</code>
+            module); tropical cyclone only. Bars are total-order Sobol indices — each input&apos;s
+            share of AAI variance including interactions. The three input ranges (value ±20 %,
+            v½ ±10 %, frequency ±15 %) are indicative platform assumptions without a literature
+            source, so read this as a sensitivity screen, not a calibrated uncertainty band.
+            Frequency is applied as a linear multiplier on AAI. {u.detail}
           </MethodNote>
         </>
       )}

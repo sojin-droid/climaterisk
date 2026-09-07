@@ -42,10 +42,20 @@ class AssetSpec(BaseModel):
     eq_mmi: list[float]  # earthquake: Modified Mercalli Intensity breakpoints (shared)
     eq_mdr: list[float]  # earthquake: mean damage ratio at each MMI breakpoint
     geometry: dict[str, Any] | None = None  # GeoJSON footprint; runners disaggregate to points
+    # Vulnerability parameters the user set explicitly (session override) rather than
+    # inherited from the class default — e.g. ["tc_v_half", "flood_mdr"]. The worker never
+    # replaces an explicit value with a geography-aware preset (see
+    # worker/climaterisk_worker/vulnerability.py). Empty = every value is a class default.
+    explicit_params: list[str] = Field(default_factory=list)
 
 
 def resolve_asset_specs(portfolio: Portfolio) -> list[AssetSpec]:
-    """Resolve each asset's vulnerability class into concrete per-peril curve params."""
+    """Resolve each asset's vulnerability class into concrete per-peril curve params.
+
+    Values come from the class (``impact_functions.json``) or the session's per-class
+    override; ``explicit_params`` records which of the four came from an override so the
+    worker can apply a regional preset only to inherited class defaults.
+    """
     libs = load_libraries()
     classes = {c["id"]: c for c in libs["impact_functions"]["classes"]}
     flood_depth_m = list(libs["impact_functions"]["flood_depth_m"])
@@ -65,6 +75,16 @@ def resolve_asset_specs(portfolio: Portfolio) -> list[AssetSpec]:
         wf = float(ov.wf_max_mdd) if ov and ov.wf_max_mdd is not None else float(vc["wf_max_mdd"])
         fmdr = [float(x) for x in (ov.flood_mdr if ov and ov.flood_mdr else vc["flood_mdr"])]
         emdr = [float(x) for x in (ov.eq_mdr if ov and ov.eq_mdr else vc["eq_mdr"])]
+        explicit: list[str] = []
+        if ov is not None:
+            if ov.tc_v_half is not None:
+                explicit.append("tc_v_half")
+            if ov.wf_max_mdd is not None:
+                explicit.append("wf_max_mdd")
+            if ov.flood_mdr:
+                explicit.append("flood_mdr")
+            if ov.eq_mdr:
+                explicit.append("eq_mdr")
         specs.append(
             AssetSpec(
                 id=a.id,
@@ -83,6 +103,7 @@ def resolve_asset_specs(portfolio: Portfolio) -> list[AssetSpec]:
                 eq_mmi=eq_mmi,
                 eq_mdr=emdr,
                 geometry=a.geometry,
+                explicit_params=explicit,
             )
         )
     return specs
@@ -230,6 +251,9 @@ class CostBenefitRequest(BaseModel):
     discount_schedule: dict[str, float] | None = None
     assets: list[AssetSpec]
     measures: list[MeasureSpec]
+    # Run-config options forwarded verbatim (e.g. ``tc_impf_default``) so the worker resolves
+    # vulnerability defaults exactly as the physical run does.
+    options: dict[str, Any] = Field(default_factory=dict)
 
     @classmethod
     def from_portfolio(
@@ -245,6 +269,7 @@ class CostBenefitRequest(BaseModel):
             discount_schedule=sched if isinstance(sched, dict) else None,
             assets=resolve_asset_specs(portfolio),
             measures=measures,
+            options=dict(portfolio.run_config.options),
         )
 
 
@@ -282,6 +307,7 @@ class UncertaintyRequest(BaseModel):
     anchor_years: list[int]
     n_samples: int = 50
     assets: list[AssetSpec]
+    options: dict[str, Any] = Field(default_factory=dict)  # e.g. tc_impf_default, seed
 
     @classmethod
     def from_portfolio(cls, portfolio: Portfolio, n_samples: int = 50) -> UncertaintyRequest:
@@ -291,6 +317,7 @@ class UncertaintyRequest(BaseModel):
             climate_scenario=portfolio.scenario.climate,
             anchor_years=portfolio.scenario.anchor_years,
             n_samples=n_samples,
+            options=dict(portfolio.run_config.options),
             assets=resolve_asset_specs(portfolio),
         )
 
@@ -318,6 +345,14 @@ class UncertaintyResult(BaseModel):
     delta_mean: float | None = None
     delta_p5: float | None = None
     delta_p95: float | None = None
+    # Method transparency: SALib Sobol wrapper around ImpactCalc (not climada unsequa),
+    # TC only, with the (indicative) input bounds and the sampling seed actually used.
+    method: str | None = None
+    scope: str | None = None
+    bounds: dict[str, list[float]] = Field(default_factory=dict)
+    bounds_provenance: str | None = None
+    frequency_treatment: str | None = None
+    seed: int | None = None
     detail: str | None = None
 
 
@@ -448,6 +483,7 @@ class SupplyChainRequest(BaseModel):
     assets: list[AssetSpec]
     mriot_type: str = "WIOD16"  # MRIO table: WIOD16 | EXIOBASE3 | OECD21 | …
     mriot_year: int = 2010
+    options: dict[str, Any] = Field(default_factory=dict)
 
     @classmethod
     def from_portfolio(
@@ -461,6 +497,7 @@ class SupplyChainRequest(BaseModel):
             assets=resolve_asset_specs(portfolio),
             mriot_type=mriot_type,
             mriot_year=mriot_year,
+            options=dict(portfolio.run_config.options),
         )
 
 
@@ -493,6 +530,7 @@ class CalibrationRequest(BaseModel):
     climate_scenario: str
     anchor_years: list[int]
     assets: list[AssetSpec]
+    options: dict[str, Any] = Field(default_factory=dict)
 
     @classmethod
     def from_portfolio(cls, portfolio: Portfolio) -> CalibrationRequest:
@@ -502,11 +540,18 @@ class CalibrationRequest(BaseModel):
             climate_scenario=portfolio.scenario.climate,
             anchor_years=portfolio.scenario.anchor_years,
             assets=resolve_asset_specs(portfolio),
+            options=dict(portfolio.run_config.options),
         )
 
 
 class CalibrationResult(BaseModel):
-    """Engine output for an impact-function calibration run."""
+    """Engine output for an impact-function calibration run.
+
+    A successful run also persists the same record under ``data/calibrations/`` (see
+    ``persisted_to``); later runs consume it when ``RunConfig.options["tc_impf_default"]
+    == "calibrated"``. ``fit_status`` is ``"fitted"`` — the value has been fitted to one
+    observed series, not validated against an independent one.
+    """
 
     status: str
     peril: str = "tropical_cyclone"
@@ -515,6 +560,20 @@ class CalibrationResult(BaseModel):
     initial: float = 0.0
     calibrated: float = 0.0
     observed_annual_loss: float = 0.0
+    # Provenance / reproducibility metadata (optional for older results).
+    fit_status: str | None = None  # "fitted" (never "validated" from this runner)
+    observed_source: str | None = None  # e.g. "EM-DAT (public.emdat.be) CSV <basename>"
+    observed_period: list[int] = Field(default_factory=list)  # [first_year, last_year]
+    n_observed_events: int | None = None
+    hazard: str | None = None  # present-day hazard the fit ran on
+    objective: str | None = None
+    method: str | None = None
+    bounds: list[float] = Field(default_factory=list)
+    modelled_annual_loss_at_calibrated: float | None = None
+    calibrated_at: str | None = None  # ISO-8601 UTC
+    schema_version: int | None = None
+    persisted_to: str | None = None
+    applies_when: str | None = None
     detail: str | None = None
 
 
@@ -527,11 +586,16 @@ class ForecastRequest(BaseModel):
     mode: str = "forecast"
     session_id: str
     assets: list[AssetSpec]
+    options: dict[str, Any] = Field(default_factory=dict)
 
     @classmethod
     def from_portfolio(cls, portfolio: Portfolio) -> ForecastRequest:
         """Build a forecast request from the session model."""
-        return cls(session_id=portfolio.id, assets=resolve_asset_specs(portfolio))
+        return cls(
+            session_id=portfolio.id,
+            assets=resolve_asset_specs(portfolio),
+            options=dict(portfolio.run_config.options),
+        )
 
 
 class ForecastResult(BaseModel):

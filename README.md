@@ -179,7 +179,10 @@ uncertainty, ECMWF TC forecast, 7 exposure sources, EM-DAT calibration runner) a
 **transition risk** (NGFS Phase-5 carbon-cost passthrough) plus the TCFD/ISSB report and the
 finance CRP view are working end-to-end — the capability-by-capability record (each with the
 implementing module) is **[docs/CLIMADA_COVERAGE.md](docs/CLIMADA_COVERAGE.md)**, audited
-against the code 2026-09-06.
+against the code 2026-09-06 and updated 2026-09-07 (geography-aware regional vulnerability
+defaults by country; heat-mortality scenario routing; calibration persistence; cost-benefit is
+tropical-cyclone only and says so). Regional defaults are CLIMADA-shipped presets selected by
+CLIMADA's own country tables — **not validated against Korean observed losses yet**.
 
 What each peril computes, and with which vulnerability defaults:
 **[docs/METHODOLOGY.md](docs/METHODOLOGY.md)**. Which of that is CLIMADA-native, which is

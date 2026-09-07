@@ -55,19 +55,23 @@ provenance + licence in the catalog entry's `source`/`license` fields.
 ## Per-peril methodology (as implemented — verified 2026-09-06)
 
 What each peril actually computes today. "Vulnerability default" is what a **new asset gets
-with zero clicks**; published presets exist in the Vuln studio but are opt-in.
+with zero clicks**. Since 2026-09-07 that default is **geography-aware**: when the asset's
+country is listed on a bundled regional preset (Eberenz 2021 for TC, JRC 2017 for the flood
+family) the preset replaces the class value; otherwise the generic class curve is the fallback
+(`worker/climaterisk_worker/vulnerability.py`; `options.tc_impf_default` /
+`flood_impf_default` = `class` restores the old behaviour). Studio overrides always win.
 
 | Peril | Hazard | Vulnerability default | Maturity / caveat |
 |---|---|---|---|
-| Tropical cyclone | Data API synthetic sets, present + rcp×year future | Emanuel `v_half` per class (residential **70**, infra 110) — **indicative, not regional** | Eberenz 2021 regional presets exist but are opt-in → GAP G1 |
-| River flood | ISIMIP depth | JRC-style depth-damage per class — the residential default matches the JRC **Europe** residential curve to 4 m (differs at 5–6 m: .92/.95 vs .95/1.0) | Region misapplication outside Europe → GAP G2; Korea floodmap onramp in progress (RISK_REGISTER C3) |
-| Coastal flood / SLR | WRI Aqueduct (ingest-gated) | same flood curve family | same G2 caveat |
+| Tropical cyclone | Data API synthetic sets, present + rcp×year future | Emanuel `v_half` = **Eberenz 2021 regional preset by country** (e.g. KOR/JPN → WP4 190.5, USA → NA2 89.2); class value (residential 70, infra 110, indicative) only where no region lists the country or in `class` mode | Regional default not yet validated on Korean losses (RISK_REGISTER C2/C5); single TDR point, no RMSF↔TDR band → GAP G6 |
+| River flood | ISIMIP depth | **JRC 2017 regional residential preset by country** (KOR → Asia, DEU → Europe …); the class curve (JRC-Europe-like to 4 m) is the generic fallback | Residential sector only; Korea floodmap onramp in progress (RISK_REGISTER C3); not validated |
+| Coastal flood / SLR | WRI Aqueduct (ingest-gated) | same flood curve family (regional JRC preset by country) | residential sector only; single GCM |
 | TC storm surge | petals `TCSurgeBathtub` (wind + DEM, opt. SLR) | flood depth-damage | bathtub = no hydrodynamics, **no seawalls**; separate peril — not event-combined with wind (GAP G5) |
 | TC rainfall | R-CLIPER ingester (physical mm) | **indicative ramp** | catalog-ramp peril → GAP G4 |
 | Wildfire | historical brightness temperature | sigmoid `x0=325 K` from 295 K, per-class max MDD | **no ignition threshold** — overstates low-intensity seasons vs the Lüthi-calibrated form → GAP G3 |
 | European windstorm | WISC/Schwierz sets | calibrated **Schwierz** (default) ↔ Welker toggle | the one peril with a calibrated default |
 | Earthquake | observed catalog | EMS-98/HAZUS-style MMI classes | labelled indicative; no published CLIMADA impf exists |
-| Heat mortality | exceedance degree-days (E-OBS obs / KMA SSP onramp) | age-band dose-response, comfort *band* | validated vs 2022 Europe ranking; ~2.3× under on extreme years (RISK_REGISTER B2) |
+| Heat mortality | exceedance degree-days (E-OBS obs / KMA onramp; requested scenario layer if registered, else `historical` with an explicit fallback note) | age-band dose-response, comfort *band* | ranking validated vs 2022 Europe; ~2.3× under on extreme years (RISK_REGISTER B2); no heat present→future delta; Korea not validated |
 | Heatwave / drought / low_flow / hail / landslide / crop_yield | local catalog only | **indicative ramps** scaled by the class `wf_max_mdd` | honest "needs ingestion" errors; ramps are not calibrated → GAP G4 |
 
 Cross-cutting rigor already in place: return periods capped at half the event record;

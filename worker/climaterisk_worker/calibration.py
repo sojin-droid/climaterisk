@@ -1,8 +1,19 @@
-"""Calibrate an impact-function parameter against observed losses (EM-DAT).
+"""Calibrate an impact-function parameter against observed losses (EM-DAT) and persist it.
 
-Fits the Emanuel tropical-cyclone ``v_half`` to historical EM-DAT losses for the
-portfolio's country by minimising squared error between modelled and observed annual
-losses (``climada.util.calibrate.ScipyMinimizeOptimizer`` over present-day TC hazard).
+Method (unchanged by the 2026-09-07 audit fix): fit the Emanuel tropical-cyclone ``v_half``
+so that the modelled **present-day average annual impact** (CLIMADA ``ImpactCalc`` on the
+present-day TC hazard) matches the **observed mean annual loss** from EM-DAT
+(``climada.engine.impact_data.emdat_to_impact``), by ``scipy.optimize.minimize_scalar``
+(bounded) on the squared error. This is a one-parameter AAI match — **not** the
+``climada.util.calibrate`` framework (no per-event cost function, no evaluator).
+
+What the fix adds: the result is written as a JSON record under ``data/calibrations/``
+(``vulnerability.save_calibration``) with full provenance (observed source and period,
+objective, method, bounds, hazard, timestamp, schema version), and a later physical /
+cost-benefit / uncertainty run can consume it by setting
+``options["tc_impf_default"] = "calibrated"`` (``vulnerability.resolve_tc_vhalf``). The
+record's ``fit_status`` is ``"fitted"``: it matches one observed series and has not been
+validated against an independent one.
 
 EM-DAT is login-gated and non-commercial; drop the CSV in and set ``CLIMATERISK_EMDAT_PATH``.
 When it is absent this degrades with a clear, actionable error. Worker (CLIMADA) env only.
@@ -10,8 +21,65 @@ When it is absent this degrades with a clear, actionable error. Worker (CLIMADA)
 
 from __future__ import annotations
 
+import datetime as _dt
 import os
 from typing import Any
+
+from climaterisk_worker import vulnerability
+
+CALIBRATION_SCHEMA_VERSION = 1
+V_HALF_BOUNDS = (25.7, 200.0)  # m/s; lower = Emanuel v_thresh, upper above Eberenz WP4 190.5
+OBJECTIVE = (
+    "squared error between modelled present-day aai_agg (CLIMADA ImpactCalc, Emanuel "
+    "from_emanuel_usa with free v_half) and observed mean annual loss "
+    "(EM-DAT total / years spanned)"
+)
+METHOD = "scipy.optimize.minimize_scalar(method='bounded') — one scalar parameter"
+APPLIES_WHEN = (
+    "RunConfig.options['tc_impf_default'] == 'calibrated' "
+    "(physical, cost-benefit, uncertainty runs)"
+)
+
+
+def calibration_record(
+    *,
+    country: str,
+    initial: float,
+    calibrated: float,
+    observed_annual_loss: float,
+    modelled_annual_loss: float | None,
+    observed_source: str,
+    observed_period: tuple[int, int] | None,
+    n_observed_events: int,
+    hazard: str,
+    n_assets: int,
+    calibrated_at: str | None = None,
+) -> dict[str, Any]:
+    """Assemble the persisted/reported calibration record (pure; no CLIMADA)."""
+    return {
+        "schema_version": CALIBRATION_SCHEMA_VERSION,
+        "peril": "tropical_cyclone",
+        "param": "v_half",
+        "country": country,
+        "fit_status": "fitted",
+        "initial": float(initial),
+        "calibrated": float(calibrated),
+        "observed_annual_loss": float(observed_annual_loss),
+        "modelled_annual_loss_at_calibrated": (
+            float(modelled_annual_loss) if modelled_annual_loss is not None else None
+        ),
+        "observed_source": observed_source,
+        "observed_period": list(observed_period) if observed_period else [],
+        "n_observed_events": int(n_observed_events),
+        "hazard": hazard,
+        "objective": OBJECTIVE,
+        "method": METHOD,
+        "bounds": list(V_HALF_BOUNDS),
+        "n_assets": int(n_assets),
+        "calibrated_at": calibrated_at
+        or _dt.datetime.now(_dt.UTC).replace(microsecond=0).isoformat(),
+        "applies_when": APPLIES_WHEN,
+    }
 
 
 def compute_calibration(request: dict[str, Any]) -> dict[str, Any]:
@@ -46,9 +114,8 @@ def compute_calibration(request: dict[str, Any]) -> dict[str, Any]:
     except Exception as exc:
         return {"status": "error", "detail": f"calibration engine unavailable: {exc}"}
 
-    iso3 = _single_country_iso3(
-        _per_asset_iso3([a["lat"] for a in assets], [a["lon"] for a in assets])
-    )
+    iso3s = _per_asset_iso3([a["lat"] for a in assets], [a["lon"] for a in assets])
+    iso3 = _single_country_iso3(iso3s)
     if iso3 is None:
         return {
             "status": "error",
@@ -75,6 +142,7 @@ def compute_calibration(request: dict[str, Any]) -> dict[str, Any]:
         dates = np.asarray(getattr(imp_emdat, "date", []), dtype=float)
         event_years = [datetime.date.fromordinal(int(d)).year for d in dates if d > 0]
         n_years = max(1, max(event_years) - min(event_years) + 1) if event_years else 1
+        period = (min(event_years), max(event_years)) if event_years else None
 
         # Present-day hazard + exposure; fit v_half so modelled AAI matches observed.
         impf_ids = [1] * len(assets)
@@ -88,24 +156,46 @@ def compute_calibration(request: dict[str, Any]) -> dict[str, Any]:
         target = observed / n_years  # observed annual-average loss
         from scipy.optimize import minimize_scalar
 
-        initial = float(assets[0].get("tc_v_half", 84.7))
+        # Starting point reported for context = the v_half the impact run would use today
+        # (regional preset or class default); minimize_scalar(bounded) does not take an x0.
+        initial_vh, _src, _note = vulnerability.resolve_tc_vhalf(
+            assets, iso3s, request.get("options")
+        )
+        initial = float(initial_vh[0])
         res = minimize_scalar(
             lambda v: (modelled_aai(v) - target) ** 2,
-            bounds=(25.7, 200.0),
+            bounds=V_HALF_BOUNDS,
             method="bounded",
         )
         calibrated = float(res.x)
+        record = calibration_record(
+            country=iso3,
+            initial=initial,
+            calibrated=calibrated,
+            observed_annual_loss=target,
+            modelled_annual_loss=modelled_aai(calibrated),
+            observed_source=f"EM-DAT (public.emdat.be) CSV {os.path.basename(emdat)}",
+            observed_period=period,
+            n_observed_events=int(at_event.size),
+            hazard=(
+                "CLIMADA Data API synthetic TC, present-day (climate_scenario=None), catalog-first"
+            ),
+            n_assets=len(assets),
+        )
+        persisted: str | None = None
+        if request.get("persist", True):
+            persisted = str(vulnerability.save_calibration(record))
         return {
             "status": "ok",
-            "peril": "tropical_cyclone",
-            "country": iso3,
-            "param": "v_half",
-            "initial": initial,
-            "calibrated": calibrated,
-            "observed_annual_loss": target,
+            **record,
+            "persisted_to": persisted,
             "detail": (
-                f"{iso3} TC v_half calibrated to EM-DAT (observed ~{target:,.0f}/yr): "
-                f"{initial:.1f} → {calibrated:.1f} m/s"
+                f"{iso3} TC v_half fitted to EM-DAT mean annual loss (~{target:,.0f}/yr, "
+                f"{period[0]}–{period[1]}): {initial:.1f} → {calibrated:.1f} m/s. "
+                f"Saved to {persisted or 'nowhere (persist=False)'}; used by runs with "
+                f"tc_impf_default='calibrated'. Fitted, not validated."
+                if period
+                else f"{iso3} TC v_half fitted to EM-DAT: {initial:.1f} → {calibrated:.1f} m/s"
             ),
         }
     except Exception as exc:

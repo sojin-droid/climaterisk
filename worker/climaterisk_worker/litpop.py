@@ -13,8 +13,12 @@ from __future__ import annotations
 
 from typing import Any
 
-# Default vulnerability for modeled grid cells (residential class — mirrors
-# assets/libraries/impact_functions.json so a modeled run matches a residential portfolio).
+# Fallback vulnerability for modeled grid cells. ``tc_v_half`` 74.7 is the Emanuel (2011)
+# USA default (NOT the 70.0 residential class default point assets get); flood/EQ curves
+# mirror the residential class. In the default ``regional`` mode the worker replaces
+# ``tc_v_half``/``flood_mdr`` with the country's Eberenz/JRC preset (grid cells carry no
+# explicit override), so these values only matter for countries outside every preset region
+# or when ``options["tc_impf_default"]/["flood_impf_default"] == "class"``.
 _DEFAULT_VULN: dict[str, Any] = {
     "tc_v_half": 74.7,
     "wf_max_mdd": 0.40,

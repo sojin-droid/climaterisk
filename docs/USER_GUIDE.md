@@ -52,11 +52,16 @@ explicit message telling you to build the env.
 - *Search location* finds a place by name.
 
 **Scenarios** — pick the climate pathway (RCP2.6/4.5/6.0/8.5, mapped to SSP where a source needs
-it), the transition pathway (NGFS, e.g. Net Zero 2050) and anchor years (2030–2090). Every result is
-a *scenario result*, not a forecast.
+it), the transition pathway (NGFS, e.g. Net Zero 2050) and anchor years (2030–2090; runners use the
+latest year, snapped to what the hazard source offers). Every result is a *scenario result*, not a
+forecast. Two vulnerability-default selectors sit here: **TC v½** (regional Eberenz preset by
+country — default; indicative class value; or a persisted calibration) and **flood-family curve**
+(regional JRC preset by continent — default; or the generic class curve).
 
-**Vuln** — per-asset vulnerability class overrides (damage curves). Defaults are sector-based global
-curves; see §7 for calibrating them on national loss data.
+**Vuln** — per-asset vulnerability class overrides (damage curves). With no override, an asset gets
+the bundled *regional* preset for its country (Eberenz 2021 for TC, JRC 2017 for floods) when one
+lists the country, otherwise the generic class curve; the result card's detail line says which. An
+override you set here always wins. See §7 for calibrating on national loss data.
 
 **Results** — choose perils, press **Run analysis**. Each peril card shows expected annual impact,
 present→future delta, a per-asset map, the return-period curve and warning bands. Return periods stop

@@ -23,6 +23,42 @@ Every component carries one tag:
 
 Path abbreviations: `P` = `worker/climaterisk_worker/physical.py`; other worker modules by
 file name; `BASE` = `src/climaterisk/engines/base.py`; `IFJ` = `assets/libraries/impact_functions.json`.
+`P:nnn` line numbers refer to commit `f8d0bb4` (the audited state); the post-audit fixes below
+moved some lines — use the function names.
+
+---
+
+## Post-audit code fixes (2026-09-07)
+
+The audit's Critical/High findings were fixed at code level with the smallest change that
+removes the finding, **without adding any new curve, parameter or scientific assumption**:
+every substituted value is a preset CLIMADA itself ships, selected by CLIMADA's own
+country-to-region tables. Status vocabulary used from here on:
+
+| Status | Meaning |
+|---|---|
+| **Implemented** | end-to-end code path exists and is exercised by a test that runs in the backend env |
+| **Partial** | code path exists with a stated limitation (e.g. one peril) |
+| **Framework only** | interfaces/metrics exist; no real data has been through them |
+| **Not validated** | feature works but has not been compared to observed data |
+| **Not implemented** | no code |
+
+| Domain | Before (audit) | After (this change) | Status |
+|---|---|---|---|
+| TC vulnerability | class `v_half` 70–110 for every country; Eberenz presets opt-in | default = bundled Eberenz regional preset by asset ISO3 (KOR → WP4 190.5); class value only as fallback or on `options.tc_impf_default="class"`; explicit studio overrides never replaced (`vulnerability.resolve_tc_vhalf`, used by physical/cost-benefit/uncertainty/forecast/supply-chain) | **Implemented** (test: `tests/test_vulnerability_defaults.py`), **Not validated** against Korean losses |
+| Flood vulnerability | JRC-Europe-like class curve everywhere | default = bundled JRC regional residential preset by asset ISO3 (KOR → Asia, DEU → Europe); unsupported country → generic class curve, reported as such (`vulnerability.resolve_flood_mdr`; river, coastal, surge share `_flood_impf_set`) | **Implemented**, **Not validated** |
+| Heat scenario | `heat_mortality` queried `historical` only; KMA SSP layers unreachable; Korean `heatwave` layer stamped `HM` vs runner `HW` | requested scenario first, `historical` fallback reported in `detail` (`_resolve_heat_hazard`); `HEATWAVE_HAZ_TYPE` shared by runner and `scripts/heat_korea.py` | **Implemented** (resolver test CLIMADA-free; request → SSP layer → ImpactCalc test in `test_kma_scenario.py` needs CLIMADA) |
+| CostBenefit | `request["peril"]` ignored, TC computed silently; no computation test | `peril` honoured: TC computed, any other peril → structured `status="error"` before CLIMADA import; TC computation test on a synthetic hazard (CLIMADA-gated) | **Partial** (TC only, by design and now explicit) |
+| Calibration | result displayed only; no metadata; not consumed | record with provenance (source, period, objective, method, bounds, hazard, timestamp, schema) persisted to `data/calibrations/`; consumed when `options.tc_impf_default="calibrated"`; `fit_status="fitted"` | **Implemented** persistence/application; fit method unchanged; **Not validated** |
+| Uncertainty | SALib Sobol, TC only, uncited bounds, unseeded, described as "unsequa" in places | same method, now seeded (`_SOBOL_SEED`, `request["seed"]`), bounds labelled *indicative assumption* in code, result and UI; scope/method/bounds returned in the result; `unsequa` wording removed | **Partial** (TC only; bounds still assumptions) |
+| Validation | none beyond regression baselines and the Spain heat ranking | `validation.py`: observed-vs-modelled annual/event metrics (bias, MAE, RMSE, ratio, coverage) + observed-series contract; arithmetic tested on synthetic numbers only | **Framework only** — no observed Korean series wired |
+| Korean localization | on-ramps tested on synthetic files; regional presets not applied; heat SSP unreachable | KOR now receives Eberenz WP4 / JRC Asia by default; KMA SSP mortality layers resolvable; `tcrain` ingester reachable from the API | **Partial** — still **no real KMA / 홍수위험지도 / 재해연보 data executed** |
+| Wildfire | historical only, no ignition threshold (documented) | unchanged; runner docstring now states historical-only + indicative sigmoid | **Partial** (no code change) |
+| TCRain ingest | worker refiner blocked by API whitelist | `INGEST_SOURCES` includes `tcrain`; whitelist == Data tab == worker refiners (tested) | **Implemented** |
+
+Environment note: CLIMADA is not installable on the audit machine (no conda), so tests marked
+`importorskip("climada")` are **blocked by environment** here, not passing — they are written to
+run in `./.climada-env`.
 
 ---
 
@@ -286,8 +322,22 @@ Published presets (`assets/libraries/impact_function_presets.json`, 21 entries) 
 **offline** by `scripts/build_impf_presets.py` using `ImpfSetTropCyclone.calibrated_regional_vhalf(q=0.5)`
 (Eberenz 2021, 10 regions + USA default; e.g. WP4 North-West Pacific `v_half=190.5`) and
 `ImpfRiverFlood.from_jrc_region_sector(region, "residential")` (6 regions); EQ presets are
-labelled indicative. Presets are **opt-in clicks**; no code selects one by geography.
-`[CLIMADA NATIVE]` generation, `[NOT IMPLEMENTED]` automatic regional switching.
+labelled indicative. **Geography-aware preset selection (2026-09-07).** The worker replaces an *inherited class
+default* with the bundled regional preset when the asset's ISO3 (from `_per_asset_iso3`) is
+listed on a preset (`worker/climaterisk_worker/vulnerability.py`):
+
+| Precedence | TC `v_half` | Flood `flood_mdr` |
+|---|---|---|
+| 1 explicit studio override (`AssetSpec.explicit_params`) | kept | kept |
+| 2 persisted calibration (`options.tc_impf_default="calibrated"` only) | `data/calibrations/tropical_cyclone_v_half_<ISO3>.json` | — |
+| 3 **regional preset** (default mode `"regional"`) | Eberenz region from CLIMADA `get_countries_per_region` (e.g. KOR/JPN/TWN/HKG/MAC → WP4 190.5, USA/CAN → NA2 89.2, DEU → ROW 110.1) | JRC region from CLIMADA `NatRegIDs.csv` (e.g. KOR → Asia, DEU → Europe, MEX → South America) |
+| 4 **generic fallback** (mode `"class"`, unknown country, or depth breakpoints ≠ preset) | class value from `IFJ` | class curve from `IFJ` |
+
+Every result `detail` names the source used per asset count (e.g. `TC v_half [regional]:
+Eberenz WP4 preset v_half 190.5 (3 assets)`), so a *regional vulnerability preset* is never
+confused with the *generic fallback curve*. Membership lists live on each preset as
+`countries` (added by `scripts/build_impf_presets.py` from CLIMADA's tables).
+`[CLIMADA NATIVE]` values and membership, `[CLIMATERISK CUSTOM]` selection logic.
 
 The worker then constructs `ImpactFunc` objects from these numbers: Emanuel form for TC
 (`ImpfTropCyclone.from_emanuel_usa`), Schwierz/Welker for windstorm (native, class ignored),
@@ -345,17 +395,17 @@ Uncertainty · Adaptation · Validation · Status · Main gap.
 | Hazard type | `TC`, 1-min sustained wind m/s | — |
 | Hazard representation | Probabilistic synthetic-track event set (IBTrACS-derived random-walk perturbations); frequencies as delivered. The optional `ingest_tctracks` on-ramp (IBTrACS 2010–2021, `nb_synth_tracks=2`) sets no frequency itself and relies on `TropCyclone.from_tracks`' native `1/(n_years × 3)` | `[EXTERNAL]` / `[CLIMADA NATIVE]` |
 | Exposure | User points/footprints → `Exposures`, `impf_TC` | `[PARTIAL]` |
-| Impact function | `ImpfTropCyclone.from_emanuel_usa(v_half=class value)` (`v_thresh` left at CLIMADA's 25.7 m/s); one function per distinct `v_half` | `[CLIMADA NATIVE]` form, platform parameter |
+| Impact function | `ImpfTropCyclone.from_emanuel_usa(v_half=…)` (`v_thresh` left at CLIMADA's 25.7 m/s); `v_half` = explicit override → (opt-in) persisted calibration → **Eberenz regional preset by ISO3** (default) → class value (fallback); one function per distinct `v_half` (`vulnerability.resolve_tc_vhalf`) | `[CLIMADA NATIVE]` form and preset values; `[CLIMATERISK CUSTOM]` selection |
 | CLIMADA component | `ImpactCalc`, `calc_freq_curve`, `impact_yearset`, `apply_climate_scenario_knu` (opt-in) | `[CLIMADA NATIVE]` |
 | Custom component | Hazard resolution order, RP cap, delta %, footprint split, warn thresholds | `[CLIMATERISK CUSTOM]` |
 | Main risk metric | Future `aai_agg`, per-asset `eai`, RP curve (10–250 yr as supported), yearset, `delta_pct` | — |
 | Future scenario | `ref_year = nearest(2040/2060/2080, max(anchor_years))`; future = catalog → Data API `rcp×ref_year` → Knutson scaling if `options.tc_future_method=="knutson"`. Present = Data API `climate_scenario="None"` (always Data API, even when future is catalog) | `[EXTERNAL]` / `[CLIMADA NATIVE]` |
-| Calibration | Runner exists (§8) — TC `v_half` vs EM-DAT, result displayed only; default `v_half` 70–110 is **indicative**; Eberenz regional presets opt-in | `[PARTIAL]` |
+| Calibration | Runner exists (§8) — TC `v_half` vs EM-DAT; result persisted with provenance and applied when `options.tc_impf_default="calibrated"`; not yet run on Korean data | `[PARTIAL]`, not validated |
 | Uncertainty | Sobol over exposure value / `v_half` / frequency (§7) — TC only | `[CLIMATERISK CUSTOM]` |
 | Adaptation | `CostBenefit` runner (§9) — TC only | `[CLIMADA NATIVE]` engine |
 | Validation | `tests/test_physical_regression.py` (3 tests: AAI, EAI, RP curve vs stored baseline; requires CLIMADA). No observed-loss validation in repo | `[PARTIAL]` |
 | Status | Most complete peril: native hazard, native form, delta, uncertainty, adaptation, calibration hook | — |
-| Main gap | Default `v_half` not region-aware — Korea (WP4) preset is 190.5 vs default 70 → large over-estimate for Korean assets by default (GAP G1) | Critical |
+| Main gap | (G1 fixed in code 2026-09-07: KOR defaults to WP4 190.5.) Remaining: the regional preset is a single TDR-optimised point (no RMSF↔TDR band, G6); no Korean observed-loss validation of the default (RISK_REGISTER C2/C5) | High |
 
 ### 5.2 River flood (`river_flood`) — `P:444-538`
 
@@ -365,7 +415,7 @@ Uncertainty · Adaptation · Validation · Status · Main gap.
 | Hazard type | `RF`, inundation depth m | — |
 | Hazard representation | Data API: ISIMIP-derived depth per event. Aqueduct path: 8 return-period layers (5–1000 yr) as 8 events with incremental frequency `1/rp_i − 1/rp_{i+1}` (`ingest.py:139-146`), single GCM `NorESM1-M` | `[EXTERNAL]` / `[CLIMATERISK CUSTOM]` |
 | Exposure | `Exposures`, `impf_RF` | `[PARTIAL]` |
-| Impact function | Hand-set `ImpactFunc(haz_type="RF", intensity=flood_depth_m, mdd=flood_mdr, paa=1)` per class. The residential default `[0,.25,.40,.60,.75,.85,.92,.95]` matches the JRC Europe residential preset to 4 m and differs at 5–6 m (preset `.95/1.0`). `ImpfRiverFlood.from_jrc_region_sector` (petals) is used **only offline** to bake presets | `[CLIMATERISK CUSTOM]` arrays (JRC-Europe-like by default) |
+| Impact function | `ImpactFunc(haz_type="RF", intensity=flood_depth_m, mdd=…, paa=1)` built by `_flood_impf_set`; `mdd` = explicit override → **JRC regional residential preset by ISO3** (default; KOR → Asia) → class curve (generic fallback, JRC-Europe-like `[0,.25,.40,.60,.75,.85,.92,.95]`). Preset values baked offline from petals `ImpfRiverFlood.from_jrc_region_sector` | `[CLIMADA NATIVE]` preset values; `[CLIMATERISK CUSTOM]` selection + fallback arrays |
 | CLIMADA component | `ImpactCalc`, `calc_freq_curve`, `impact_yearset` | `[CLIMADA NATIVE]` |
 | Custom component | Scenario remap `rcp45→rcp60` (`_params.py`), year-range snapping, Aqueduct frequency model | `[CLIMATERISK CUSTOM]` |
 | Main risk metric | Future `aai_agg`, `eai`, RP curve, yearset, `delta_pct` vs Data API `historical/1980_2000` | — |
@@ -375,7 +425,7 @@ Uncertainty · Adaptation · Validation · Status · Main gap.
 | Adaptation | None (CostBenefit is TC-only) | `[NOT IMPLEMENTED]` |
 | Validation | None in repo | `[NOT IMPLEMENTED]` |
 | Status | Native hazard, native engine, custom depth-damage arrays | — |
-| Main gap | Residential default equals the JRC **Europe** curve for every country (GAP G2); point assets near rivers fall outside ISIMIP footprints (B1) | High |
+| Main gap | (G2 fixed in code 2026-09-07: KOR defaults to JRC Asia residential.) Remaining: residential sector only (no per-sector JRC curve); point assets near rivers fall outside ISIMIP footprints (B1); no Korean validation | Medium |
 
 ### 5.3 Wildfire (`wildfire`) — `P:541-608`
 
@@ -441,7 +491,7 @@ Uncertainty · Adaptation · Validation · Status · Main gap.
 | Hazard type | `CF`, inundation depth m | — |
 | Hazard representation | Return-period layers as events with incremental frequency; nearest of 2030/2050/2080; `rcp26/45→rcp4p5`, `rcp60/85→rcp8p5` | `[CLIMATERISK CUSTOM]` |
 | Exposure | `Exposures`, `impf_CF` | `[PARTIAL]` |
-| Impact function | Same hand-set depth-damage arrays as river flood | `[CLIMATERISK CUSTOM]` |
+| Impact function | Same `_flood_impf_set` as river flood (JRC regional preset by ISO3, class curve as fallback) | `[CLIMADA NATIVE]` values, `[CLIMATERISK CUSTOM]` selection |
 | CLIMADA component | `Hazard()` constructor, `ImpactCalc`, `calc_freq_curve`, `impact_yearset` | `[CLIMADA NATIVE]` |
 | Custom component | Whole hazard assembly | `[CLIMATERISK CUSTOM]` |
 | Main risk metric | Future `aai_agg`, `eai`, RP curve (record = 1000 yr → cap 500 → all requested RPs kept), `delta_pct` vs catalog `historical` | — |
@@ -449,7 +499,7 @@ Uncertainty · Adaptation · Validation · Status · Main gap.
 | Calibration / Uncertainty / Adaptation | None | `[NOT IMPLEMENTED]` |
 | Validation | `tests/test_aqueduct_layers.py` (layer naming/frequency, 4 tests); no loss validation | `[PARTIAL]` |
 | Status | Custom hazard on native engine | — |
-| Main gap | Flood curve = JRC Europe default (G2); "record_years=1000" reflects the largest published RP, not observation length — the cap is not protective here | High |
+| Main gap | (G2 fixed: regional JRC preset by default.) "record_years=1000" reflects the largest published RP, not observation length — the cap is not protective here; single GCM | Medium |
 
 ### 5.7 Storm surge (`tc_surge`) — `P:861-958`
 
@@ -459,7 +509,7 @@ Uncertainty · Adaptation · Validation · Status · Main gap.
 | Hazard type | Surge height m (petals type) | — |
 | Hazard representation | `TCSurgeBathtub.from_tc_winds(wind, topo_path=dem, add_sea_level_rise=slr)` — bathtub, no hydrodynamics, **no defences**; SLR as a metre offset `options.sea_level_rise_m` | `[CLIMADA NATIVE]` (petals) |
 | Exposure | `Exposures`, `impf_<surge type>` | `[PARTIAL]` |
-| Impact function | Same hand-set depth-damage arrays | `[CLIMATERISK CUSTOM]` |
+| Impact function | Same `_flood_impf_set` as river flood (JRC regional preset by ISO3, class curve as fallback) | `[CLIMADA NATIVE]` values, `[CLIMATERISK CUSTOM]` selection |
 | CLIMADA component | `TCSurgeBathtub`, `ImpactCalc`, `calc_freq_curve`, `impact_yearset` | `[CLIMADA NATIVE]` |
 | Custom component | DEM ingestion/decimation, wind cropping | `[CLIMATERISK CUSTOM]` |
 | Main risk metric | `aai_agg`, `eai`, RP curve, yearset; **no present baseline** (`present_aai_agg=None`) | — |
@@ -483,7 +533,7 @@ CLIMADA-standard peril.
 
 | Row | Content | Tag |
 |---|---|---|
-| Hazard source | **Catalog only**, key `("heat_mortality", "historical", region, target)` — scenario hard-wired to `historical` (`P:1159`). Layers built from E-OBS `tx` (Europe, `eobs.py`), KMA 남한상세 daily TAMAX (`kma_scenario.py`, coarsened 5×5 to 0.05°), or the synthetic season generator | `[EXTERNAL]` data, `[CLIMATERISK CUSTOM]` hazard |
+| Hazard source | **Catalog only**, key `("heat_mortality", <requested scenario>, region, target)` with a `historical` fallback that is named in `detail` (`_resolve_heat_hazard`, fixed 2026-09-07; previously hard-wired to `historical`). Layers built from E-OBS `tx` (Europe, `eobs.py`), KMA 남한상세 daily TAMAX (`kma_scenario.py`, coarsened 5×5 to 0.05°), or the synthetic season generator | `[EXTERNAL]` data, `[CLIMATERISK CUSTOM]` hazard |
 | Hazard type | `HM`, units `degC-days` | custom tag |
 | Hazard representation | One event per summer season (Jun–Sep, 122 days); intensity = season exceedance degree-days above the local minimum-mortality comfort band `mmt_high = a + b·mean_Tmax` fitted on 54 hand-set city values; `frequency = 1/n_seasons` | `[CLIMATERISK CUSTOM]` |
 | Exposure | Two `Exposures` rows per site (<65 / ≥65), `value = headcount × share`, `value_unit="persons"`; headcount default 250 when missing (stated in `detail`); ≥65 share from override → `COUNTRY_SHARE_OVER65["KOR"]=0.203` → nearest reference city | `[CLIMATERISK CUSTOM]` |
@@ -491,18 +541,18 @@ CLIMADA-standard peril.
 | CLIMADA component | `ImpactCalc`, `calc_freq_curve` (`P:1196-1199`) | `[CLIMADA NATIVE]` |
 | Custom component | Everything else, including `grid_from_summer_tmax`, `standardized_grid`, comfort band, dose curve | `[CLIMATERISK CUSTOM]` |
 | Main risk metric | `aai_agg` = expected annual heat-attributable **deaths**; `per_asset.eai` deaths; RP curve (45 E-OBS summers → cap 22.5 yr); `result_kind="mortality"`; **no yearset** (`P:1217`) | — |
-| Future scenario | **None in the platform peril.** KMA SSP mortality layers registered under `rcp45/rcp85` by `scripts/heat_korea.py` are never resolved because the runner queries `historical` only. CLI-only "future" = uniform `--warming-c` offset + demography projection (`heatwave_europe.py`) | `[NOT IMPLEMENTED]` |
+| Future scenario | Requested scenario layer when registered (KMA SSP windows filed under `rcp45/rcp85` by `scripts/heat_korea.py` are now resolved), else `historical` with an explicit fallback note; no present→future delta is computed for heat (`present_aai_agg=None`). Tested end-to-end on **synthetic spec-conformant KMA files** (`test_kma_scenario.py`, CLIMADA-gated) — no real KMA file has been run | `[PARTIAL]`, not validated |
 | Calibration | Parameters hand-set; dose curve fitted to the model's own synthetic ensemble, not to observed mortality | `[NOT IMPLEMENTED]` (to data) |
 | Uncertainty / Adaptation | None | `[NOT IMPLEMENTED]` |
 | Validation | Spain: E-OBS observed grid reproduces the 2022/2003 ranking of summers (`tests/test_heat_mortality.py::test_observed_grid_reproduces_the_real_ranking_of_spanish_summers`, skips without E-OBS); extreme years under-predicted ≈2.3× vs MoMo (`docs/HEATWAVE_EUROPE.md`). **No Korean validation** | `[PARTIAL]` (Europe), `[NOT IMPLEMENTED]` (Korea) |
 | Status | Custom health peril, present climate only, Europe-validated at ranking level | — |
-| Main gap | Scenario ignored (KMA SSP layers unreachable); dose-response uncalibrated to observed deaths; Korea unvalidated | High |
+| Main gap | (Scenario routing fixed.) Dose-response uncalibrated to observed deaths; no present/future delta; Korea unvalidated (no MoMo-equivalent benchmark) | High |
 
 ### 5.9 Local hazard catalog perils (`hail`, `landslide`, `tc_rain`, `drought`, `crop_yield`, `low_flow`, `heatwave`) — `P:966-1113`
 
 | Row | Content | Tag |
 |---|---|---|
-| Hazard source | Catalog only; `landslide/drought/low_flow` forced to `historical`, others take the run scenario. Ingesters exist only for `tc_rain` (`TCRain.from_tracks(model="R-CLIPER")`, petals) and `heatwave` (`heat_korea.py`, `heatwave_europe.py --register`); the other five need a hand-built `grid.json`. The `tcrain` ingester is registered in the worker (`ingest.py:564`) but **rejected by the API whitelist** (`src/climaterisk/api/routers/run.py:188` allows only `dataapi/aqueduct/copdem/tctracks`), so the Data tab's "TCRain" entry returns HTTP 400; only a hand-written `request.json` can invoke it | `[CLIMATERISK CUSTOM]` / `[CLIMADA NATIVE]` for TCRain (unreachable via API) |
+| Hazard source | Catalog only; `landslide/drought/low_flow` forced to `historical`, others take the run scenario. Ingesters exist only for `tc_rain` (`TCRain.from_tracks(model="R-CLIPER")`, petals) and `heatwave` (`heat_korea.py`, `heatwave_europe.py --register`); the other five need a hand-built `grid.json`. The `tcrain` ingester is reachable from the API since 2026-09-07 (`run.py::INGEST_SOURCES`; `tests/test_ingest_sources.py` pins whitelist == Data tab == worker refiners) | `[CLIMATERISK CUSTOM]` / `[CLIMADA NATIVE]` for TCRain |
 | Hazard type | `HL` cm, `LS` probability, `TR` mm, `DR` SPEI, `CY` yield-frac, `LF` deficit, `HW` degC | custom tags |
 | Hazard representation | Standardized grid → `Hazard` with `frequency=1/n_years` (`hazard_convert.py:89`) | `[CLIMATERISK CUSTOM]` |
 | Exposure | `Exposures`, `impf_<HT>` | `[PARTIAL]` |
@@ -514,7 +564,7 @@ CLIMADA-standard peril.
 | Calibration / Uncertainty / Adaptation | None | `[NOT IMPLEMENTED]` |
 | Validation | `tests/test_catalog_perils.py` (2 tests: ramp construction / ingestion error) | `[PARTIAL]` |
 | Status | Engine plumbing complete; vulnerability indicative; honest "needs ingestion" errors | — |
-| Main gap | Ramps borrow a wildfire parameter and have no literature basis (GAP G4); Korean `heatwave` layers are stamped `haz_type="HM"` by `scripts/heat_korea.py::_heatwave_grid` while the runner builds `impf_HW` — a probable type mismatch (not executed; verify before use) | Medium |
+| Main gap | Ramps borrow a wildfire parameter and have no literature basis (GAP G4). (The Korean `heatwave` `haz_type` mismatch `HM`≠`HW` was fixed 2026-09-07 via the shared `HEATWAVE_HAZ_TYPE`.) | Medium |
 
 ---
 
@@ -598,7 +648,7 @@ a comment (`:126`, "CalcDeltaImpact-style"), a UI label, and `docs/METHODOLOGY.m
 ### 7.2 Q-B — Custom wrapper structure
 
 ```
-SALib.sample.sobol.sample(_PROBLEM, base_n, calc_second_order=False)   # Saltelli design
+SALib.sample.sobol.sample(_PROBLEM, base_n, calc_second_order=False, seed=seed)  # Saltelli, seeded
 for each row (fv, fh, ff):
     rebuild Exposures (value × fv) and ImpactFuncSet (Emanuel v_half × fh)
     Y = ImpactCalc(exp, impf_set, haz).impact(assign_centroids=True).aai_agg × ff
@@ -608,9 +658,14 @@ delta = Y − present_aai
 ```
 
 `base_n = clamp(request.n_samples, 8, 64)`; evaluations = `base_n × 5`. Backend default
-`n_samples=50` (`BASE:283`) → 250 evaluations. No random seed is passed. The hazard object is
-fetched once and **never perturbed**; the "frequency" factor multiplies AAI after the fact.
-`[CLIMADA NATIVE]` forward model only; sampling, decomposition and delta are custom.
+`n_samples=50` → 250 evaluations. Since 2026-09-07 the sample is **seeded** (`_SOBOL_SEED=1789`,
+overridable via `request["seed"]`) so identical inputs reproduce identical distributions, and the
+result carries `method`, `scope`, `bounds`, `bounds_provenance`, `frequency_treatment`, `seed`.
+The hazard object is fetched once and **never perturbed**; the "frequency" factor multiplies
+AAI after the fact. The base `v_half` follows the same geography-aware default as the impact
+run. `[CLIMADA NATIVE]` forward model only; sampling, decomposition and delta are custom —
+the correct description is **"SALib Sobol-based uncertainty wrapper around CLIMADA ImpactCalc"**,
+not "CLIMADA unsequa".
 
 ### 7.3 Q-C — Parameters perturbed
 
@@ -623,9 +678,11 @@ fetched once and **never perturbed**; the "frequency" factor multiplies AAI afte
 
 ### 7.4 Q-D — Provenance of ranges
 
-Hard-coded in `_PROBLEM` (`uncertainty.py:28-32`); no citation in code or docs; not
-user-configurable (`UncertaintyRequest` carries only `n_samples`). **These bounds are
-platform assumptions, not literature-derived.**
+Hard-coded in `_PROBLEM`; no literature source exists for them and none was invented for
+this fix. Since 2026-09-07 they are labelled **"indicative platform assumption"** in the code
+(`BOUNDS_PROVENANCE`), returned in every result (`bounds`, `bounds_provenance`) and stated in
+the UI panel; they remain not user-configurable. Read the output as a sensitivity screen under
+these ranges, not as a calibrated uncertainty envelope.
 
 ### 7.5 Q-E — Peril coverage and outputs
 
@@ -663,8 +720,9 @@ and `ImpactCalc`.
 | Bounds | 25.7–200 m/s, hard-coded |
 | Hazard | Present-day Data API synthetic TC set |
 | Peril coverage | TC only |
-| Use of result | Returned and displayed (`VulnerabilityView`); **not written back** to assets or library |
-| Tests | Error paths only (`tests/test_calibration.py`, 2 tests); the fit itself is untested |
+| Use of result | Returned and displayed, **and persisted** (2026-09-07) as `data/calibrations/tropical_cyclone_v_half_<ISO3>.json` with `fit_status="fitted"`; consumed by physical / cost-benefit / uncertainty runs when `options.tc_impf_default="calibrated"` (explicit studio overrides still win) |
+| Metadata recorded | peril, param, country, `observed_source` (EM-DAT file), `observed_period`, `n_observed_events`, `hazard`, `objective`, `method`, `bounds`, `initial`, `calibrated`, `modelled_annual_loss_at_calibrated`, `calibrated_at`, `schema_version`, `applies_when` |
+| Tests | Error paths, record metadata, persistence → application chain (`tests/test_calibration.py`, 5 tests); the fit itself still needs CLIMADA + an EM-DAT CSV and is untested |
 
 ### 8.3 Assessment
 
@@ -672,7 +730,9 @@ This is a one-dimensional AAI match, not the CLIMADA calibration workflow (no pe
 per-region cost function, no evaluator, no uncertainty on the fit). It is a valid **hook** for
 Korean 재해연보-based calibration (RISK_REGISTER C2) but has not been run on Korean data.
 Structure: *CLIMADA calibration framework (not used) → scipy scalar fit (implemented) → TC
-`v_half` only (true).*
+`v_half` only (true) → persisted record → opt-in application in later runs (implemented
+2026-09-07).* A 재해연보 loader (RISK_REGISTER C2) is still missing — the runner reads EM-DAT only —
+and no calibration has been run on Korean data, so nothing here is *validated*.
 
 ---
 
@@ -694,12 +754,12 @@ Outputs read: `cb.benefit[name]`, `cb.tot_climate_risk`. Custom: `benefit_cost_r
 | Level | Status |
 |---|---|
 | Contract / UI | Peril-generic (`CostBenefitRequest.peril`, default `tropical_cyclone`) |
-| Worker | **TC hard-coded**: `haz_type="TC"`, `ImpfTropCyclone`, `_tc_hazard`; the request's `peril` field is never read |
+| Worker | `request["peril"]` honoured (2026-09-07): `tropical_cyclone` → `haz_type="TC"`, `ImpfTropCyclone`, `_tc_hazard`; any other peril → structured `status="error"` naming the unsupported peril, returned before any CLIMADA import (no silent TC number) |
 | Measure options not exposed | `hazard_inten_imp`, `hazard_set`, `exposures_set`, `imp_fun_map`, `ent_future` (no exposure growth), `risk_func`, `imp_time_depen` |
-| Tests | None exercise `compute_cost_benefit`; only a run-kind sentinel test |
+| Tests | `tests/test_cost_benefit_peril.py`: unsupported perils → structured error (backend env); TC computation on a synthetic two-event hazard with a 50 % damage-reduction measure (CLIMADA-gated) |
 | Evidence of a run | One recorded Korean TC result table (`docs/KOREA_ASSET_MANAGER_GUIDE.md` row 8) |
 
-Classification: engine `[CLIMADA NATIVE]`, coverage `[PARTIAL]` (TC only, untested).
+Classification: engine `[CLIMADA NATIVE]`, coverage `[PARTIAL]` (TC only — now explicit and tested rather than silent).
 
 ### 9.3 Assessment
 
@@ -738,6 +798,21 @@ files: `tests/test_kma_scenario.py` (9).
 
 The only observation-based validation in the repository is the Spanish heat-mortality ranking
 test, which is explicitly **not** transferable to Korea (RISK_REGISTER B2).
+
+### 10.4 Validation framework (added 2026-09-07) — framework only
+
+`worker/climaterisk_worker/validation.py` (no CLIMADA import) defines the observed-vs-modelled
+comparison the Korean validation loop will run: `ObservedSeries` (losses by year **with a
+mandatory source string**), `annual_comparison` (bias, MAE, RMSE, Σ ratio, coverage over
+overlapping years), `event_comparison` (per-event ratios + total ratio, i.e. the EDR/TDR
+notions of Eberenz et al. 2021) and `modelled_annual_losses` (CLIMADA `at_event` × `date` →
+calendar-year sums). `tests/test_validation_framework.py` checks the arithmetic on **synthetic
+numbers only**.
+
+| Claim | Status |
+|---|---|
+| Tested with synthetic / spec-conformant data | yes — KMA adapter, catalog perils, validation arithmetic, cost-benefit synthetic hazard |
+| Empirically validated with observed Korean losses | **not implemented** — no 재해연보 / EM-DAT Korea series is wired; nothing in the repository may be described as validated for Korea |
 
 ---
 
@@ -812,15 +887,16 @@ CLIMADA) · **NOT IMPLEMENTED**.
 | `Impact.calc_freq_curve` | WRAPPER | `P:411` etc. | custom half-record cap |
 | `impact_yearset` | WRAPPER | `P:307-340` | not for heat |
 | `Impact.imp_mat` / event drill-down | PARTIAL | `supplychain.py` only | not surfaced |
-| `CostBenefit`, `Measure`, `MeasureSet`, `DiscRates`, `Entity` | PARTIAL | `cost_benefit.py` | TC only, `peril` ignored, untested |
-| `unsequa` (`InputVar`, `CalcImpact`, `CalcDeltaImpact`) | CUSTOM | `uncertainty.py` (SALib) | TC only |
-| `climada.util.calibrate` | CUSTOM | `calibration.py` (scipy) | TC `v_half` only |
+| `CostBenefit`, `Measure`, `MeasureSet`, `DiscRates`, `Entity` | PARTIAL | `cost_benefit.py` | TC only — other perils return a structured error; synthetic-hazard computation test (CLIMADA-gated) |
+| `unsequa` (`InputVar`, `CalcImpact`, `CalcDeltaImpact`) | CUSTOM | `uncertainty.py` (SALib, seeded) | TC only; bounds labelled indicative assumptions |
+| `climada.util.calibrate` | CUSTOM | `calibration.py` (scipy) + `vulnerability.save_calibration` | TC `v_half` only; record persisted and opt-in applied |
 | `emdat_to_impact` | FULL | `calibration.py:62` | |
 | petals SupplyChain (`get_mriot`, `DirectShocksSet`, `StaticIOModel.calc_leontief`) | PARTIAL | `supplychain.py` | Leontief only, top-80 events, mixed-unit ratio |
 | GCM ensemble spread | NOT IMPLEMENTED | — | |
 | Anchor-year interpolation / baseline blend | NOT IMPLEMENTED | — | despite METHODOLOGY.md |
 | Sub-peril event combination | NOT IMPLEMENTED | — | GAP G5 |
-| Region-aware default impact functions | NOT IMPLEMENTED | — | GAP G1/G2 |
+| Region-aware default impact functions | WRAPPER | `vulnerability.py`, presets `countries` | Eberenz / JRC presets selected by CLIMADA's own country tables; class curve fallback (G1/G2 code fix) |
+| Observed-vs-modelled validation metrics | CUSTOM (framework only) | `validation.py` | no observed series wired |
 
 ---
 
@@ -832,55 +908,66 @@ CLIMADA) · **NOT IMPLEMENTED**.
 |---|---|---|---|---|---|
 | Hazard | Data API + petals hazard classes; user-supplied `Hazard` | Native for TC/RF/WF/EQ/WS/surge/rain; custom assembly for coastal/heat/grids; no Korean hazard on disk | `P` runners; `ingest.py`; `hazard_convert.py`; RISK_REGISTER C1/C3 | **Critical** (Korea) | Register real KMA + 홍수위험지도 layers via existing on-ramps; fix `heat_mortality` scenario lookup so SSP layers are reachable |
 | Exposure | LitPop, raster, OSM, footprints | Native generators; Korea gated on GPW; OSM Korea downloaded | `exposures.py`, RISK_REGISTER C4 | High | Obtain GPW; run OSM Korea; unify `_DEFAULT_VULN` with `IFJ` |
-| Impact function | Emanuel, Eberenz regional, JRC, Schwierz/Welker, Lüthi, calibrate module | Indicative class defaults; published presets opt-in only; wildfire uncalibrated sigmoid | `IFJ`, `BASE:47-88`, `P:571-573` | **Critical** | Geography-aware default selection (Eberenz region, JRC continent) — GAP G1/G2; Lüthi form — G3 |
+| Impact function | Emanuel, Eberenz regional, JRC, Schwierz/Welker, Lüthi, calibrate module | Regional presets now the default by ISO3 (G1/G2 fixed); wildfire sigmoid still uncalibrated; no bands | `vulnerability.py`, `_flood_impf_set`, `P` wildfire runner | High (was Critical) | Validate the regional defaults against Korean losses (C2/C5); Lüthi form — G3; RMSF↔TDR band — G6 |
 | ImpactCalc | `ImpactCalc.impact` | Native, single call site | `P:299` | None | — |
 | Risk metrics | AAI, EAI, RP curve, yearsets | Native + custom half-record cap; cap edge keeps RP 10 even when unsupported | `P:44-83`, `P:307-340` | Low | Document the edge; consider `record_years` semantics for RP-layer hazards |
-| Future climate | External future sets; Knutson scaling | Snap to nearest anchor; independent present/future runs; no interpolation/blend; heat/wildfire/drought historical-only | `P:353, 455, 1159`; `_params.py` | High | Correct docs (done here); expose Knutson option; route heat SSP layers |
-| Uncertainty | `unsequa` Sobol/MC over InputVars | Custom SALib Sobol, 3 hard-coded bounds, TC only, frequency post-hoc | `uncertainty.py:28-32, 115` | High | Cite or justify bounds; extend to other perils; represent structural (curve-set) uncertainty — G6 |
-| Calibration | `climada.util.calibrate` | scipy scalar fit of TC `v_half` to EM-DAT AAI; result not applied | `calibration.py:89-96` | High | Wire 재해연보 series; write calibrated value back as a preset; adopt `calibrate.Input`/evaluator if per-event fit is wanted |
-| Adaptation | `CostBenefit` full measure model | Native, TC only, `peril` ignored, no tests | `cost_benefit.py:60-75, 131-132` | Medium | Read `request["peril"]`; add a computation test |
+| Future climate | External future sets; Knutson scaling | Snap to nearest anchor; independent present/future runs; no interpolation/blend; heat SSP layers now resolvable (no heat delta); wildfire/drought historical-only | `_resolve_heat_hazard`; `_params.py` | Medium (was High) | Heat present→future delta; real KMA files; GCM spread |
+| Uncertainty | `unsequa` Sobol/MC over InputVars | Custom SALib Sobol, seeded; 3 bounds now labelled indicative assumptions; TC only; frequency post-hoc | `uncertainty.py` | High | Source or replace bounds; extend to other perils; structural (curve-set) uncertainty — G6 |
+| Calibration | `climada.util.calibrate` | scipy scalar fit of TC `v_half` to EM-DAT AAI; record persisted with provenance and opt-in applied | `calibration.py`, `vulnerability.py` | High | Wire 재해연보 loader (runner reads EM-DAT only); run on Korean data; adopt `calibrate.Input`/evaluator if per-event fit is wanted |
+| Adaptation | `CostBenefit` full measure model | Native, TC only; other perils rejected explicitly; computation test (CLIMADA-gated) | `cost_benefit.py` | Medium | Add flood/surge adaptation models (depth-damage `haz_type`) if needed |
 | Validation | (user responsibility) | Regression baselines + Spain heat ranking; no Korean observed-loss check | `tests/`, HEATWAVE_EUROPE.md | **Critical** (Korea) | 재해연보 yearly loss vs modelled yearly loss (RISK_REGISTER C5) |
 | Korean localization | — | On-ramps coded and tested on synthetic files; no real Korean hazard/loss data executed | RISK_REGISTER C1–C6, §E | **Critical** | Execute C2 → C1 → C5 in the order RISK_REGISTER already prescribes |
 
-### Probable defects found by reading (not executed — verify before fixing)
+### Defects found by reading — status after the 2026-09-07 fixes
 
-1. `scripts/heat_korea.py::_heatwave_grid` stamps `haz_type=hm.HAZ_TYPE` (`"HM"`) on the
-   `heatwave` layer, while `_run_catalog_peril` builds `impf_HW`/`haz_type="HW"` for that peril.
-2. `_run_heat_mortality` queries `climate_scenario="historical"` unconditionally (`P:1159`), so
-   KMA SSP mortality layers registered under `rcp45/rcp85` are unreachable;
-   `tests/test_kma_scenario.py` passes `"rcp45"` against a historical-only catalog and passes.
-3. The `tcrain` ingester is unreachable through the API (`run.py:188` whitelist omits it) while
-   `assets/libraries/data_sources.json` advertises it in the Data tab.
-4. `litpop.py::_DEFAULT_VULN["tc_v_half"]=74.7` differs from the JSON residential default 70.0
-   that point assets receive (the code comment claims it mirrors residential).
-5. `compute_cost_benefit` ignores `request["peril"]`.
-6. `exposures.py` source `"crop"` always raises although it is listed among the 7 sources.
+1. **Fixed.** `scripts/heat_korea.py::_heatwave_grid` now stamps `HEATWAVE_HAZ_TYPE` (`"HW"`),
+   the same constant `_run_catalog_peril` uses (`tests/test_heat_scenario.py`).
+2. **Fixed.** `_run_heat_mortality` resolves the requested scenario first and reports a
+   `historical` fallback (`_resolve_heat_hazard`); `test_kma_scenario.py` now asserts the SSP
+   layer is used and that the historical-only case says "fallback".
+3. **Fixed.** `tcrain` is in `run.py::INGEST_SOURCES`; `tests/test_ingest_sources.py` pins the
+   whitelist to the Data tab and the worker refiners.
+4. **Documented, not changed.** `litpop.py::_DEFAULT_VULN["tc_v_half"]=74.7` is now labelled as
+   the Emanuel USA default; in the default `regional` mode grid cells receive the country preset
+   anyway, so the value only matters for countries outside every preset region or in `class` mode.
+5. **Fixed.** `compute_cost_benefit` honours `request["peril"]` and rejects unsupported perils
+   with a structured error (`tests/test_cost_benefit_peril.py`).
+6. **Open.** `exposures.py` source `"crop"` still always raises; it is marked `[~]` in
+   CLIMADA_COVERAGE.md.
 
 ---
 
 ## 14. Recommended Roadmap
 
-Ordered by (bias removed ÷ effort); none of these were implemented in this audit.
+Done 2026-09-07 (see *Post-audit code fixes*): documentation truth; geography-aware TC/flood
+defaults; heat scenario routing + `haz_type` alignment; cost-benefit peril handling; calibration
+persistence/application; uncertainty labelling + seed; TCRain whitelist; validation framework.
 
-1. **Documentation truth (this PR).** Remove the un-implemented claims (interpolation, blend,
-   `unsequa.CalcDeltaImpact`, `ScipyMinimizeOptimizer`) so downstream users do not cite them.
-2. **Geography-aware defaults (GAP G1/G2).** Select the Eberenz region and JRC continent from
-   the asset ISO3 at request-resolution time; keep the class curves as the explicit fallback.
-   CLIMADA provides both lookups natively (`calibrated_regional_vhalf`, `from_jrc_region_sector`).
-3. **Heat scenario routing.** Let `_run_heat_mortality` use the request scenario with a
-   `historical` fallback, and align the Korean `heatwave` `haz_type`; then re-run the KMA tests.
-4. **Korean calibration loop (RISK_REGISTER C2 → C5).** Feed 재해연보 losses into the existing
-   calibration hook; persist the result as a preset; compare yearly modelled vs observed losses.
-5. **Uncertainty honesty (G6).** Cite or justify the three Sobol bounds; add curve-set members
-   (Eberenz RMSF↔TDR, JRC continents, Schwierz↔Welker) as a reported range rather than a point.
-6. **Adaptation breadth.** Honour `request["peril"]` in `cost_benefit.py` and add one
-   computation test; until then label the Adapt view "tropical cyclone only".
-7. **Sub-peril combination (G5)** and **wildfire calibrated form (G3)** — larger changes; keep
+Remaining methodology gaps, ordered by (bias removed ÷ effort):
+
+1. **Run the Korean validation loop (RISK_REGISTER C2 → C5).** Write the 재해연보 loader
+   (`ObservedSeries`), run `compute_calibration` / `validation.annual_comparison` on real Korean
+   losses, and only then call any default *validated*. Also run the KMA on-ramp on real files.
+2. **Run the CLIMADA-gated tests in `./.climada-env`.** The regional-default wiring in the
+   runners, the KMA SSP end-to-end path and the cost-benefit computation are written but were
+   blocked by the audit machine's missing conda env.
+3. **Uncertainty (G6).** Replace or source the three Sobol bounds; report curve-set members
+   (Eberenz RMSF↔TDR, JRC sectors, Schwierz↔Welker) as a range rather than a point.
+4. **Heat present→future delta** now that SSP layers resolve (`present_aai_agg` is still None
+   for heat); calibrate the dose-response against observed mortality.
+5. **Sub-peril combination (G5)** and **wildfire calibrated form (G3)** — larger changes; keep
    the current results labelled as lower bounds / screening grade in the meantime.
+6. **Catalog ramps (G4)** and the `crop` exposure stub — literature curves or explicit removal.
 
 ---
 
 ## Documentation Consistency Audit
+
+> **2026-09-07 update.** Rows below marked "Corrected in this PR" were fixed in the docs on
+> 2026-09-07; the code-side findings on heat-scenario routing, the `tcrain` whitelist, the
+> heatwave `haz_type`, cost-benefit peril handling and calibration persistence were then fixed
+> in code the same day (see *Post-audit code fixes*), and the affected doc sentences were
+> re-checked against the new code.
 
 Scope: `docs/METHODOLOGY.md`, `docs/CLIMADA_COVERAGE.md`, `docs/RISK_REGISTER.md`,
 `docs/MODEL_COMPARISON.md`, plus `docs/HEATWAVE_EUROPE.md`, `docs/API.md`, `CLAUDE.md`,

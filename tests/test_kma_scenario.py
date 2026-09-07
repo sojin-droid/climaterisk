@@ -30,8 +30,18 @@ N_LAT, N_LON = 10, 10
 LAT0, LON0 = 37.40, 126.80  # Seoul
 
 
-def _write_kma_file(directory: Path, years: tuple[int, ...], as_archive: bool = True) -> Path:
-    """Synthetic MK-PRISM-style daily TAMAX file: two sea columns filled with -9990."""
+def _write_kma_file(
+    directory: Path,
+    years: tuple[int, ...],
+    as_archive: bool = True,
+    stem: str | None = None,
+    warm_offset: float = 0.0,
+) -> Path:
+    """Synthetic MK-PRISM-style daily TAMAX file: two sea columns filled with -9990.
+
+    ``stem`` overrides the file name (e.g. an ``AR6_SSP245_5ENSMN_…`` future product);
+    ``warm_offset`` shifts every day's Tmax (degC) so a "future" file is distinguishable.
+    """
     import pandas as pd
 
     time = pd.date_range(f"{years[0]}-01-01", f"{years[-1]}-12-31", freq="D")
@@ -42,13 +52,14 @@ def _write_kma_file(directory: Path, years: tuple[int, ...], as_archive: bool = 
     rng = np.random.default_rng(0)
     data = seasonal[:, None, None] + rng.normal(0, 2.5, size=(time.size, N_LAT, N_LON))
     data += np.linspace(0, 3, N_LON)[None, None, :]  # east warmer
+    data += warm_offset
     data[:, :, :2] = kma.MISSING_VALUE  # sea columns
     ds = xr.Dataset(
         {"TAMAX": (("time", "latitude", "longitude"), data.astype(np.float32))},
         coords={"time": time, "latitude": lat, "longitude": lon},
     )
     ds["TAMAX"].attrs["units"] = "degC"
-    stem = f"MKPRISM_MKPRISMv21_skorea_TAMAX_gridraw_daily_{years[0]}_{years[-1]}"
+    stem = stem or f"MKPRISM_MKPRISMv21_skorea_TAMAX_gridraw_daily_{years[0]}_{years[-1]}"
     nc = directory / f"{stem}.nc"
     ds.to_netcdf(nc)
     if not as_archive:
@@ -188,3 +199,74 @@ def test_full_on_ramp_registers_and_runs_a_korean_portfolio(
     assert res["total_value"] == pytest.approx(1000.0)
     # 4 seasons → record 4 yr → cap 2 yr: nothing beyond that is extrapolated.
     assert res["freq_curve"]["max_resolvable_return_period"] == pytest.approx(2.0)
+    # Only the historical layer exists → the runner says so instead of pretending rcp45 ran.
+    assert "scenario historical" in res["detail"] and "fallback" in res["detail"]
+
+
+def test_requested_ssp_layer_is_resolved_end_to_end_for_korea(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """request(rcp45, 2030) → catalog SSP245 layer → CLIMADA Hazard → ImpactCalc (deaths).
+
+    Registers the historical MK-PRISM window AND an SSP245 future window (warmer by 3 degC)
+    through scripts/heat_korea.py's ``register_window`` — the real on-ramp — then checks the
+    ``heat_mortality`` runner picks the requested scenario (not ``historical``) and that the
+    ``heatwave`` layer written by the same on-ramp runs under the runner's ``HW`` hazard type.
+    """
+    pytest.importorskip("climada")
+    import importlib.util
+
+    from climaterisk_worker import catalog, physical
+
+    monkeypatch.setenv("CLIMATERISK_KMA_DIR", str(tmp_path / "kma"))
+    monkeypatch.setenv("CLIMATERISK_HAZARD_DB", str(tmp_path / "db"))
+    (tmp_path / "kma").mkdir()
+    _write_kma_file(tmp_path / "kma", (2000, 2001, 2002, 2003))
+    _write_kma_file(
+        tmp_path / "kma",
+        (2021, 2022, 2023, 2024),
+        stem="AR6_SSP245_5ENSMN_skorea_TAMAX_gridraw_daily_2021_2024",
+        warm_offset=3.0,
+    )
+    assert kma.available("historical") and kma.available("rcp45") and not kma.available("rcp85")
+
+    spec = importlib.util.spec_from_file_location("heat_korea", REPO / "scripts" / "heat_korea.py")
+    hk = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(hk)
+    hk.register_window("historical", 2020, None, None, 2, catalog.catalog_dir())
+    hk.register_window("rcp45", 2030, 2021, 2024, 2, catalog.catalog_dir())
+
+    keys = {(e["peril"], e["climate_scenario"], e["year"]) for e in catalog.load_manifest()}
+    assert {
+        ("heat_mortality", "historical", 2020),
+        ("heat_mortality", "rcp45", 2030),
+        ("heatwave", "historical", 2020),
+        ("heatwave", "rcp45", 2030),
+    } <= keys
+
+    site = {
+        "id": "seoul",
+        "lat": LAT0 + 0.05,
+        "lon": LON0 + 0.06,
+        "value": 0.0,
+        "currency": "KRW",
+        "headcount": 1000,
+        "wf_max_mdd": 0.4,
+    }
+    fut = physical._run_heat_mortality([site], "rcp45", [2030], {"country_iso3": "KOR"})
+    assert fut["status"] == "ok" and "scenario rcp45" in fut["detail"]
+    assert "fallback" not in fut["detail"]
+    hist = physical._run_heat_mortality([site], "historical", [2020], {"country_iso3": "KOR"})
+    assert hist["status"] == "ok" and "scenario historical" in hist["detail"]
+    # a warmer future stack cannot produce fewer expected deaths than the present one
+    assert fut["aai_agg"] >= hist["aai_agg"]
+    # a scenario with no layer falls back to historical and says so
+    miss = physical._run_heat_mortality([site], "rcp85", [2030], {"country_iso3": "KOR"})
+    assert "fallback" in miss["detail"] and miss["aai_agg"] == pytest.approx(hist["aai_agg"])
+
+    # heatwave (productivity ramp) — same on-ramp, must resolve under haz_type "HW"
+    hw = physical._RUNNERS["heatwave"](
+        [{**site, "value": 1.0e6}], "rcp45", [2030], {"country_iso3": "KOR"}
+    )
+    assert hw["status"] == "ok" and hw["result_kind"] == "productivity"

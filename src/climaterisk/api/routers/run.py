@@ -166,10 +166,16 @@ def submit_supplychain(
     return manager.submit_supplychain(portfolio, mriot_type, mriot_year)
 
 
+# Ingest sources the worker implements (``climaterisk_worker.ingest._REFINERS``) and the Data
+# tab advertises (``assets/libraries/data_sources.json`` ``fetch.source``). Keep all three in
+# step — tests/test_ingest_sources.py checks it.
+INGEST_SOURCES: tuple[str, ...] = ("dataapi", "aqueduct", "copdem", "tctracks", "tcrain")
+
+
 class IngestBody(BaseModel):
     """Request body for a data-ingest run (scenario/year default to the session)."""
 
-    source: str  # "dataapi" | "aqueduct"
+    source: str  # one of INGEST_SOURCES
     peril: str = "river_flood"  # dataapi: tropical_cyclone | river_flood | wildfire | earthquake
     scenario: str | None = None
     year: int | None = None
@@ -185,7 +191,7 @@ def submit_ingest(session_id: str, body: IngestBody, store: StoreDep, manager: M
     portfolio = store.get(session_id)
     if portfolio is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="session not found")
-    if body.source not in ("dataapi", "aqueduct", "copdem", "tctracks"):
+    if body.source not in INGEST_SOURCES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"unknown source '{body.source}'")
     if not portfolio.assets:
         raise HTTPException(
