@@ -220,5 +220,6 @@ CLIMADA(코어 ≥6.1 + petals ≥6.1 pip)에서 의사결정에 쓰이는 표�
 | 무엇이 CLIMADA 네이티브이고 무엇이 자체 구현인가 | **CLIMADA_METHODS.md** (2026-09-07 방법론 감사 — 재해별·구성요소별 태그, 문서 정합성 감사, 같은 날의 Critical/High 코드 수정 현황표 포함) |
 | 무엇이 부족한가 (모델) | **본 문서 §3** |
 | 무엇이 부족한가 (국내 데이터) | RISK_REGISTER.md C1–C6 + §E 접근성 실사 |
+| 국내 실측 손실을 어떻게 넣나 (보정·검증) | **OBSERVED_LOSSES_KR_SPEC.md** (2026-09-07 명세 — 재해연보→`ObservedSeries` 필드 매핑, 단위·명목가격 규율, 서브페릴 커버리지 함정, 범위 가드, 수정 파일 목록) |
 | 원본 도구와 뭐가 다른가 | MODEL_COMPARISON.md |
 | 구조 | ARCHITECTURE.md · API.md |
