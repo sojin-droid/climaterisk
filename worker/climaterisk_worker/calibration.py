@@ -205,11 +205,14 @@ def compute_calibration(request: dict[str, Any]) -> dict[str, Any]:
         return {
             "status": "error",
             "detail": (
-                "행정안전부 재해연보 (disaster_yearbook) has no loader yet — it is behind a data "
-                "gate: a data.go.kr service key (15107318) and the portal's "
-                "'연도별 자연재해 피해_컬럼정의서.xlsx' are needed to fix the field names, unit "
-                "multiple and 당해연도(nominal) price basis. No substitute series is used. "
-                "See docs/OBSERVED_LOSSES_KR_SPEC.md §9 (F1) and §11."
+                "행정안전부 재해연보 (disaster_yearbook) has no loader yet. The field names ARE "
+                "confirmed (컬럼정의서 + Swagger, 2026-09-07: wrttimeid, seq, typhoon, …), but "
+                "three things still block a loader: no data.go.kr service key for 15107318; the "
+                "API publishes no unit element (the source publication uses 천원 in detail "
+                "tables and 백만원 in summary tables, and that cannot be transferred to the "
+                "API); and `seq` (분류 일련번호) has no label, so a property-damage row cannot "
+                "be told from a casualty row. No substitute series is used. "
+                "See docs/OBSERVED_LOSSES_KR_SPEC.md §4, §5, §12."
             ),
         }
 

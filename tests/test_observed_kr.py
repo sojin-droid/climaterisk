@@ -14,8 +14,10 @@ What this file does instead:
 2. tests the guards that stop an incomparable observed/modelled pair from being calibrated —
    units, sub-peril coverage, spatial scope and year alignment.
 
-The fixture numbers are invented for shape only. They are never used for analysis, and nothing
-here is an empirical validation of the model.
+The fixture's STRUCTURE and element names are the real ones (confirmed 2026-09-07 from the
+portal's 컬럼정의서 and embedded Swagger — docs/OBSERVED_LOSSES_KR_SPEC.md §4, §12); only the
+numbers are invented, for shape. They are never used for analysis, and nothing here is an
+empirical validation of the model.
 """
 
 from __future__ import annotations
@@ -35,49 +37,116 @@ from climaterisk_worker import validation as val  # noqa: E402
 
 FIXTURE_SOURCE = "synthetic unit-test fixture (not 재해연보 data)"
 
-# A response-shaped fixture: two well-formed rows, one with a missing amount field and one with a
-# non-numeric amount, because those two cases are what the parser has to decide about.
+# Shaped after the REAL schema, confirmed 2026-09-07 from the portal's own
+# 연도별 자연재해 피해_컬럼정의서.xlsx (FILE_000000002777343) and the Swagger embedded in the
+# dataset page for apis.data.go.kr/1741000/NaturalDisasterDamageByYear — spec §4.
+# An earlier version of this fixture invented a long shape (disasterType / propertyDamage rows).
+# The response is actually WIDE — one element per disaster cause — plus an opaque `seq`.
+# Element names below are verbatim from the source, including its `earthquak` typo.
 FIXTURE_XML = """<?xml version="1.0" encoding="UTF-8"?>
 <response>
-  <header><resultCode>00</resultCode><resultMsg>NORMAL SERVICE</resultMsg></header>
-  <body>
-    <items>
-      <item><year>2019</year><disasterType>태풍</disasterType><propertyDamage>1000</propertyDamage></item>
-      <item><year>2020</year><disasterType>태풍</disasterType><propertyDamage>2500</propertyDamage></item>
-      <item><year>2021</year><disasterType>태풍</disasterType></item>
-      <item><year>2022</year><disasterType>태풍</disasterType><propertyDamage>N/A</propertyDamage></item>
-      <item><year>2020</year><disasterType>호우</disasterType><propertyDamage>4000</propertyDamage></item>
-    </items>
-  </body>
+  <head>
+    <totalCount>5</totalCount><numOfRows>10</numOfRows><pageNo>1</pageNo>
+    <type>xml</type>
+    <RESULT><resultCode>INFO-0</resultCode><resultMsg>NORMAL SERVICE</resultMsg></RESULT>
+  </head>
+  <row>
+    <wrttimeid>2019</wrttimeid><seq>1</seq><tot>3000</tot>
+    <typhoon>1000</typhoon><heavy_rain>2000</heavy_rain><heavy_snow>0</heavy_snow>
+    <heavy_wind>0</heavy_wind><wind_wave_strong_wind>0</wind_wave_strong_wind>
+    <typhoon_heavy_rain>0</typhoon_heavy_rain><lightning>0</lightning>
+    <cold_wave>0</cold_wave><earthquak>0</earthquak><heatwave>0</heatwave>
+  </row>
+  <row>
+    <wrttimeid>2020</wrttimeid><seq>1</seq><tot>6500</tot>
+    <typhoon>2500</typhoon><heavy_rain>4000</heavy_rain><heavy_snow>0</heavy_snow>
+    <heavy_wind>0</heavy_wind><wind_wave_strong_wind>0</wind_wave_strong_wind>
+    <typhoon_heavy_rain>0</typhoon_heavy_rain><lightning>0</lightning>
+    <cold_wave>0</cold_wave><earthquak>0</earthquak><heatwave>0</heatwave>
+  </row>
+  <row>
+    <wrttimeid>2021</wrttimeid><seq>1</seq><tot>0</tot>
+    <heavy_rain>0</heavy_rain><heavy_snow>0</heavy_snow>
+    <heavy_wind>0</heavy_wind><wind_wave_strong_wind>0</wind_wave_strong_wind>
+    <typhoon_heavy_rain>0</typhoon_heavy_rain><lightning>0</lightning>
+    <cold_wave>0</cold_wave><earthquak>0</earthquak><heatwave>0</heatwave>
+  </row>
+  <row>
+    <wrttimeid>2022</wrttimeid><seq>1</seq><tot>0</tot>
+    <typhoon>N/A</typhoon><heavy_rain>0</heavy_rain><heavy_snow>0</heavy_snow>
+    <heavy_wind>0</heavy_wind><wind_wave_strong_wind>0</wind_wave_strong_wind>
+    <typhoon_heavy_rain>0</typhoon_heavy_rain><lightning>0</lightning>
+    <cold_wave>0</cold_wave><earthquak>0</earthquak><heatwave>0</heatwave>
+  </row>
+  <row>
+    <wrttimeid>2020</wrttimeid><seq>2</seq><tot>77</tot>
+    <typhoon>11</typhoon><heavy_rain>66</heavy_rain><heavy_snow>0</heavy_snow>
+    <heavy_wind>0</heavy_wind><wind_wave_strong_wind>0</wind_wave_strong_wind>
+    <typhoon_heavy_rain>0</typhoon_heavy_rain><lightning>0</lightning>
+    <cold_wave>0</cold_wave><earthquak>0</earthquak><heatwave>0</heatwave>
+  </row>
 </response>
 """
 
-# The 재해연보 disaster types this platform can map onto a peril. 호우 has no platform peril
-# (urban pluvial is structurally absent — GAP G7), so it must not silently become river_flood.
-PERIL_BY_DISASTER_TYPE = {"태풍": "tropical_cyclone"}
+#: Confirmed response element per disaster cause (verbatim names, spec §4).
+CAUSE_ELEMENTS = (
+    "typhoon",
+    "heavy_rain",
+    "heavy_snow",
+    "heavy_wind",
+    "wind_wave_strong_wind",
+    "typhoon_heavy_rain",
+    "lightning",
+    "cold_wave",
+    "earthquak",
+    "heatwave",
+)
+
+# Causes this platform can map onto a peril. heavy_rain (호우) has no platform peril — urban
+# pluvial is structurally absent (GAP G7) — so it must not silently become river_flood.
+PERIL_BY_CAUSE_ELEMENT = {"typhoon": "tropical_cyclone"}
 
 
-def _reference_extract(xml_text: str, disaster_type: str) -> tuple[dict[int, float], list[str]]:
-    """Contract witness (test-only): rows of one disaster type -> ``{year: amount}`` + problems.
+class SeqMeaningUnknown(RuntimeError):
+    """Raised when the caller did not say which ``seq`` classification to read.
 
-    Encodes the four decisions F1 must make identically: parse ``year`` as int, parse the amount
-    as float, **skip** a row whose amount field is absent, and **skip** a row whose amount is not
-    numeric — recording both as problems rather than coercing them to zero.
+    ``seq`` is documented only as "분류 일련번호" and the response carries **no label and no unit
+    element**, so one year has several rows whose meaning (property damage in money vs casualties
+    in persons) cannot be told apart from the API alone. A loader must refuse, not assume.
     """
+
+
+def _reference_extract(
+    xml_text: str, cause_element: str, seq: str | None = None
+) -> tuple[dict[int, float], list[str]]:
+    """Contract witness (test-only): one cause element -> ``{year: amount}`` + problems.
+
+    Encodes the decisions F1 must make identically: read ``wrttimeid`` as the year, read the named
+    cause element as a float, **skip** a row where that element is absent, **skip** a row whose
+    value is not numeric — recording both rather than coercing them to zero — and **refuse** when
+    the ``seq`` classification to read has not been established from the source publication.
+    """
+    if seq is None:
+        raise SeqMeaningUnknown(
+            "seq (분류 일련번호) has no label in the API; the classification to read must be "
+            "established from the 행정안전 통계연보 table before any row is used"
+        )
+    if cause_element not in CAUSE_ELEMENTS:
+        raise KeyError(f"{cause_element!r} is not a documented cause element")
     losses: dict[int, float] = {}
     problems: list[str] = []
-    for item in ET.fromstring(xml_text).iter("item"):
-        if (item.findtext("disasterType") or "") != disaster_type:
+    for row in ET.fromstring(xml_text).iter("row"):
+        if (row.findtext("seq") or "") != seq:
             continue
-        year_text = item.findtext("year")
-        raw = item.findtext("propertyDamage")
+        year_text = row.findtext("wrttimeid")
+        raw = row.findtext(cause_element)
         if raw is None:
-            problems.append(f"{year_text}: not_in_source (propertyDamage missing)")
+            problems.append(f"{year_text}: not_in_source ({cause_element} element missing)")
             continue
         try:
             amount = float(raw)
         except ValueError:
-            problems.append(f"{year_text}: unknown (propertyDamage {raw!r} not numeric)")
+            problems.append(f"{year_text}: unknown ({cause_element} {raw!r} not numeric)")
             continue
         losses[int(str(year_text))] = amount
     return losses, problems
@@ -87,23 +156,40 @@ def _reference_extract(xml_text: str, disaster_type: str) -> tuple[dict[int, flo
 
 
 def test_parser_contract_extracts_year_and_amount() -> None:
-    losses, _ = _reference_extract(FIXTURE_XML, "태풍")
+    losses, _ = _reference_extract(FIXTURE_XML, "typhoon", seq="1")
     assert losses == {2019: 1000.0, 2020: 2500.0}
     assert all(isinstance(y, int) for y in losses)
     assert all(isinstance(v, float) for v in losses.values())
 
 
-def test_parser_contract_maps_disaster_type_to_peril_and_refuses_unmapped() -> None:
-    assert PERIL_BY_DISASTER_TYPE["태풍"] == "tropical_cyclone"
-    # 호우 rows exist in the fixture but there is no platform peril to map them onto.
-    assert "호우" not in PERIL_BY_DISASTER_TYPE
-    rain, _ = _reference_extract(FIXTURE_XML, "호우")
-    assert rain == {2020: 4000.0}  # readable, but unmapped — never folded into river_flood
+def test_parser_contract_refuses_when_the_seq_classification_is_unknown() -> None:
+    """No label or unit element exists, so a row's meaning must not be inferred."""
+    with pytest.raises(SeqMeaningUnknown):
+        _reference_extract(FIXTURE_XML, "typhoon")
+
+
+def test_parser_contract_rows_of_other_seq_are_not_mixed_in() -> None:
+    """A year carries several seq rows (money vs persons) — never summed across them."""
+    seq1, _ = _reference_extract(FIXTURE_XML, "typhoon", seq="1")
+    seq2, _ = _reference_extract(FIXTURE_XML, "typhoon", seq="2")
+    assert seq1[2020] == 2500.0
+    assert seq2 == {2020: 11.0}
+
+
+def test_parser_contract_maps_cause_element_to_peril_and_refuses_unmapped() -> None:
+    assert PERIL_BY_CAUSE_ELEMENT["typhoon"] == "tropical_cyclone"
+    assert "heavy_rain" not in PERIL_BY_CAUSE_ELEMENT
+    rain, _ = _reference_extract(FIXTURE_XML, "heavy_rain", seq="1")
+    assert rain == {2019: 2000.0, 2020: 4000.0, 2021: 0.0, 2022: 0.0}
+    # typhoon_heavy_rain exists because the source itself could not split the two causes.
+    assert "typhoon_heavy_rain" in CAUSE_ELEMENTS
+    # The source's own typo is part of the contract.
+    assert "earthquak" in CAUSE_ELEMENTS and "earthquake" not in CAUSE_ELEMENTS
 
 
 def test_parser_contract_missing_and_invalid_amounts_are_skipped_not_zeroed() -> None:
     """A missing or non-numeric amount must not become a 0-loss year: that is a real number."""
-    losses, problems = _reference_extract(FIXTURE_XML, "태풍")
+    losses, problems = _reference_extract(FIXTURE_XML, "typhoon", seq="1")
     assert 2021 not in losses and 2022 not in losses
     assert any("not_in_source" in p for p in problems)
     assert any("unknown" in p for p in problems)
@@ -112,9 +198,11 @@ def test_parser_contract_missing_and_invalid_amounts_are_skipped_not_zeroed() ->
 
 def test_parser_contract_series_declares_its_provenance_and_basis() -> None:
     """What F1 must return: an ObservedSeries with source, unit, price basis, coverage, scope."""
-    losses, _ = _reference_extract(FIXTURE_XML, "태풍")
+    losses, _ = _reference_extract(FIXTURE_XML, "typhoon", seq="1")
     series = val.ObservedSeries(
         source=FIXTURE_SOURCE,
+        # The API publishes NO unit element; the fixture states one only to exercise the
+        # unit checks. The real unit is still unconfirmed — spec §5.
         unit="KRW thousand",
         losses=losses,
         peril="tropical_cyclone",
@@ -364,6 +452,8 @@ def test_disaster_yearbook_source_is_refused_with_the_data_gate_reason() -> None
     assert out["status"] == "error"
     assert "15107318" in out["detail"] and "컬럼정의서" in out["detail"]
     assert "no loader yet" in out["detail"]
+    # the reason must name what is actually missing, not a resolved item
+    assert "seq" in out["detail"] and "no unit element" in out["detail"]
 
 
 def test_unknown_observed_source_is_refused() -> None:
