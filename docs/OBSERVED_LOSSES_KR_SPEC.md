@@ -13,7 +13,7 @@
 | **F5** `tests/test_observed_kr.py` | ✅ **IMPLEMENTED** — 픽스처 + 파서 계약 + 게이트 테스트 24건(CLIMADA 불요) |
 | **F6** API 전달 | ✅ **IMPLEMENTED** — `POST …/calibration?observed_source=` |
 | **F7** 문서 정합 | ✅ 이 문서 · `CLIMADA_METHODS.md` §8 · `RISK_REGISTER.md` C2/C5 |
-| **F8** UI 표시 갭 | 🔴 **미해결(선재 결함)** — 워커가 `status="error"`를 돌려주면 Vuln 카드가 아무것도 표시하지 않는다 |
+| **F8** UI 표시 갭 | ✅ **IMPLEMENTED** — 워커의 비-`ok` 출력을 카드로 표시(이유 + `blockers` + `comparison_status`), opt-in `not_comparable` 적합은 값 옆에 경고. `frontend/…/lib/calibration.ts` |
 
 관련: [GAP_ANALYSIS_KO.md](GAP_ANALYSIS_KO.md) G1·G2·G5 · [RISK_REGISTER.md](RISK_REGISTER.md) C2·C5 ·
 [CLIMADA_METHODS.md](CLIMADA_METHODS.md) §8(보정).
@@ -161,7 +161,7 @@
 | F5 ✅ | `tests/test_observed_kr.py` **(신규)** | **구현됨** 24건: 픽스처(소형 XML, `source`에 "synthetic unit-test fixture") + 파서 계약(연도·금액·재해유형 매핑·결측/비수치 = **0으로 강제하지 않고 skip**) + 단위/커버리지/범위/연도정렬 차단 + 명시적 opt-in 경로. `_reference_extract`는 **테스트 내 계약 증인**이며 로더가 아니다 | 신규 |
 | F6 ✅ | `src/climaterisk/api/routers/run.py` · `runs/manager.py` | **구현됨**: `observed_source` 쿼리(기본 `emdat`, 미지원 값 400), `submit_calibration(portfolio, observed_source)` | 소 |
 | F7 ✅ | `docs/RISK_REGISTER.md` · `docs/CLIMADA_METHODS.md` | **갱신됨**: C2(게이트·소스선택), C5(비교 프레임워크 존재·관측 계열 없음), §8(게이트·메타데이터·기본동작 변경·UI 갭) | 문서 |
-| **F8** 🔴 | `frontend/climaterisk/src/views/VulnerabilityView.tsx` | **미해결(선재 결함, 이번 범위 밖)**: 카드가 `cal.status === "ok"`일 때만 렌더 → 워커의 `status="error"`(EM-DAT 부재, 게이트 차단)는 화면에 **아무것도 표시되지 않는다**. `Run.detail`에는 이유가 들어 있으므로 출력측 분기 3줄이면 해소 | 소 |
+| **F8** ✅ | `frontend/climaterisk/src/lib/calibration.ts` **(신규)** · `views/VulnerabilityView.tsx` · `types.ts` | **구현됨**: `calibrationOutcome()`이 출력 상태를 `ok`/`blocked`/`error`로 분류(블로커 有 또는 `comparison_status` 有 → `blocked`), `detail` 부재 시 일반 문구로 대체(빈 카드 금지). 성공 카드는 무변경이며, opt-in `not_comparable` 적합에는 경고 박스 추가. **게이트 차단은 "결과 없음"이 아니라 보고된 결과** | 소 |
 
 **착수 조건(데이터 게이트)**: F1은 실제 인증키와 컬럼정의서 확보 후 착수한다. 그 전에는 F2·F4의 계약과
 F5의 픽스처 골격까지만 진행 가능하다. **픽스처는 형식 검증용 소형 XML이며 분석·인용에 쓰지 않는다.**

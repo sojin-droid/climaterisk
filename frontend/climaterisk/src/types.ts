@@ -479,6 +479,16 @@ export interface CalibrationResult {
   persisted_to?: string | null;
   applies_when?: string | null;
   detail: string | null;
+  // Comparability metadata (worker, 2026-09-07). A run can finish with status "error" because the
+  // gate refused to fit, or with status "ok" and comparison_status "not_comparable" when the
+  // caller opted in deliberately. Read by lib/calibration.ts.
+  comparison_status?: string | null; // comparable | not_comparable | unknown
+  blockers?: string[]; // one entry per failed comparability check
+  observed_unit?: string | null;
+  observed_currency?: string | null;
+  observed_price_basis?: string | null;
+  target_covers_subperils?: string[];
+  model_covers_subperils?: string[];
 }
 
 export interface ForecastResult {

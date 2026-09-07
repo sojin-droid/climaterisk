@@ -745,10 +745,13 @@ wind component or opts in explicitly). That is a deliberate behaviour change: th
 default could converge and report a number that silently absorbed rain, surge and the
 scope error into `v_half` (docs/OBSERVED_LOSSES_KR_SPEC.md §6-1, §8).
 
-**Known UI gap** (pre-existing, unchanged here): `VulnerabilityView` renders the calibration
-card only when the worker output has `status === "ok"`, so a worker-level refusal — the
-missing-EM-DAT error before, a gate block now — leaves the panel silent even though the run
-completes and `Run.detail` carries the reason. Spec §9 F8.
+**UI surfacing** (fixed 2026-09-07, spec F8): `VulnerabilityView` previously rendered the
+calibration card only when the worker output had `status === "ok"`, so a worker-level refusal
+left the panel silent. It now renders a card for any non-`ok` output — the reason, the gate's
+`blockers` list and `comparison_status` — and flags an opted-in `not_comparable` fit next to the
+number it produced (`frontend/climaterisk/src/lib/calibration.ts`). **A calibration gate
+rejection is a reported result, not a missing one: it must not be read as "the run did
+nothing".** Nothing is fitted or persisted when the gate blocks.
 
 ---
 
