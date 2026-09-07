@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from climaterisk.api.deps import get_run_manager, get_session_store
 from climaterisk.config import get_settings
 from climaterisk.data.session_store import SessionStore
-from climaterisk.engines.base import MeasureSpec
+from climaterisk.engines.base import OBSERVED_SOURCES, MeasureSpec
 from climaterisk.runs.manager import RunManager
 from climaterisk.runs.store import Run
 
@@ -139,14 +139,30 @@ def submit_forecast(session_id: str, store: StoreDep, manager: ManagerDep) -> Ru
 
 
 @router.post("/{session_id}/calibration", response_model=Run)
-def submit_calibration(session_id: str, store: StoreDep, manager: ManagerDep) -> Run:
-    """Submit an impact-function calibration run (fit TC v_half to EM-DAT observed losses)."""
+def submit_calibration(
+    session_id: str,
+    store: StoreDep,
+    manager: ManagerDep,
+    observed_source: str = "emdat",
+) -> Run:
+    """Submit an impact-function calibration run (fit TC v_half to an observed loss series).
+
+    ``observed_source`` (``emdat`` | ``disaster_yearbook``) selects the observed series and
+    defaults to ``emdat``, so a client that does not send it behaves exactly as before.
+    ``disaster_yearbook`` has no loader yet and the worker says so explicitly rather than
+    substituting another series (docs/OBSERVED_LOSSES_KR_SPEC.md §9).
+    """
     portfolio = store.get(session_id)
     if portfolio is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="session not found")
     if not portfolio.assets:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="portfolio has no assets")
-    return manager.submit_calibration(portfolio)
+    if observed_source not in OBSERVED_SOURCES:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail=f"unknown observed_source '{observed_source}' (expected {OBSERVED_SOURCES})",
+        )
+    return manager.submit_calibration(portfolio, observed_source)
 
 
 @router.post("/{session_id}/supplychain", response_model=Run)

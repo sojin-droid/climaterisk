@@ -1,7 +1,20 @@
 # 국내 실측 손실 적재 명세 — 재해연보 → ObservedSeries → 보정 → 검증
 
-작성 2026-09-07. **상태: 명세 전용.** 이 문서는 로더 **구현 전에** 계약을 확정하기 위한 것이다.
-현재 저장소에 재해연보 데이터는 **없고**, 이 명세는 어떤 임의 데이터도 만들지 않는다.
+작성 2026-09-07 · 갱신 2026-09-07(구현 반영). 이 문서는 로더 **구현 전에** 계약을 확정하기 위한 것이며,
+지금은 데이터 게이트 **이전 단계(F2·F4·F5)가 구현된** 상태다. 현재 저장소에 재해연보 데이터는 **없고**,
+이 명세는 어떤 임의 데이터도 만들지 않는다.
+
+| 단계 | 상태 |
+|---|---|
+| **F1** `observed_kr.py` (재해연보 로더) | 🔴 **BLOCKED — 데이터 게이트**(인증키 + 컬럼정의서 미확보). 만들지 않았다 |
+| **F2** `validation.py` 확장 | ✅ **IMPLEMENTED** — 단위/통화 파싱·검사, 서브페릴 커버리지, 공간범위, 연도기준, `comparability_report` |
+| **F3** `calibration.py` | 🟡 **부분** — 소스 선택 + 게이트 + 기록 메타데이터만(전체 리팩터는 F1 이후) |
+| **F4** `CalibrationRequest.observed_source` | ✅ **IMPLEMENTED** (기본 `emdat`, 후방호환) |
+| **F5** `tests/test_observed_kr.py` | ✅ **IMPLEMENTED** — 픽스처 + 파서 계약 + 게이트 테스트 24건(CLIMADA 불요) |
+| **F6** API 전달 | ✅ **IMPLEMENTED** — `POST …/calibration?observed_source=` |
+| **F7** 문서 정합 | ✅ 이 문서 · `CLIMADA_METHODS.md` §8 · `RISK_REGISTER.md` C2/C5 |
+| **F8** UI 표시 갭 | 🔴 **미해결(선재 결함)** — 워커가 `status="error"`를 돌려주면 Vuln 카드가 아무것도 표시하지 않는다 |
+
 관련: [GAP_ANALYSIS_KO.md](GAP_ANALYSIS_KO.md) G1·G2·G5 · [RISK_REGISTER.md](RISK_REGISTER.md) C2·C5 ·
 [CLIMADA_METHODS.md](CLIMADA_METHODS.md) §8(보정).
 
@@ -11,15 +24,17 @@
 
 | 계약 | 위치 | 내용 |
 |---|---|---|
-| **`ObservedSeries`** | `worker/climaterisk_worker/validation.py` | `source: str`(출처 문자열, **필수**) · `unit: str` · `losses: dict[int, float]`(`{역년: 손실}`) · `peril: str` · `notes: str` |
-| 연도 대조 | `validation.py::annual_comparison(observed, modelled)` | 겹치는 연도에서 `bias`(모델−관측) · `mae` · `rmse` · `ratio`(Σ모델/Σ관측) · `coverage` |
+| **`ObservedSeries`** | `worker/climaterisk_worker/validation.py` | 원계약: `source: str`(출처, **필수**) · `unit: str` · `losses: dict[int, float]`(`{역년: 손실}`) · `peril: str` · `notes: str`. 2026-09-07 후방호환 추가: `currency: str` · `covers_subperils: tuple[str,…]` · `scope: str` · `price_basis: str`, 헬퍼 `unit_spec()` · `mean_annual_loss()` |
+| 연도 대조 | `validation.py::annual_comparison(observed, modelled, …)` | 겹치는 연도에서 `bias`(모델−관측) · `mae` · `rmse` · `ratio`(Σ모델/Σ관측) · `coverage`(기존 지표 무변경) + 선택 메타데이터 `years_compared` · `observed_unit` · `modelled_unit` · `peril_coverage` · `comparison_status`(메타 미제공 시 **`unknown`**) |
 | 이벤트 대조 | `validation.py::event_comparison(pairs)` | `(label, observed, modelled)` → 이벤트별 비(EDR형) + 총합비(TDR형) |
-| 모델 연손실 | `validation.py::modelled_annual_losses(at_event, dates)` | CLIMADA `Impact.at_event`/`date` → `{역년: 손실}`. `date <= 0` 이벤트는 건너뜀 |
+| 모델 연손실 | `validation.py::modelled_annual_losses(at_event, dates, orig=None)` | CLIMADA `Impact.at_event`/`date` → `{역년: 손실}`. `date <= 0` 건너뜀. `orig` 마스크를 주면 **원본 트랙만** 합산(앙상블 팽창 방지 — 호출자가 제공, 하자드 선택 로직은 만들지 않음) |
 | 보정 기록 | `worker/climaterisk_worker/calibration.py::calibration_record` | `observed_source` · `observed_period` · `observed_annual_loss` · `objective` · `method` · `bounds` · `fit_status="fitted"` |
 | 기록 영속화 | `vulnerability.py::save_calibration` | `data/calibrations/{peril}_{param}_{ISO3}.json` — **파일 1개 / 국가·재해·파라미터 (덮어씀)** |
 | 기록 소비 | `vulnerability.py::resolve_tc_vhalf` | `options["tc_impf_default"] == "calibrated"` 일 때만 적용 |
 
-즉 **적재 목표 형태는 이미 정해져 있다**: `{연도: 피해액}` + 출처 + 단위.
+추가된 게이트: `validation.comparability_report(...)` · `check_units` · `check_peril_coverage` · `check_scope` · `check_annual_basis`, 그리고 보정 측 재사용 래퍼 `calibration.calibration_gate(...)`.
+
+즉 **적재 목표 형태는 이미 정해져 있다**: `{연도: 피해액}` + 출처 + 단위 + (커버리지·범위·물가기준).
 
 ## 2. 현재 사슬 vs 필요한 사슬 (끊긴 지점)
 
@@ -32,11 +47,11 @@
 | # | 끊긴 링크 | 사실 |
 |---|---|---|
 | L1 | 재해연보 로더 | 존재하지 않음. `INGEST_SOURCES`는 `("dataapi","aqueduct","copdem","tctracks","tcrain")` — 손실 통계 소스가 없다 |
-| L2 | `ObservedSeries` → 보정 | `calibration.py`는 `CLIMATERISK_EMDAT_PATH`만 읽는다. 관측 소스 선택 인자가 **없다**(`CalibrationRequest`: mode·session_id·climate_scenario·anchor_years·assets·options) |
-| L3 | 검증 실행 경로 | `validation.py` 호출처 0건 — 결과·리포트·API 어디에도 연결되지 않았다 |
-| L4 | 단위·물가 정합 | `ObservedSeries.unit`은 문자열일 뿐, 통화 변환·디플레이트 로직이 없다 |
+| L2 🟡 | `ObservedSeries` → 보정 | **부분 해소**: `CalibrationRequest.observed_source`(F4)와 API 전달(F6)이 생겼고, EM-DAT 경로는 게이트용 `ObservedSeries`를 구성한다. **잔여**: 목표값 계산은 여전히 EM-DAT total/span 직접 계산이며 `ObservedSeries` 경유로 통일되지 않았다(F1 이후) |
+| L3 🟡 | 검증 실행 경로 | **부분 해소**: `calibration.py`가 게이트로 `validation`을 호출한다(첫 실사용처). **잔여**: 관측 계열이 없어 결과·리포트·API에 검증 지표를 노출하는 경로는 아직 없다 |
+| L4 🟡 | 단위·물가 정합 | **부분 해소**: `check_units`가 통화+배수를 파싱해 불일치·미인식을 차단하고 `price_basis`를 기록한다. **잔여**: 통화 변환·디플레이트 **계산**은 없다(F1에서 적재 시 수행) |
 | L5 | 연도 정렬 | 합성 이벤트셋에는 정직한 역년이 없다 (§7) |
-| L6 | 범위(scope) 정합 | 현행 보정은 **국가 총관측손실**을 **사용자가 놓은 자산 몇 개**의 AAI에 맞춘다 (§8) |
+| L6 ✅ | 범위(scope) 정합 | **해소**: `calibration_gate`가 적합 전에 `check_scope`로 차단한다. 미선언도 차단하며, 강행은 명시적 opt-in만 (§8) |
 
 ## 3. 소스 후보 (2026-09-07 확인)
 
@@ -127,9 +142,11 @@
 쓴다. 포트폴리오가 건물 3채면 "전국 손실 = 3채 손실"을 강제하므로 `v_half`가 상한(200 m/s)까지 밀린다.
 **국가 관측 목표는 국가 노출과만 짝지어야 한다.**
 
-**구현 시 필수 가드**: 보정 실행 전 노출 범위를 확인해
-- 모델드 노출(전국 격자: `litpop` / `raster` 등)이면 통과,
-- 소수 점자산이면 **거부**하고 "국가 노출로 실행하라"는 실행 가능한 오류를 반환한다.
+**구현된 가드**(`calibration.calibration_gate`): 관측 범위는 EM-DAT 경로에서 `national:{ISO3}`로
+선언되고, 모델 범위는 **호출자가 `options["exposure_scope"]`로 선언**해야 한다. 불일치는 물론
+**미선언도 차단**한다(런너가 검증할 수 없는 것을 통과시키지 않는다). 의도적 강행은
+`options["allow_incomparable_calibration"]=true`이며, 그때 기록은 `comparison_status="not_comparable"`로
+남는다 — `fit_status="fitted"`와 **별개 키**다(수렴 ≠ 타당성).
 
 (대안: 관측을 자산 소재 시군구로 좁히고 15107316 지역별 API를 쓰되, 그때는 노출도 그 시군구로 한정한다.)
 
@@ -138,12 +155,13 @@
 | # | 파일 | 변경 | 성격 |
 |---|---|---|---|
 | F1 | `worker/climaterisk_worker/observed_kr.py` **(신규)** | 재해연보 XML → `ObservedSeries`. 인증키 env(`CLIMATERISK_DATAGOKR_KEY`), 응답 원문 캐시, 단위·물가기준 `notes` 기입, 디플레이트 옵션 | 신규 |
-| F2 | `worker/climaterisk_worker/validation.py` | 단위/통화 일치 검사 헬퍼 + 서브페릴 커버리지 필드 | 확장 |
-| F3 | `worker/climaterisk_worker/calibration.py` | 관측 소스를 **주입식**으로 분리(`emdat` / `disaster_yearbook`), 목표 계산을 `ObservedSeries` 경유로 통일, §6-1 커버리지 기록, §8 범위 가드 | 리팩터 |
-| F4 | `src/climaterisk/engines/base.py` | `CalibrationRequest`에 `observed_source` 필드(기본 `emdat`) | 스키마 |
-| F5 | `tests/test_observed_kr.py` **(신규)** | 파서 단위 테스트(**동봉 소형 픽스처 XML로만**) + 단위 불일치 assert + 범위 가드 테스트 | 신규 |
-| F6 | `src/climaterisk/api/routers/run.py` | 보정 엔드포인트에 `observed_source` 전달(선택) | 소 |
-| F7 | `docs/RISK_REGISTER.md` · `docs/CLIMADA_METHODS.md` | C2/C5 상태 갱신, 보정 절에 §6-1·§7·§8 규율 반영 | 문서 |
+| F2 ✅ | `worker/climaterisk_worker/validation.py` | **구현됨**: `parse_unit`/`check_units`(통화+배수, 미인식은 unknown=차단), `check_peril_coverage`, `check_scope`, `check_annual_basis`, `comparability_report`; `ObservedSeries`에 `currency`·`covers_subperils`·`scope`·`price_basis` 후방호환 추가; `annual_comparison`에 `years_compared`·단위·커버리지·`comparison_status` 메타데이터(기존 지표 무변경) | 확장 |
+| F3 🟡 | `worker/climaterisk_worker/calibration.py` | **부분 구현**: 소스 선택(`disaster_yearbook`→데이터게이트 오류), `calibration_gate`(=`comparability_report` 재사용)로 적합 **전** 차단, `portfolio_currency`, 기록에 §10 메타데이터. **목표 계산 자체는 무변경**(EM-DAT total/span) — `ObservedSeries` 경유 통일은 F1 이후 | 리팩터(잔여) |
+| F4 ✅ | `src/climaterisk/engines/base.py` | **구현됨**: `OBSERVED_SOURCES=("emdat","disaster_yearbook")`, `CalibrationRequest.observed_source="emdat"`, `from_portfolio(portfolio, observed_source="emdat")` | 스키마 |
+| F5 ✅ | `tests/test_observed_kr.py` **(신규)** | **구현됨** 24건: 픽스처(소형 XML, `source`에 "synthetic unit-test fixture") + 파서 계약(연도·금액·재해유형 매핑·결측/비수치 = **0으로 강제하지 않고 skip**) + 단위/커버리지/범위/연도정렬 차단 + 명시적 opt-in 경로. `_reference_extract`는 **테스트 내 계약 증인**이며 로더가 아니다 | 신규 |
+| F6 ✅ | `src/climaterisk/api/routers/run.py` · `runs/manager.py` | **구현됨**: `observed_source` 쿼리(기본 `emdat`, 미지원 값 400), `submit_calibration(portfolio, observed_source)` | 소 |
+| F7 ✅ | `docs/RISK_REGISTER.md` · `docs/CLIMADA_METHODS.md` | **갱신됨**: C2(게이트·소스선택), C5(비교 프레임워크 존재·관측 계열 없음), §8(게이트·메타데이터·기본동작 변경·UI 갭) | 문서 |
+| **F8** 🔴 | `frontend/climaterisk/src/views/VulnerabilityView.tsx` | **미해결(선재 결함, 이번 범위 밖)**: 카드가 `cal.status === "ok"`일 때만 렌더 → 워커의 `status="error"`(EM-DAT 부재, 게이트 차단)는 화면에 **아무것도 표시되지 않는다**. `Run.detail`에는 이유가 들어 있으므로 출력측 분기 3줄이면 해소 | 소 |
 
 **착수 조건(데이터 게이트)**: F1은 실제 인증키와 컬럼정의서 확보 후 착수한다. 그 전에는 F2·F4의 계약과
 F5의 픽스처 골격까지만 진행 가능하다. **픽스처는 형식 검증용 소형 XML이며 분석·인용에 쓰지 않는다.**

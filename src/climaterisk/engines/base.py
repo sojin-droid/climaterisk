@@ -519,27 +519,42 @@ class SupplyChainResult(BaseModel):
     detail: str | None = None
 
 
-# --- Impact-function calibration (against observed EM-DAT losses) ---
+# --- Impact-function calibration (against an observed loss series) ---
+
+#: Observed-loss series a calibration may be fitted against. ``emdat`` is the only one with a
+#: reader today; ``disaster_yearbook`` (행정안전부 재해연보) is accepted by the schema so the
+#: source-selection plumbing exists, and the worker returns an explicit "not available" error
+#: until its loader is written — docs/OBSERVED_LOSSES_KR_SPEC.md §9 keeps F1 behind a data gate.
+OBSERVED_SOURCES: tuple[str, ...] = ("emdat", "disaster_yearbook")
 
 
 class CalibrationRequest(BaseModel):
-    """Inputs for an impact-function calibration run (fit TC v_half to EM-DAT losses)."""
+    """Inputs for an impact-function calibration run (fit TC v_half to observed losses)."""
 
     mode: str = "calibration"
     session_id: str
     climate_scenario: str
     anchor_years: list[int]
     assets: list[AssetSpec]
+    #: Which observed series to fit against; the default reproduces the pre-existing behaviour.
+    observed_source: str = "emdat"
     options: dict[str, Any] = Field(default_factory=dict)
 
     @classmethod
-    def from_portfolio(cls, portfolio: Portfolio) -> CalibrationRequest:
-        """Build a calibration request from the session model."""
+    def from_portfolio(
+        cls, portfolio: Portfolio, observed_source: str = "emdat"
+    ) -> CalibrationRequest:
+        """Build a calibration request from the session model.
+
+        A caller that omits ``observed_source`` produces exactly the request this method
+        produced before the field existed.
+        """
         return cls(
             session_id=portfolio.id,
             climate_scenario=portfolio.scenario.climate,
             anchor_years=portfolio.scenario.anchor_years,
             assets=resolve_asset_specs(portfolio),
+            observed_source=observed_source,
             options=dict(portfolio.run_config.options),
         )
 

@@ -721,8 +721,11 @@ and `ImpactCalc`.
 | Hazard | Present-day Data API synthetic TC set |
 | Peril coverage | TC only |
 | Use of result | Returned and displayed, **and persisted** (2026-09-07) as `data/calibrations/tropical_cyclone_v_half_<ISO3>.json` with `fit_status="fitted"`; consumed by physical / cost-benefit / uncertainty runs when `options.tc_impf_default="calibrated"` (explicit studio overrides still win) |
-| Metadata recorded | peril, param, country, `observed_source` (EM-DAT file), `observed_period`, `n_observed_events`, `hazard`, `objective`, `method`, `bounds`, `initial`, `calibrated`, `modelled_annual_loss_at_calibrated`, `calibrated_at`, `schema_version`, `applies_when` |
-| Tests | Error paths, record metadata, persistence → application chain (`tests/test_calibration.py`, 5 tests); the fit itself still needs CLIMADA + an EM-DAT CSV and is untested |
+| Metadata recorded | peril, param, country, `observed_source` (EM-DAT file), `observed_period`, `n_observed_events`, `hazard`, `objective`, `method`, `bounds`, `initial`, `calibrated`, `modelled_annual_loss_at_calibrated`, `calibrated_at`, `schema_version`, `applies_when`; since 2026-09-07 also `observed_unit`, `observed_currency`, `observed_price_basis`, `target_covers_subperils`, `model_covers_subperils`, `scope`, `comparison_status`, `comparability` |
+| Observed source | `CalibrationRequest.observed_source` — `emdat` (default, unchanged behaviour) or `disaster_yearbook`, which has **no loader** and returns an explicit data-gate error instead of substituting another series (`engines/base.py::OBSERVED_SOURCES`; `POST /api/session/{id}/calibration?observed_source=…`) |
+| **Comparability gate** (2026-09-07) | `calibration.calibration_gate` → `validation.comparability_report`, run **before** the fit. Refuses by default when (a) units disagree — "KRW thousand" vs "KRW" included, (b) the observed number aggregates sub-perils the model does not carry (EM-DAT / 재해연보 TC = wind+surge+rain vs the wind-only Emanuel curve), or (c) the spatial scope differs or is undeclared (a national total against the request's exposure). `options["exposure_scope"]` declares the modelled scope; `options["allow_incomparable_calibration"]=true` proceeds deliberately and the record is stamped `comparison_status="not_comparable"` |
+| `fit_status` vs `comparison_status` | Separate keys on purpose: a converged optimisation on an incomparable pair is `fitted` + `not_comparable`. Optimisation success is not scientific validity |
+| Tests | Error paths, record metadata, persistence → application chain (`tests/test_calibration.py`); gate behaviour — unit / sub-peril / scope / year-alignment blocks plus the opt-in path (`tests/test_observed_kr.py`, CLIMADA-free); source plumbing (`tests/test_request_options.py`, `tests/test_api.py`). The fit itself still needs CLIMADA + an EM-DAT CSV and is untested |
 
 ### 8.3 Assessment
 
@@ -733,6 +736,19 @@ Structure: *CLIMADA calibration framework (not used) → scipy scalar fit (imple
 `v_half` only (true) → persisted record → opt-in application in later runs (implemented
 2026-09-07).* A 재해연보 loader (RISK_REGISTER C2) is still missing — the runner reads EM-DAT only —
 and no calibration has been run on Korean data, so nothing here is *validated*.
+
+What the 2026-09-07 gate changed about the *default*: the EM-DAT path as previously written
+would fit a country-total observed loss to whatever exposure the request carried, under a
+wind-only curve. Both mismatches are now blockers, so an EM-DAT calibration **no longer runs
+unless the caller declares a matching scope** (and either restricts the observed series to the
+wind component or opts in explicitly). That is a deliberate behaviour change: the previous
+default could converge and report a number that silently absorbed rain, surge and the
+scope error into `v_half` (docs/OBSERVED_LOSSES_KR_SPEC.md §6-1, §8).
+
+**Known UI gap** (pre-existing, unchanged here): `VulnerabilityView` renders the calibration
+card only when the worker output has `status === "ok"`, so a worker-level refusal — the
+missing-EM-DAT error before, a gate block now — leaves the panel silent even though the run
+completes and `Run.detail` carries the reason. Spec §9 F8.
 
 ---
 

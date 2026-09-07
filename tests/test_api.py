@@ -69,6 +69,30 @@ def test_run_validation(client: TestClient) -> None:
     assert client.post("/api/session/does-not-exist/run").status_code == 404
 
 
+def test_calibration_rejects_an_unknown_observed_source(client: TestClient) -> None:
+    """The observed series is validated before a worker is spawned (no run for a bad source)."""
+    model = client.post("/api/session").json()
+    model["assets"].append(
+        {
+            "name": "Seoul plant",
+            "lat": 37.5665,
+            "lon": 126.9780,
+            "sector": "steel",
+            "geographic_scale": "point",
+            "value": 1_000_000.0,
+            "currency": "USD",
+        }
+    )
+    sid = model["id"]
+    assert client.put(f"/api/session/{sid}", json=model).status_code == 200
+
+    bad = client.post(f"/api/session/{sid}/calibration?observed_source=made_up")
+    assert bad.status_code == 400
+    assert "observed_source" in bad.json()["detail"]
+    # Unknown session still fails first, as before.
+    assert client.post("/api/session/does-not-exist/calibration").status_code == 404
+
+
 def test_invalid_lat_rejected(client: TestClient) -> None:
     created = client.post("/api/session").json()
     created["assets"].append({"name": "bad", "lat": 999.0, "lon": 0.0})

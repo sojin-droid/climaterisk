@@ -193,11 +193,15 @@ class RunManager:
         run.status = "running"
         return run
 
-    def submit_calibration(self, portfolio: Portfolio) -> Run:
-        """Create an impact-function calibration run and spawn its worker."""
+    def submit_calibration(self, portfolio: Portfolio, observed_source: str = "emdat") -> Run:
+        """Create an impact-function calibration run and spawn its worker.
+
+        ``observed_source`` selects the observed series (``base.OBSERVED_SOURCES``); the default
+        keeps existing callers on the EM-DAT path.
+        """
         run_id = uuid.uuid4().hex
         run = self._store.create(run_id, portfolio.id, portfolio.scenario.climate, ["calibration"])
-        request = CalibrationRequest.from_portfolio(portfolio)
+        request = CalibrationRequest.from_portfolio(portfolio, observed_source)
         self._spawn(run_id, self._settings.runs_path / run_id, request.model_dump_json(indent=2))
         run.status = "running"
         return run
