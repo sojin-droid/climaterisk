@@ -34,11 +34,16 @@ cp .env.example .env                                  # optional: ports, paths
 Windows: double-click `run.bat`. Both launchers stop stale servers, install missing dependencies,
 wait for the backend health check and open `http://localhost:5174`. Stop with Ctrl-C.
 
-**As a macOS app.** `./scripts/make_macos_app.command` builds `Climaterisk.app` into
+**As a macOS app.** `./scripts/make_macos_app.command` builds `Physical Risk.app` into
 `/Applications` (or `~/Applications` when that is not writable). It is a stay-open AppleScript
 applet wrapping the same launcher: clicking the icon starts the backend and the frontend and
 opens the UI, and quitting the app — Cmd-Q, or the Dock icon's Quit — shuts both down. Output
-goes to `~/Library/Logs/Climaterisk.log` instead of a terminal.
+goes to `~/Library/Logs/PhysicalRisk.log` instead of a terminal.
+
+`--name` sets the label the Dock and Spotlight show (`--name "CLIMADA (physical risk tool)"`);
+`--dest` sets where the bundle is written. The bundle identifier stays
+`institute.planit.climaterisk` whatever the label is, so a rename does not read as a different
+app to macOS.
 
 Two constraints come from macOS itself, not from this project:
 
