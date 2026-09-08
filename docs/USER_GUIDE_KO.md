@@ -17,6 +17,20 @@ conda env create -f worker/climaterisk_worker/env_climada.yml --prefix ./.climad
 
 macOS/Linux는 `./run.command`, Windows는 `run.bat` 더블클릭. 백엔드(8099)와 프론트(5174)를 띄우고 브라우저를 엽니다.
 
+**macOS 앱으로 실행.** `./scripts/make_macos_app.command`를 한 번 실행하면 `/Applications/Climaterisk.app`이
+만들어집니다. 아이콘을 누르면 서버가 켜지고 화면이 열리며, Cmd-Q(또는 Dock 아이콘 → 종료)로 끄면 서버까지 정리됩니다.
+로그는 `~/Library/Logs/Climaterisk.log`.
+
+macOS 때문에 생기는 제약 두 가지가 있습니다.
+
+- 앱은 빌드 당시의 프로젝트 절대경로를 기억합니다. 폴더를 옮기면 앱을 다시 빌드하세요.
+- 프로젝트를 **`~/Downloads`·`~/Desktop`·`~/Documents` 밖**에 두세요. 이 폴더들은 보호 대상이라 이미 권한을 받은
+  터미널은 읽을 수 있지만 새로 만든 앱은 못 읽고, 서버가 `Operation not permitted`로 실패합니다
+  (`~/Developer/climaterisk` 등이면 됩니다). 시스템 설정에서 앱에 전체 디스크 접근 권한을 주는 방법도 있으나
+  기기마다 반복해야 합니다.
+
+아이콘은 `assets/app_icon.png`로 만들어집니다. 그 파일만 바꿔 다시 빌드하면 아이콘이 교체됩니다.
+
 ## 화면 순서
 
 1. **Map** — 지도를 클릭해 자산을 놓고 업종·가치·통화·**인원(headcount)** 을 입력합니다. 국가 전체를 보려면 *Modeled exposure*에서 기준도시 인구(데이터 불필요) 또는 WorldPop(무료 다운로드)을 선택합니다.

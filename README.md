@@ -64,6 +64,19 @@ all paths and ports live in `.env` / `config.py` (copy `.env.example` → `.env`
 ./run.command          # macOS/Linux: backend (uvicorn) + frontend (Vite); checks the worker env, opens the app
 ```
 
+**macOS: a double-clickable app.** Build it once, then launch the platform from the Dock or
+Launchpad instead of a terminal:
+
+```bash
+./scripts/make_macos_app.command       # builds /Applications/Climaterisk.app
+```
+
+Clicking the icon starts both servers and opens the UI; Cmd-Q (or the Dock icon's Quit) stops
+them. The app embeds this checkout's path, so rebuild it if you move the repository, and keep
+the checkout **out of `~/Downloads`, `~/Desktop` and `~/Documents`** — macOS blocks app access
+to those folders, and the servers then fail with `Operation not permitted`. Log:
+`~/Library/Logs/Climaterisk.log`.
+
 On Windows, double-click `run.bat` (or run `powershell -ExecutionPolicy Bypass -File run.ps1`
 from a terminal) — same behavior: stops stale servers, installs missing deps, starts both
 servers, waits for the backend health check, then opens the app. On Windows the worker env
