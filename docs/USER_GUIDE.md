@@ -34,6 +34,24 @@ cp .env.example .env                                  # optional: ports, paths
 Windows: double-click `run.bat`. Both launchers stop stale servers, install missing dependencies,
 wait for the backend health check and open `http://localhost:5174`. Stop with Ctrl-C.
 
+**As a macOS app.** `./scripts/make_macos_app.command` builds `Climaterisk.app` into
+`/Applications` (or `~/Applications` when that is not writable). It is a stay-open AppleScript
+applet wrapping the same launcher: clicking the icon starts the backend and the frontend and
+opens the UI, and quitting the app — Cmd-Q, or the Dock icon's Quit — shuts both down. Output
+goes to `~/Library/Logs/Climaterisk.log` instead of a terminal.
+
+Two constraints come from macOS itself, not from this project:
+
+- The app records the absolute path of the checkout it was built from. Move the repository →
+  rebuild the app.
+- Keep the checkout out of `~/Downloads`, `~/Desktop` and `~/Documents`. Those are
+  privacy-protected: a terminal you have already granted access to can read them, a freshly
+  built app cannot, and the servers fail with `Operation not permitted` (`uv_cwd` / `.env`).
+  `~/Developer/climaterisk` or any other unprotected folder works. Granting the app Full Disk
+  Access in System Settings is the alternative, but it has to be repeated per machine.
+
+The icon is generated from `assets/app_icon.png` — replace that file and rebuild to change it.
+
 If the CLIMADA worker env is missing the app still starts; physical-risk runs then fail with an
 explicit message telling you to build the env.
 
