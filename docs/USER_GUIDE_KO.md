@@ -17,9 +17,10 @@ conda env create -f worker/climaterisk_worker/env_climada.yml --prefix ./.climad
 
 macOS/Linux는 `./run.command`, Windows는 `run.bat` 더블클릭. 백엔드(8099)와 프론트(5174)를 띄우고 브라우저를 엽니다.
 
-**macOS 앱으로 실행.** `./scripts/make_macos_app.command`를 한 번 실행하면 `/Applications/Climaterisk.app`이
+**macOS 앱으로 실행.** `./scripts/make_macos_app.command`를 한 번 실행하면 `/Applications/Physical Risk.app`이
 만들어집니다. 아이콘을 누르면 서버가 켜지고 화면이 열리며, Cmd-Q(또는 Dock 아이콘 → 종료)로 끄면 서버까지 정리됩니다.
-로그는 `~/Library/Logs/Climaterisk.log`.
+로그는 `~/Library/Logs/PhysicalRisk.log`. 이름을 바꾸려면 `--name "CLIMADA (physical risk tool)"`처럼 넘기면 되고,
+번들 식별자는 그대로라 macOS가 다른 앱으로 보지 않습니다.
 
 macOS 때문에 생기는 제약 두 가지가 있습니다.
 
