@@ -1,8 +1,8 @@
 """KMA national standard climate scenario (남한상세 1 km) — the Korean heat-hazard source.
 
 Korean counterpart of :mod:`eobs`. Loads the Korea Meteorological Administration's
-**남한상세 (South-Korea high-resolution) daily maximum temperature** grids and turns them
-into the same :class:`~climaterisk_worker.eobs.SummerTmax` arrays the heat perils consume,
+**남한상세 (South-Korea high-resolution) daily mean temperature** grids and turns them
+into the same :class:`~climaterisk_worker.eobs.SummerDailyMean` arrays the heat perils consume,
 so the on-ramp (``heat_mortality.grid_from_summer_tmax`` → ``hazard_convert``) is shared.
 
 Data (기상청 기후변화 시나리오 활용매뉴얼 v5.1, 2024-12; verified 2026-09-02)
@@ -12,11 +12,14 @@ Data (기상청 기후변화 시나리오 활용매뉴얼 v5.1, 2024-12; verifie
 * Historical: MK-PRISM v2.1 observation-based grid, 2000–2019.
 * Future: SSP1-2.6 / 2-4.5 / 3-7.0 / 5-8.5, 2021–2100, 5-RCM **ensemble mean** (5ENSMN),
   served in 10-year daily files.
+* Variable: ``TA`` (평균기온, daily mean). Daily **mean** temperature is deliberate — the
+  citable Korean threshold and exposure-response estimates are all in daily mean
+  (Kim 2020, doi:10.3390/ijerph17165720; see ``docs/HEAT_MORTALITY_PROVENANCE.md``).
 * Distribution: 기후변화 상황지도 (climate.go.kr/atlas/ana/cdd), login required, as
   ``*.tar.gz`` archives, e.g.::
 
-      AR6_SSP585_5ENSMN_skorea_TAMAX_gridraw_daily_2021_2030_nc.tar.gz
-      MKPRISM_MKPRISMv21_skorea_TAMAX_gridraw_daily_2000_2019_nc.tar.gz
+      AR6_SSP585_5ENSMN_skorea_TA_gridraw_daily_2021_2030_nc.tar.gz
+      MKPRISM_MKPRISMv21_skorea_TA_gridraw_daily_2000_2019_nc.tar.gz
 
   Drop them (archives or the extracted ``.nc``) under ``~/climada/data/kma/`` or point
   ``CLIMATERISK_KMA_DIR`` at the folder; :func:`extract_archives` unpacks what it finds.
@@ -42,7 +45,7 @@ from pathlib import Path
 
 import numpy as np
 
-from climaterisk_worker.eobs import SEASON_DAYS, SEASON_END, SEASON_START, SummerTmax
+from climaterisk_worker.eobs import SEASON_DAYS, SEASON_END, SEASON_START, SummerDailyMean
 
 _HOME_KMA = Path.home() / "climada" / "data" / "kma"
 
@@ -71,8 +74,8 @@ class KmaUnavailable(Exception):
     """Raised when no KMA scenario file is present; carries actionable help."""
 
     HELP = (
-        "No KMA 남한상세 TAMAX daily NetCDF found. Log in to 기후변화 상황지도 "
-        "(https://climate.go.kr/atlas/ana/cdd), filter 남한상세 › 격자 › 최고평균기온 › "
+        "No KMA 남한상세 TA (daily mean) NetCDF found. Log in to 기후변화 상황지도 "
+        "(https://climate.go.kr/atlas/ana/cdd), filter 남한상세 › 격자 › 평균기온 › "
         "일자료 › nc, "
         "download the tar.gz archives and drop them under ~/climada/data/kma/ "
         "(or set CLIMATERISK_KMA_DIR). Run `scripts/heat_korea.py files` to see what is "
@@ -162,7 +165,7 @@ def extract_archives(directory: Path | None = None) -> list[Path]:
 
 def list_files(
     directory: Path | None = None,
-    variable: str = "TAMAX",
+    variable: str = "TA",
     step: str = "daily",
     scenario: str | None = None,
 ) -> list[KmaFile]:
@@ -180,7 +183,7 @@ def list_files(
 
 
 def available(scenario: str = "historical", directory: Path | None = None) -> bool:
-    """True when at least one daily TAMAX file exists for ``scenario``."""
+    """True when at least one daily TA (daily mean) file exists for ``scenario``."""
     try:
         return bool(list_files(directory, scenario=scenario))
     except KmaUnavailable:
@@ -223,11 +226,11 @@ def load_summer_tmax(
     year_start: int | None = None,
     year_end: int | None = None,
     coarsen: int = 5,
-    variable: str = "TAMAX",
+    variable: str = "TA",
     directory: Path | None = None,
     max_missing_frac: float = 0.02,
-) -> SummerTmax:
-    """Load Jun–Sep daily Tmax from KMA 남한상세 files for one platform scenario.
+) -> SummerDailyMean:
+    """Load Jun–Sep daily **mean** temperature from KMA 남한상세 files for one scenario.
 
     Files are processed one season at a time (a 1 km season slice is ~220 MB), block-
     averaged to ``coarsen`` × 0.01° (default 0.05° ≈ 5 km → ~18k cells before the sea is
@@ -241,12 +244,12 @@ def load_summer_tmax(
         year_start: First season to include (default: first available).
         year_end: Last season to include (default: last available).
         coarsen: Block size in 0.01° cells (1 keeps the native grid, ~450k cells).
-        variable: File-name variable token (``TAMAX``).
+        variable: File-name variable token (``TA`` = 평균기온, daily mean).
         directory: Drop folder override.
         max_missing_frac: Cell drop threshold.
 
     Returns:
-        A :class:`~climaterisk_worker.eobs.SummerTmax` with calendar ``years``.
+        A :class:`~climaterisk_worker.eobs.SummerDailyMean` with calendar ``years``.
 
     Raises:
         KmaUnavailable: no matching file, or no complete season in range.
@@ -326,7 +329,7 @@ def load_summer_tmax(
     tokens = sorted({f.scenario_token for f in files})
     model = sorted({f.model for f in files if f.model})
     res = GRID_RES_DEG * max(coarsen, 1)
-    return SummerTmax(
+    return SummerDailyMean(
         lat=lat_f.astype(float),
         lon=lon_f.astype(float),
         years=np.array(years_sorted, dtype=int),

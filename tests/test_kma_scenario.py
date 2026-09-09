@@ -1,7 +1,7 @@
 """KMA 남한상세 1 km scenario grids → heat hazards, on a spec-conformant synthetic file.
 
 The real files sit behind a login, so these tests build a small NetCDF that follows the
-KMA 활용매뉴얼 v5.1 spec (regular 0.01° lat/lon, TAMAX in degC, missing -9990, tar.gz
+KMA 활용매뉴얼 v5.1 spec (regular 0.01° lat/lon, TA in degC, missing -9990, tar.gz
 delivery) and push it through the whole on-ramp: archive → loader → degree-days →
 catalog → CLIMADA runner.
 """
@@ -37,7 +37,7 @@ def _write_kma_file(
     stem: str | None = None,
     warm_offset: float = 0.0,
 ) -> Path:
-    """Synthetic MK-PRISM-style daily TAMAX file: two sea columns filled with -9990.
+    """Synthetic MK-PRISM-style daily TA file: two sea columns filled with -9990.
 
     ``stem`` overrides the file name (e.g. an ``AR6_SSP245_5ENSMN_…`` future product);
     ``warm_offset`` shifts every day's Tmax (degC) so a "future" file is distinguishable.
@@ -55,11 +55,11 @@ def _write_kma_file(
     data += warm_offset
     data[:, :, :2] = kma.MISSING_VALUE  # sea columns
     ds = xr.Dataset(
-        {"TAMAX": (("time", "latitude", "longitude"), data.astype(np.float32))},
+        {"TA": (("time", "latitude", "longitude"), data.astype(np.float32))},
         coords={"time": time, "latitude": lat, "longitude": lon},
     )
-    ds["TAMAX"].attrs["units"] = "degC"
-    stem = stem or f"MKPRISM_MKPRISMv21_skorea_TAMAX_gridraw_daily_{years[0]}_{years[-1]}"
+    ds["TA"].attrs["units"] = "degC"
+    stem = stem or f"MKPRISM_MKPRISMv21_skorea_TA_gridraw_daily_{years[0]}_{years[-1]}"
     nc = directory / f"{stem}.nc"
     ds.to_netcdf(nc)
     if not as_archive:
@@ -72,11 +72,11 @@ def _write_kma_file(
 
 
 def test_file_name_parsing_covers_both_products() -> None:
-    f = kma.parse_name(Path("AR6_SSP585_5ENSMN_skorea_TAMAX_gridraw_daily_2021_2030.nc"))
+    f = kma.parse_name(Path("AR6_SSP585_5ENSMN_skorea_TA_gridraw_daily_2021_2030.nc"))
     assert f is not None
-    assert (f.scenario_token, f.model, f.variable, f.step) == ("SSP585", "5ENSMN", "TAMAX", "daily")
+    assert (f.scenario_token, f.model, f.variable, f.step) == ("SSP585", "5ENSMN", "TA", "daily")
     assert (f.year_start, f.year_end, f.platform_scenario) == (2021, 2030, "rcp85")
-    g = kma.parse_name(Path("MKPRISM_MKPRISMv21_skorea_TAMAX_gridraw_daily_2000_2019.nc"))
+    g = kma.parse_name(Path("MKPRISM_MKPRISMv21_skorea_TA_gridraw_daily_2000_2019.nc"))
     assert g is not None and g.model is None and g.platform_scenario == "historical"
     assert kma.parse_name(Path("tx_ens_mean_0.25deg_reg_v31.0e.nc")) is None
 
@@ -225,7 +225,7 @@ def test_requested_ssp_layer_is_resolved_end_to_end_for_korea(
     _write_kma_file(
         tmp_path / "kma",
         (2021, 2022, 2023, 2024),
-        stem="AR6_SSP245_5ENSMN_skorea_TAMAX_gridraw_daily_2021_2024",
+        stem="AR6_SSP245_5ENSMN_skorea_TA_gridraw_daily_2021_2024",
         warm_offset=3.0,
     )
     assert kma.available("historical") and kma.available("rcp45") and not kma.available("rcp85")

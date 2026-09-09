@@ -544,7 +544,9 @@ CLIMADA-standard peril.
 | Heat-mortality vulnerability curve | climaterisk | Custom |
 | Age stratification (<65 / ≥65) | climaterisk | Custom |
 | Baseline mortality | climaterisk | Indicative — no source identified |
-| MMT / comfort band (and its width) | climaterisk | Indicative — no source identified |
+| Heat-onset threshold (band upper edge) | Kim 2020 (KOR, 93rd percentile of the summer daily-mean distribution) | **External** for KOR; extrapolated elsewhere |
+| Adaptation slope (MMT vs climate) | Tobías et al. 2021 (0.8 degC per degC) | **External** |
+| Band width, β, age split | climaterisk | Indicative — no source identified |
 | Future scenario | platform hazard routing (baseline band + explicit `band_shift_c`) | Partial |
 | Korean calibration | observed data | Not yet implemented |
 | Empirical validation | Korean mortality / loss data | Not validated |

@@ -62,25 +62,36 @@ No source was invented for this pass. Where none exists the citation column says
 | beta, 65 and over | `0.034` | 1/degC | `heat_mortality.py::AGE_BANDS` | comment: the elderly heat-mortality slope is several times the non-elderly slope | source unavailable | C · indicative assumption |
 | baseline daily mortality, under 65 | `1.3e-3 / 365` | 1/day | `heat_mortality.py::AGE_BANDS` | comment: crude all-cause rate ~1.3/1000/yr, shared across countries (a limitation) | source unavailable | C · indicative assumption |
 | baseline daily mortality, 65 and over | `45.0e-3 / 365` | 1/day | `heat_mortality.py::AGE_BANDS` | comment: crude all-cause rate ~45/1000/yr, shared across countries (a limitation) | source unavailable | C · indicative assumption |
-| mmt_high (comfort-band upper edge) per reference city | `54 values, 26.0-40.0` | degC | `heat_mortality.py::REF_CITIES` | comment: approximate but realistic, a locally-adapted heat-onset edge; explicitly not a substitute for national statistics + AEMET/E-OBS microdata | source unavailable | D · unknown provenance |
+| mmt_high (comfort-band upper edge) per reference city | `54 values, 26.0-40.0` | degC | `heat_mortality.py::REF_CITIES` | comment: approximate but realistic, a locally-adapted heat-onset edge; explicitly not a substitute for national statistics + AEMET/E-OBS microdata. Since the gridded paths read the threshold off the measured distribution, this table now sets only the synthetic/interpolated path's level and the fitted intercept | source unavailable | D · unknown provenance |
 | tmax_jja_mean / tmax_jja_sd per reference city | `54 pairs, 23.0-36.5 / 3.0-4.6` | degC | `heat_mortality.py::REF_CITIES` | comment: present-day summer daily-Tmax climatology, approximate | source unavailable | D · unknown provenance |
 | population / share_over65 per reference city | `54 pairs` | persons / - | `heat_mortality.py::REF_CITIES` | comment: provincial or metro figures, approximate | source unavailable | D · unknown provenance |
 | band-width coefficients | `0.35, 22.0, clip 1.5-8.0` | - / degC | `heat_mortality.py::comfort_band` | docstring: the width scales with how hot-adapted the place is | source unavailable | C · indicative assumption |
-| adaptation regression (spatial) | `a = -0.002, b = 1.0778` | degC / - | `heat_mortality.py::adaptation_fit` | OLS of mmt_high on tmax_jja_mean across REF_CITIES — inherits the table's provenance | source unavailable | B · internal fit |
+| exposure metric | `daily mean temperature, Jun-Sep` | degC | `eobs.py::load_summer_daily_mean / kma_scenario.py (TA)` | every citable threshold and exposure-response estimate used here is expressed in daily mean temperature, so the hazard is built in that metric | Kim (2020) IJERPH 17:5720 doi:10.3390/ijerph17165720; Gasparrini et al. (2015) Lancet 386:369-375; Tobías et al. (2021) Environ Epidemiol 5:e169 | **A · external** |
+| adaptation slope (MMT vs local climate) | `0.8 degC per degC of mean temperature (SD slope 1.0 recorded, not applied)` | - | `heat_mortality.py::MMT_ANNUAL_MEAN_SLOPE / adaptation_fit` | published spatial adaptation of the minimum mortality temperature; replaces the repository's own OLS slope of 1.078, which let warming reduce the exceedance load | Tobías A, Hashizume M, Honda Y, Sera F, Ng CFS, et al. (2021) Environ Epidemiol 5:e169, doi:10.1097/EE9.0000000000000169 (658 communities, 43 countries) | **A · external** |
+| adaptation intercept | `a = mean(mmt_high) - 0.8 x mean(tmax_jja_mean)` | degC | `heat_mortality.py::adaptation_fit` | only the level is fitted, over REF_CITIES, with the slope held at the published value; inherits the reference table's provenance | source unavailable | B · internal fit |
+| heat-onset percentile, Korea | `93.0` | percentile of the summer (Jun-Sep) daily-mean distribution | `heat_mortality.py::HEAT_ONSET_PERCENTILE` | threshold point of heatwave mortality risk over 229 Korean districts, same season window and same metric as this model (urban 92nd, rural 95th) | Kim (2020) Heatwave-Related Mortality Risk and the Risk-Based Definition of Heat Wave in South Korea, IJERPH 17:5720, doi:10.3390/ijerph17165720 | **A · external** |
+| heat-onset percentile, countries without a local study | `93.0` | percentile of the summer daily-mean distribution | `heat_mortality.py::DEFAULT_HEAT_ONSET_PERCENTILE` | the Korean estimate applied elsewhere for want of a summer-window study; an extrapolation, reported as one by heat_onset_percentile() | source unavailable | C · indicative assumption |
 | dose power law per age band | `fitted (a, b) per band` | - | `heat_mortality.py::dose_curve` | least squares in log space on a seeded internal ensemble of REF_CITIES seasons | source unavailable | B · internal fit |
 | internal calibration ensemble | `_CALIB_SEED = 20240811, _CALIB_SEASONS = 400` | - | `heat_mortality.py` | fixed so the fitted dose curve is identical in every process (reproducibility) | source unavailable | C · indicative assumption |
 | season anomaly spreads (synthetic generator) | `1.0 Europe-wide, 1.2 per country` | degC | `heat_mortality.py::simulate_seasons` | a physically-grounded stand-in for reanalysis when no observed grid is present | source unavailable | C · indicative assumption |
 | warm-season window | `Jun 1 - Sep 30, 122 days` | days | `heat_mortality.py::SEASON_START/SEASON_END/SEASON_DAYS` | modelling choice; narrower than MoMo's attribution window, a known cause of the tail under-prediction | source unavailable | C · indicative assumption |
 | age-structure projection multipliers | `6 countries x 4 years, 1.00-1.65` | - | `heat_mortality.py::_AGE_SHARE_MULTIPLIER` | used to project share_over65 to 2030/2040/2050 | source unavailable | D · unknown provenance |
 | age-share ceiling | `0.45` | - | `heat_mortality.py::MAX_SHARE_OVER65` | comment: a demographic ceiling so interpolation cannot produce nonsense | source unavailable | C · indicative assumption |
-| share_over65 for Korea | `0.203` | - | `heat_mortality.py::COUNTRY_SHARE_OVER65` | comment: 주민등록인구 기준 2025년 약 20.3% | KOSIS / 행정안전부 주민등록인구통계 (recorded in the code comment; figure not re-verified against the source in this pass) | A · external |
+| share_over65 for Korea | `0.203` | - | `heat_mortality.py::COUNTRY_SHARE_OVER65` | comment: 주민등록인구 기준 2025년 약 20.3% | KOSIS / 행정안전부 주민등록인구통계 (recorded in the code comment; figure not re-verified against the source in this pass) | **A · external** |
 | impact-function intensity grid | `0-900 degC-days, 61 points` | degC-days | `heat_mortality.py::build_impact_functions` | discretisation of the curve; the upper end is far above any realistic season so the mdd cap does not bind | source unavailable | C · indicative assumption |
 | default headcount per site | `250` | persons | `physical.py::_DEFAULT_HEADCOUNT` | exposure fallback when an asset carries no headcount; the assumption used is always stated in the result detail | source unavailable | C · indicative assumption |
 
-**Tally**: 1 × A, 2 × B, 11 × C, 4 × D of 18 records — **15 of 18 have no external source**,
-and none of the 18 has been calibrated against observed mortality. The two B entries (the
-adaptation regression and the dose power law) are internally consistent fits, but both are
-fitted *over the reference-city table*, so they inherit that table's D status.
+**Tally**: 4 x A, 2 x B, 12 x C, 4 x D of 22 records. The **band and its response to
+climate are now cited** (Kim 2020 for the Korean threshold percentile; Tobías et al. 2021 for
+the adaptation slope; the metric choice follows all three source papers). What remains
+unsupported is the **dose-response itself** — β per age band and the baseline mortality rates —
+and none of the 22 is calibrated against observed mortality.
+
+Why β is still uncited, precisely: the Korean estimates available are **heatwave-episode
+relative risks at percentile cut-offs with a lag structure** (Kim 2020: total 1.11 at the 93rd,
+65+ 1.20 at the 98th; 65+ urban 1.13 at the 95th), not per-day slopes per degC. Converting them
+into this model's per-day β needs a reconciliation of exposure definition and lag that this pass
+does not attempt — doing it by arithmetic alone would overstate the slope.
 
 ## 4. What this means when reading a result
 

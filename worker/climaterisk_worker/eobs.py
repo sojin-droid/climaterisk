@@ -1,7 +1,7 @@
 """E-OBS observed daily temperature — the real gridded climate behind the heat perils.
 
 E-OBS (ECA&D / Copernicus) is the European daily observational gridded dataset. This module
-loads its **daily maximum temperature** (``tx``) field and turns it into the arrays the
+loads its **daily mean temperature** (``tg``) field and turns it into the arrays the
 heat-health model consumes, replacing the synthetic season generator with observations:
 
 * real spatial structure (no interpolation from a handful of reference cities),
@@ -11,8 +11,12 @@ heat-health model consumes, replacing the synthetic season generator with observ
 Data
 ----
 Open access, no login: the ECA&D S3 mirror serves the whole-domain NetCDF.
-``tx_ens_mean_0.25deg_reg_v<version>.nc`` (~0.8 GB) is the 0.25° regular-grid ensemble mean.
-Drop it under ``~/climada/data/`` (or point ``CLIMATERISK_EOBS_TX`` at it) and every heat
+``tg_ens_mean_0.25deg_reg_v<version>.nc`` (~0.8 GB) is the 0.25° regular-grid ensemble mean.
+Daily **mean** temperature is deliberate: every citable minimum-mortality threshold and
+exposure-response estimate this platform uses is expressed in daily mean temperature
+(Kim 2020 for Korea; Gasparrini et al. 2015; Tobías et al. 2021) — see
+``docs/HEAT_MORTALITY_PROVENANCE.md``.
+Drop it under ``~/climada/data/`` (or point ``CLIMATERISK_EOBS_TG`` at it) and every heat
 run picks it up. The 0.1° product works too and is resolved by the same glob.
 
 Why the file is not subset server-side: the KNMI OPeNDAP endpoint is not reliably
@@ -40,12 +44,12 @@ class EobsUnavailable(Exception):
     """Raised when no E-OBS file is present; carries actionable download help."""
 
     HELP = (
-        "No E-OBS daily-Tmax NetCDF found. Download the open ECA&D ensemble-mean file "
+        "No E-OBS daily-mean-temperature NetCDF found. Download the open ECA&D ensemble-mean file "
         "(no login) into ~/climada/data/, e.g.\n"
-        "  curl -sSfL -o ~/climada/data/tx_ens_mean_0.25deg_reg_v31.0e.nc \\\n"
+        "  curl -sSfL -o ~/climada/data/tg_ens_mean_0.25deg_reg_v31.0e.nc \\\n"
         "    https://knmi-ecad-assets-prd.s3.amazonaws.com/ensembles/data/"
-        "Grid_0.25deg_reg_ensemble/tx_ens_mean_0.25deg_reg_v31.0e.nc\n"
-        "or set CLIMATERISK_EOBS_TX to an existing file."
+        "Grid_0.25deg_reg_ensemble/tg_ens_mean_0.25deg_reg_v31.0e.nc\n"
+        "or set CLIMATERISK_EOBS_TG to an existing file."
     )
 
     def __init__(self, detail: str | None = None) -> None:
@@ -53,35 +57,36 @@ class EobsUnavailable(Exception):
         super().__init__(self.detail)
 
 
-def resolve_tx_file() -> Path | None:
-    """Locate the E-OBS daily-Tmax NetCDF, or None.
+def resolve_tg_file() -> Path | None:
+    """Locate the E-OBS daily-mean-temperature NetCDF, or None.
 
-    Resolution order: ``CLIMATERISK_EOBS_TX`` → the newest ``tx_ens_mean_*deg_reg_*.nc``
+    Resolution order: ``CLIMATERISK_EOBS_TG`` → the newest ``tg_ens_mean_*deg_reg_*.nc``
     under ``~/climada/data`` (so a fresher version wins automatically).
     """
-    explicit = os.environ.get("CLIMATERISK_EOBS_TX")
+    explicit = os.environ.get("CLIMATERISK_EOBS_TG")
     if explicit and Path(explicit).is_file():
         return Path(explicit)
     if not _HOME_CLIMADA.is_dir():
         return None
-    candidates = sorted(_HOME_CLIMADA.glob("tx_ens_mean_*deg_reg_*.nc"))
+    candidates = sorted(_HOME_CLIMADA.glob("tg_ens_mean_*deg_reg_*.nc"))
     return candidates[-1] if candidates else None
 
 
 def available() -> bool:
-    """True when an E-OBS Tmax file is present (callers fall back to the synthetic model)."""
-    return resolve_tx_file() is not None
+    """True when an E-OBS daily-mean file is present (callers fall back to the synthetic model)."""
+    return resolve_tg_file() is not None
 
 
 @dataclass(frozen=True)
-class SummerTmax:
-    """Observed summer daily-Tmax for a set of land grid cells.
+class SummerDailyMean:
+    """Observed summer daily **mean** temperature for a set of land grid cells.
 
     Attributes:
         lat: Cell latitudes, shape ``(n_cells,)``, degrees north.
         lon: Cell longitudes, shape ``(n_cells,)``, degrees east.
         years: Calendar years of each season, shape ``(n_years,)``.
-        tmax: Daily maximum temperature, shape ``(n_cells, n_years, SEASON_DAYS)``, degC.
+        tmax: Daily mean temperature, shape ``(n_cells, n_years, SEASON_DAYS)``, degC.
+            (The attribute keeps its historical name; the quantity is the daily mean.)
         source: Provenance string for the hazard/catalog entry.
     """
 
@@ -100,13 +105,13 @@ class SummerTmax:
         return int(self.years.size)
 
 
-def load_summer_tmax(
+def load_summer_daily_mean(
     bbox: tuple[float, float, float, float],
     year_start: int = 1980,
     year_end: int | None = None,
     max_missing_frac: float = 0.02,
 ) -> SummerTmax:
-    """Load observed Jun-Sep daily Tmax for a bounding box and year range.
+    """Load observed Jun-Sep daily **mean** temperature for a bounding box and year range.
 
     Cells that are sea or have too many gaps are dropped, and the remaining gaps are
     filled per cell-season by that season's mean — heat-load integrals must not be biased
@@ -120,20 +125,20 @@ def load_summer_tmax(
             missing across the whole record.
 
     Returns:
-        A :class:`SummerTmax`.
+        A :class:`SummerDailyMean`.
 
     Raises:
         EobsUnavailable: when no E-OBS file is present or the box contains no land cells.
     """
     import xarray as xr
 
-    path = resolve_tx_file()
+    path = resolve_tg_file()
     if path is None:
         raise EobsUnavailable()
 
     lon_min, lon_max, lat_min, lat_max = bbox
     with xr.open_dataset(path, chunks={"time": 365}) as ds:
-        var = "tx" if "tx" in ds.data_vars else next(iter(ds.data_vars))
+        var = "tg" if "tg" in ds.data_vars else next(iter(ds.data_vars))
         da = ds[var].sel(
             longitude=slice(lon_min, lon_max),
             latitude=slice(lat_min, lat_max),
@@ -171,10 +176,18 @@ def load_summer_tmax(
         season_mean = np.where(np.isnan(season_mean), np.nanmean(flat), season_mean)
         flat = np.where(np.isnan(flat), season_mean, flat)
 
-    return SummerTmax(
+    return SummerDailyMean(
         lat=lat_f.astype(float),
         lon=lon_f.astype(float),
         years=np.array(keep_years, dtype=int),
         tmax=flat.astype(float),
-        source=f"E-OBS observed daily Tmax ({path.name}, {keep_years[0]}-{keep_years[-1]})",
+        source=(
+            f"E-OBS observed daily mean temperature ({path.name}, {keep_years[0]}-{keep_years[-1]})"
+        ),
     )
+
+
+#: Historical names kept as aliases: the quantity is now the daily **mean** temperature.
+SummerTmax = SummerDailyMean
+load_summer_tmax = load_summer_daily_mean
+resolve_tx_file = resolve_tg_file
