@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -140,12 +141,54 @@ def register_window(
     year_end: int | None,
     coarsen: int,
     catalog_dir: Path,
-) -> list[dict]:  # type: ignore[type-arg]
-    """Load one scenario window, build both layers, write + register them."""
+    reference_cells: tuple[Any, ...] | None = None,
+    band_shift_c: float = 0.0,
+) -> tuple[list[dict], tuple[Any, ...]]:  # type: ignore[type-arg]
+    """Load one scenario window, build both layers, write + register them.
+
+    Args:
+        scenario: Platform scenario key (``historical``, ``rcp45``, …).
+        year_key: Catalog year the layer is filed under.
+        year_start: First season of the window (None = all available).
+        year_end: Last season of the window.
+        coarsen: Block size in 0.01 deg cells passed to the KMA loader.
+        catalog_dir: Local hazard catalog directory.
+        reference_cells: Cells of the baseline (``historical``) window, whose comfort band
+            this window reuses. **Required for every non-baseline scenario** — deriving the
+            band from a warmer window's own climatology makes warming look protective
+            (``docs/HEAT_ADAPTATION_KR.md``).
+        band_shift_c: Absolute upward shift of the comfort band, degC — the adaptation axis
+            of Lee et al. (2019). 0.0 is the no-adaptation reference case.
+
+    Returns:
+        ``(catalog entries, cells)``; pass the cells back as ``reference_cells`` for the
+        future windows.
+
+    Raises:
+        ValueError: for a non-baseline scenario without ``reference_cells``.
+    """
+    if scenario != "historical" and reference_cells is None:
+        raise ValueError(
+            f"scenario {scenario!r} needs reference_cells from the historical window — "
+            "register 'historical' first and pass its cells (see docs/HEAT_ADAPTATION_KR.md)"
+        )
     obs = kma.load_summer_tmax(
         scenario=scenario, year_start=year_start, year_end=year_end, coarsen=coarsen
     )
-    cells, dd, years = hm.grid_from_summer_tmax(obs, COUNTRY, tag="kma", land_mask=False)
+    cells, dd, years = hm.grid_from_summer_tmax(
+        obs,
+        COUNTRY,
+        tag="kma",
+        land_mask=False,
+        reference_band=reference_cells,
+        band_shift_c=band_shift_c,
+    )
+    band = (
+        "band: fitted from this window's own climatology (baseline)"
+        if reference_cells is None
+        else f"band: historical baseline + {band_shift_c:.1f} degC"
+        + (" (no adaptation)" if band_shift_c == 0.0 else " (Lee et al. 2019 threshold shift)")
+    )
     hm_grid = hm.standardized_grid(
         dd,
         cells,
@@ -153,7 +196,7 @@ def register_window(
         ref_year=year_key,
         climate_scenario=scenario,
         years=years,
-        source=f"exceedance degree-days — {obs.source}",
+        source=f"exceedance degree-days — {obs.source}; {band}",
     )
     hm_grid["license"] = "KMA 국가 기후변화 표준 시나리오 (기후변화 상황지도) — cite KMA"
     entries = [_register(hm_grid, catalog_dir)]
@@ -161,8 +204,9 @@ def register_window(
     print(
         f"  {scenario:>10} {year_key}: {len(cells)} cells × {len(years)} seasons "
         f"({years[0]}-{years[-1]}); mean DD {dd.mean():.1f}, max cell-season DD {dd.max():.1f}"
+        f"; {band}"
     )
-    return entries
+    return entries, cells
 
 
 def cmd_register(args: argparse.Namespace) -> int:
@@ -170,7 +214,10 @@ def cmd_register(args: argparse.Namespace) -> int:
 
     cdir = catalog.catalog_dir()
     written = 0
-    for scen in args.scenarios:
+    baseline_cells: tuple[Any, ...] | None = None
+    # historical first: every future window reuses its comfort band.
+    scenarios = sorted(args.scenarios, key=lambda s: 0 if s == "historical" else 1)
+    for scen in scenarios:
         if not kma.available(scen):
             print(f"  {scen:>10}: no TAMAX daily file present — skipped")
             continue
@@ -180,8 +227,20 @@ def cmd_register(args: argparse.Namespace) -> int:
             windows = [(c, a, b) for c, a, b in FUTURE_WINDOWS]
         for year_key, a, b in windows:
             try:
-                written += len(register_window(scen, year_key, a, b, args.coarsen, cdir))
-            except kma.KmaUnavailable as exc:
+                entries, cells = register_window(
+                    scen,
+                    year_key,
+                    a,
+                    b,
+                    args.coarsen,
+                    cdir,
+                    reference_cells=None if scen == "historical" else baseline_cells,
+                    band_shift_c=0.0 if scen == "historical" else args.band_shift_c,
+                )
+                written += len(entries)
+                if scen == "historical":
+                    baseline_cells = cells
+            except (kma.KmaUnavailable, ValueError) as exc:
                 print(f"  {scen:>10} {year_key}: {exc}")
     print(f"registered {written} hazard layer(s) under {cdir}")
     return 0 if written else 1
@@ -224,6 +283,13 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--scenarios", nargs="+", default=["historical", "rcp45", "rcp85"])
     r.add_argument(
         "--coarsen", type=int, default=5, help="block size in 0.01 deg cells (5 → ~5 km)"
+    )
+    r.add_argument(
+        "--band-shift-c",
+        type=float,
+        default=0.0,
+        help="adaptation: absolute upward shift of the comfort band for FUTURE windows, degC "
+        "(0 = no adaptation, the reference case; Lee et al. 2019 report +1/+2/+3)",
     )
     r.add_argument("--year-start", type=int, default=None)
     r.add_argument("--year-end", type=int, default=None)

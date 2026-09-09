@@ -234,8 +234,12 @@ def test_requested_ssp_layer_is_resolved_end_to_end_for_korea(
     hk = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(hk)
-    hk.register_window("historical", 2020, None, None, 2, catalog.catalog_dir())
-    hk.register_window("rcp45", 2030, 2021, 2024, 2, catalog.catalog_dir())
+    _, baseline_cells = hk.register_window("historical", 2020, None, None, 2, catalog.catalog_dir())
+    # The future window inherits the baseline comfort band: no adaptation is the reference
+    # case, so a warmer stack must produce a larger load (docs/HEAT_ADAPTATION_KR.md).
+    hk.register_window(
+        "rcp45", 2030, 2021, 2024, 2, catalog.catalog_dir(), reference_cells=baseline_cells
+    )
 
     keys = {(e["peril"], e["climate_scenario"], e["year"]) for e in catalog.load_manifest()}
     assert {
@@ -260,7 +264,7 @@ def test_requested_ssp_layer_is_resolved_end_to_end_for_korea(
     hist = physical._run_heat_mortality([site], "historical", [2020], {"country_iso3": "KOR"})
     assert hist["status"] == "ok" and "scenario historical" in hist["detail"]
     # a warmer future stack cannot produce fewer expected deaths than the present one
-    assert fut["aai_agg"] >= hist["aai_agg"]
+    assert fut["aai_agg"] > hist["aai_agg"]
     # a scenario with no layer falls back to historical and says so
     miss = physical._run_heat_mortality([site], "rcp85", [2030], {"country_iso3": "KOR"})
     assert "fallback" in miss["detail"] and miss["aai_agg"] == pytest.approx(hist["aai_agg"])

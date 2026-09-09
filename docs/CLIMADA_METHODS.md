@@ -56,6 +56,12 @@ country-to-region tables. Status vocabulary used from here on:
 | Wildfire | historical only, no ignition threshold (documented) | unchanged; runner docstring now states historical-only + indicative sigmoid | **Partial** (no code change) |
 | TCRain ingest | worker refiner blocked by API whitelist | `INGEST_SOURCES` includes `tcrain`; whitelist == Data tab == worker refiners (tested) | **Implemented** |
 
+Follow-up (2026-09-09): the heat-mortality **adaptation assumption** was decided and
+implemented — future scenario windows inherit the baseline comfort band (no adaptation as the
+reference case) and adaptation is an explicit absolute threshold shift, following the Korean
+scenario set of Lee et al. (2019). Rationale, the six papers behind it and what remains:
+`docs/HEAT_ADAPTATION_KR.md`.
+
 Environment note: CLIMADA is not installable on the audit machine (no conda), so tests marked
 `importorskip("climada")` are **blocked by environment** here, not passing — they are written to
 run in `./.climada-env`.
