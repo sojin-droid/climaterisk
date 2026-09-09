@@ -537,6 +537,23 @@ out to a separate package in petals 6.1.0 and carries no mortality function). "H
 a CLIMADA peril" therefore means "a custom peril built with CLIMADA containers", not a
 CLIMADA-standard peril.
 
+| Component | Source | Status |
+|---|---|---|
+| `ImpactCalc` | CLIMADA | Native |
+| `ImpactFunc` / `ImpactFuncSet` container | CLIMADA | Native |
+| Heat-mortality vulnerability curve | climaterisk | Custom |
+| Age stratification (<65 / ≥65) | climaterisk | Custom |
+| Baseline mortality | climaterisk | Indicative — no source identified |
+| MMT / comfort band (and its width) | climaterisk | Indicative — no source identified |
+| Future scenario | platform hazard routing (baseline band + explicit `band_shift_c`) | Partial |
+| Korean calibration | observed data | Not yet implemented |
+| Empirical validation | Korean mortality / loss data | Not validated |
+
+Every constant, its exact value, its location in the code and its provenance class is
+inventoried in **`docs/HEAT_MORTALITY_PROVENANCE.md`** (1 external, 2 internal fits, 15
+indicative or unknown of 18) and mirrored in code as `heat_mortality.PARAMETER_PROVENANCE`;
+the runner returns it as `parameter_status` and the Results card displays it.
+
 | Row | Content | Tag |
 |---|---|---|
 | Hazard source | **Catalog only**, key `("heat_mortality", <requested scenario>, region, target)` with a `historical` fallback that is named in `detail` (`_resolve_heat_hazard`, fixed 2026-09-07; previously hard-wired to `historical`). Layers built from E-OBS `tx` (Europe, `eobs.py`), KMA 남한상세 daily TAMAX (`kma_scenario.py`, coarsened 5×5 to 0.05°), or the synthetic season generator | `[EXTERNAL]` data, `[CLIMATERISK CUSTOM]` hazard |
@@ -551,7 +568,7 @@ CLIMADA-standard peril.
 | Calibration | Parameters hand-set; dose curve fitted to the model's own synthetic ensemble, not to observed mortality | `[NOT IMPLEMENTED]` (to data) |
 | Uncertainty / Adaptation | None | `[NOT IMPLEMENTED]` |
 | Validation | Spain: E-OBS observed grid reproduces the 2022/2003 ranking of summers (`tests/test_heat_mortality.py::test_observed_grid_reproduces_the_real_ranking_of_spanish_summers`, skips without E-OBS); extreme years under-predicted ≈2.3× vs MoMo (`docs/HEATWAVE_EUROPE.md`). **No Korean validation** | `[PARTIAL]` (Europe), `[NOT IMPLEMENTED]` (Korea) |
-| Status | Custom health peril, present climate only, Europe-validated at ranking level | — |
+| Status | Custom health peril; Europe comparison reproduces the ranking of observed summers, parameters uncited and uncalibrated (`HEAT_MORTALITY_PROVENANCE.md`) | — |
 | Main gap | (Scenario routing fixed.) Dose-response uncalibrated to observed deaths; no present/future delta; Korea unvalidated (no MoMo-equivalent benchmark) | High |
 
 ### 5.9 Local hazard catalog perils (`hail`, `landslide`, `tc_rain`, `drought`, `crop_yield`, `low_flow`, `heatwave`) — `P:966-1113`

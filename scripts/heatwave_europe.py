@@ -44,9 +44,10 @@ the city's thermal adaptation**: hot-adapted cities (Cordoba, Athina, Alentejo) 
 high, wide band, so even 35 degC adds few deaths; cool low-adaptation cities (Paris,
 Berlin, Porto) have a low, narrow band, so the same 35 degC is far above threshold.
 
-Validation
-----------
-Calibrated against national heat-mortality surveillance — MoMo (ES), SISMG/ISS (IT),
+Comparison against surveillance (not a calibration)
+---------------------------------------------------
+Outputs are **compared** against national heat-mortality surveillance — the parameters are
+not fitted to it — MoMo (ES), SISMG/ISS (IT),
 Santé publique France (FR), RKI/UBA (DE), EODY/NOA (GR), DGS/INSA (PT). Each country
 here is a **major-metro sample** (not full national coverage), so absolute totals scale
 with the sampled population while the **per-100k rate** is the comparable quantity; a

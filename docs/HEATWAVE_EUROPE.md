@@ -43,7 +43,10 @@ Then pick an **exposure** — the peril runs on any of three, so a facility is o
 Population exposures carry **people** in `value`; `litpop._grid_to_assets` passes them as
 `headcount` and zeroes `value`, so no damage peril can mistake people for currency.
 
-### Validated agreement across exposures (Spain, present climate)
+### Agreement across exposures (Spain, present climate)
+
+An internal consistency check between exposure layers of the same model — not a validation
+against observed mortality.
 
 | Exposure | Cells | People | Deaths/yr | per 100k |
 |---|---|---|---|---|
@@ -188,7 +191,7 @@ Two `ImpactCalc` passes (one per band) are summed.
 |---|---|
 | `Risk = Hazard × Exposure × Vulnerability` becomes *visible* | For most perils the risk map looks like the hazard map, so the three factors can stay blurred. Here they must not: raw summer temperature explains per-capita risk at **r = −0.24**, temperature *relative to local adaptation* at **r = +0.90**. Spain's hottest cities carry its lowest per-capita risk. |
 | The hazard's *intensity* is a modelling decision | Wind speed and flood depth are given; "heat intensity" is not. Putting exceedance degree-days in the `Hazard` and the exponential biology in the `ImpactFuncSet` is what let synthetic input be swapped for observed E-OBS **with no code change** (9.89 → 10.11 per 100k). |
-| `ImpactFuncSet` carries real science | `impact = value × mdd × paa` with `value` = people and `mdd` = death probability yields deaths directly — an epidemiological dose-response, not an indicative ramp. |
+| `ImpactFuncSet` carries a dose-response, not a ramp | `impact = value × mdd × paa` with `value` = people and `mdd` = death probability yields deaths directly. The *form* is a dose-response (relative risk × baseline mortality) rather than an indicative damage ramp; its *parameters* are indicative platform assumptions and are not calibrated (`docs/HEAT_MORTALITY_PROVENANCE.md`). CLIMADA provides no heat-mortality impact function, so this curve is climaterisk's own. |
 | It stress-tests the units contract | Everything else in the platform is money. Mortality exposed three places that silently assumed currency (finance rollup, KPI formatting, portfolio aggregation). |
 | **It is falsifiable** | MoMo/SISMG publish observed excess deaths, so the demo is not self-referential: 2022 came out as the extreme it was, *and* a real 2.3× tail under-prediction surfaced. |
 | Adaptation is an explicit parameter | The comfort band *is* the adaptation level, so "raise MMT by 1 °C via cooling centres" is a directly interpretable intervention. |
@@ -318,10 +321,11 @@ Province exposure (country, coordinates, population, share ≥65, JJA-Tmax clima
 is in the `PROVINCES` table — realistic approximate values, not a substitute for
 INE/ISTAT/INSEE + AEMET/E-OBS microdata.
 
-## Validation
+## Comparison against surveillance (not a calibration)
 
-Calibrated against the national heat-mortality surveillance systems — MoMo (ES, ISCIII),
-SISMG/ISS (IT), Santé publique France (FR), RKI/UBA (DE), EODY/NOA (GR), DGS/INSA (PT):
+Outputs are **compared** against the national heat-mortality surveillance systems — MoMo
+(ES, ISCIII), SISMG/ISS (IT), Santé publique France (FR), RKI/UBA (DE), EODY/NOA (GR),
+DGS/INSA (PT). No parameter is fitted to these series:
 
 Per-country expected-annual deaths from the default all-country run (seed 42, 60 seasons; each
 country is a **major-metro sample**, not full national coverage, so totals scale with the sampled
@@ -398,8 +402,9 @@ the platform's productivity ramp expects.
   `freq_curve.max_resolvable_return_period` / `record_years`, and the UI states them, so the
   truncation is never silent. Genuine long tails still need the synthetic generator (ideally
   re-fitted to the observed climatology), which is why both paths are kept.
-- Without an E-OBS file the temperature is synthetic — magnitudes are calibrated, not
-  observed, and the "years" are sequential labels, not calendar years.
+- Without an E-OBS file the temperature is synthetic — magnitudes come from the generator's
+  assumed climatology, not from observations, and the "years" are sequential labels, not
+  calendar years.
 - **The gridded hazard covers only the reference locations' bounding box**, so Spain's
   Canary and Balearic islands fall outside it: in the WorldPop run ~4% of cells (333 of
   8,245) sit further than 0.5° from any hazard centroid and are attached to a distant
@@ -411,6 +416,6 @@ the platform's productivity ramp expects.
 - Provinces as points, not gridded exposure; no humidity/WBGT, night-time minima, or urban-heat-
   island term (all raise elderly risk and would refine MMT).
 - Single historical climate; no explicit RCP/SSP future set yet (the warming trend is a proxy).
-- MMT and β are literature-informed constants, not province-level fitted GAMs.
+- MMT and β are **indicative platform assumptions with no external source recorded** (`docs/HEAT_MORTALITY_PROVENANCE.md`), not province-level fitted GAMs.
 - Baseline mortality and the dose-response β are shared across countries; national all-cause rates
   differ modestly and country-specific GAMs would refine the per-country totals.

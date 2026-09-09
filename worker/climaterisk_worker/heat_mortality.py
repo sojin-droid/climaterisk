@@ -29,6 +29,22 @@ only above ``high``. The cold arm is a different peril and out of scope here.
 **Where the band sits and how wide it is is the location's thermal adaptation** —
 hot-adapted places have a higher, wider plateau, so the same 35 degC day can sit
 inside the band in Cordoba and far above it in Hamburg.
+
+Scientific status (read this before quoting any number)
+-------------------------------------------------------
+CLIMADA ships **no** heat-mortality impact function (core: tropical cyclone, European
+windstorm; petals: drought, crop yield, river flood, wildfire). What is CLIMADA here is the
+*container and engine* — ``ImpactFunc`` / ``ImpactFuncSet`` / ``ImpactCalc`` and
+``impact = value * mdd * paa``. **The vulnerability curve itself is a climaterisk custom
+implementation**, unlike tropical cyclone (Eberenz presets) or flood (JRC presets) where a
+published curve is bundled.
+
+Its parameters are, with one exception, **indicative platform assumptions or of unknown
+provenance**: no external source is recorded for beta, the baseline mortality rates, the
+reference-city minimum-mortality edges or the band-width coefficients, and none of them has
+been calibrated against observed mortality. :data:`PARAMETER_PROVENANCE` records each value,
+its location and its status; :func:`provenance_summary` is what the runner reports and the UI
+displays. Full table and the remaining gaps: ``docs/HEAT_MORTALITY_PROVENANCE.md``.
 """
 
 from __future__ import annotations
@@ -313,6 +329,247 @@ def band_by_key(key: str) -> AgeBand:
 
 
 # --------------------------------------------------------------------------- #
+# Provenance of every constant this model uses.                               #
+# --------------------------------------------------------------------------- #
+#: Provenance classes, deliberately coarse so a value cannot be dressed up:
+#:
+#: * ``external``     — an external source is recorded and the value comes from it
+#: * ``internal_fit`` — computed inside this repository (a fit or a reduction)
+#: * ``indicative``   — a platform design choice, no external source
+#: * ``unknown``      — provenance cannot be traced from the code or the docs
+PROVENANCE_CLASSES = ("external", "internal_fit", "indicative", "unknown")
+
+
+@dataclass(frozen=True)
+class ParameterRecord:
+    """One constant of the heat-mortality model and where it comes from.
+
+    Attributes:
+        parameter: Human-readable name.
+        value: The value **as written in the code**, rendered as text. Never re-derived
+            here — this record documents, it does not compute.
+        unit: Physical unit, or ``"-"`` when dimensionless.
+        location: ``file::symbol`` where the value lives.
+        rationale: The justification actually present in the code/docs, verbatim in spirit.
+        citation: External source, or ``"source unavailable"``.
+        provenance: One of :data:`PROVENANCE_CLASSES`.
+    """
+
+    parameter: str
+    value: str
+    unit: str
+    location: str
+    rationale: str
+    citation: str
+    provenance: str
+
+
+#: Inventory taken from the code on 2026-09-09. Adding a constant to the model without
+#: adding it here fails ``tests/test_heat_provenance.py``.
+PARAMETER_PROVENANCE: tuple[ParameterRecord, ...] = (
+    ParameterRecord(
+        "beta, under 65",
+        "0.010",
+        "1/degC",
+        "heat_mortality.py::AGE_BANDS",
+        "comment: the elderly heat-mortality slope is several times the non-elderly slope",
+        "source unavailable",
+        "indicative",
+    ),
+    ParameterRecord(
+        "beta, 65 and over",
+        "0.034",
+        "1/degC",
+        "heat_mortality.py::AGE_BANDS",
+        "comment: the elderly heat-mortality slope is several times the non-elderly slope",
+        "source unavailable",
+        "indicative",
+    ),
+    ParameterRecord(
+        "baseline daily mortality, under 65",
+        "1.3e-3 / 365",
+        "1/day",
+        "heat_mortality.py::AGE_BANDS",
+        "comment: crude all-cause rate ~1.3/1000/yr, shared across countries (a limitation)",
+        "source unavailable",
+        "indicative",
+    ),
+    ParameterRecord(
+        "baseline daily mortality, 65 and over",
+        "45.0e-3 / 365",
+        "1/day",
+        "heat_mortality.py::AGE_BANDS",
+        "comment: crude all-cause rate ~45/1000/yr, shared across countries (a limitation)",
+        "source unavailable",
+        "indicative",
+    ),
+    ParameterRecord(
+        "mmt_high (comfort-band upper edge) per reference city",
+        "54 values, 26.0-40.0",
+        "degC",
+        "heat_mortality.py::REF_CITIES",
+        "comment: approximate but realistic, a locally-adapted heat-onset edge; explicitly "
+        "not a substitute for national statistics + AEMET/E-OBS microdata",
+        "source unavailable",
+        "unknown",
+    ),
+    ParameterRecord(
+        "tmax_jja_mean / tmax_jja_sd per reference city",
+        "54 pairs, 23.0-36.5 / 3.0-4.6",
+        "degC",
+        "heat_mortality.py::REF_CITIES",
+        "comment: present-day summer daily-Tmax climatology, approximate",
+        "source unavailable",
+        "unknown",
+    ),
+    ParameterRecord(
+        "population / share_over65 per reference city",
+        "54 pairs",
+        "persons / -",
+        "heat_mortality.py::REF_CITIES",
+        "comment: provincial or metro figures, approximate",
+        "source unavailable",
+        "unknown",
+    ),
+    ParameterRecord(
+        "band-width coefficients",
+        "0.35, 22.0, clip 1.5-8.0",
+        "- / degC",
+        "heat_mortality.py::comfort_band",
+        "docstring: the width scales with how hot-adapted the place is",
+        "source unavailable",
+        "indicative",
+    ),
+    ParameterRecord(
+        "adaptation regression (spatial)",
+        "a = -0.002, b = 1.0778",
+        "degC / -",
+        "heat_mortality.py::adaptation_fit",
+        "OLS of mmt_high on tmax_jja_mean across REF_CITIES — inherits the table's provenance",
+        "source unavailable",
+        "internal_fit",
+    ),
+    ParameterRecord(
+        "dose power law per age band",
+        "fitted (a, b) per band",
+        "-",
+        "heat_mortality.py::dose_curve",
+        "least squares in log space on a seeded internal ensemble of REF_CITIES seasons",
+        "source unavailable",
+        "internal_fit",
+    ),
+    ParameterRecord(
+        "internal calibration ensemble",
+        "_CALIB_SEED = 20240811, _CALIB_SEASONS = 400",
+        "-",
+        "heat_mortality.py",
+        "fixed so the fitted dose curve is identical in every process (reproducibility)",
+        "source unavailable",
+        "indicative",
+    ),
+    ParameterRecord(
+        "season anomaly spreads (synthetic generator)",
+        "1.0 Europe-wide, 1.2 per country",
+        "degC",
+        "heat_mortality.py::simulate_seasons",
+        "a physically-grounded stand-in for reanalysis when no observed grid is present",
+        "source unavailable",
+        "indicative",
+    ),
+    ParameterRecord(
+        "warm-season window",
+        "Jun 1 - Sep 30, 122 days",
+        "days",
+        "heat_mortality.py::SEASON_START/SEASON_END/SEASON_DAYS",
+        "modelling choice; narrower than MoMo's attribution window, a known cause of the "
+        "tail under-prediction",
+        "source unavailable",
+        "indicative",
+    ),
+    ParameterRecord(
+        "age-structure projection multipliers",
+        "6 countries x 4 years, 1.00-1.65",
+        "-",
+        "heat_mortality.py::_AGE_SHARE_MULTIPLIER",
+        "used to project share_over65 to 2030/2040/2050",
+        "source unavailable",
+        "unknown",
+    ),
+    ParameterRecord(
+        "age-share ceiling",
+        "0.45",
+        "-",
+        "heat_mortality.py::MAX_SHARE_OVER65",
+        "comment: a demographic ceiling so interpolation cannot produce nonsense",
+        "source unavailable",
+        "indicative",
+    ),
+    ParameterRecord(
+        "share_over65 for Korea",
+        "0.203",
+        "-",
+        "heat_mortality.py::COUNTRY_SHARE_OVER65",
+        "comment: 주민등록인구 기준 2025년 약 20.3%",
+        "KOSIS / 행정안전부 주민등록인구통계 (recorded in the code comment; figure not "
+        "re-verified against the source in this pass)",
+        "external",
+    ),
+    ParameterRecord(
+        "impact-function intensity grid",
+        "0-900 degC-days, 61 points",
+        "degC-days",
+        "heat_mortality.py::build_impact_functions",
+        "discretisation of the curve; the upper end is far above any realistic season so "
+        "the mdd cap does not bind",
+        "source unavailable",
+        "indicative",
+    ),
+    ParameterRecord(
+        "default headcount per site",
+        "250",
+        "persons",
+        "physical.py::_DEFAULT_HEADCOUNT",
+        "exposure fallback when an asset carries no headcount; the assumption used is "
+        "always stated in the result detail",
+        "source unavailable",
+        "indicative",
+    ),
+)
+
+
+def provenance_summary() -> dict[str, Any]:
+    """Machine-readable status of the model, for the run payload and the UI.
+
+    Returns:
+        ``model`` (what is CLIMADA and what is custom), ``counts`` per provenance class,
+        ``calibrated_on_observed_mortality`` (always False until a calibration exists) and
+        a short ``label`` for display.
+    """
+    counts = dict.fromkeys(PROVENANCE_CLASSES, 0)
+    for record in PARAMETER_PROVENANCE:
+        counts[record.provenance] += 1
+    unsupported = counts["indicative"] + counts["unknown"]
+    return {
+        "model": (
+            "climaterisk custom heat-mortality dose-response; CLIMADA supplies "
+            "ImpactFunc/ImpactFuncSet/ImpactCalc only (it ships no heat-mortality "
+            "impact function)"
+        ),
+        "counts": counts,
+        "n_parameters": len(PARAMETER_PROVENANCE),
+        "calibrated_on_observed_mortality": False,
+        "label": (
+            "Custom heat-mortality model · vulnerability parameters: indicative / not calibrated"
+        ),
+        "detail": (
+            f"{unsupported} of {len(PARAMETER_PROVENANCE)} parameters are indicative "
+            "platform assumptions or of unknown provenance; none is calibrated against "
+            "observed mortality (docs/HEAT_MORTALITY_PROVENANCE.md)"
+        ),
+    }
+
+
+# --------------------------------------------------------------------------- #
 # Season ensemble + the two heat metrics.                                     #
 # --------------------------------------------------------------------------- #
 def simulate_seasons(
@@ -404,7 +661,7 @@ def exceedance_degree_days(tmax: np.ndarray, cities: tuple[RefCity, ...]) -> np.
 
 
 # --------------------------------------------------------------------------- #
-# degC-days -> dose: the calibrated non-linear vulnerability curve.           #
+# degC-days -> dose: the internally fitted non-linear vulnerability curve.     #
 # --------------------------------------------------------------------------- #
 _CALIB_SEED = 20240811  # fixed so the fitted curve is identical on every process
 _CALIB_SEASONS = 400

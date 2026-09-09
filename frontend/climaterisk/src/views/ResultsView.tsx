@@ -40,9 +40,10 @@ function perilProvenance(peril: string, targetYear: number | null): string {
     case "heat_mortality":
       return (
         `hazard — season exceedance degree-days above each location's minimum-mortality ` +
-        `comfort band, from observed E-OBS daily Tmax where available (else a calibrated ` +
-        `synthetic ensemble); vulnerability — age-stratified epidemiological dose-response ` +
-        `(relative risk × baseline mortality), NOT a damage curve.`
+        `comfort band, from observed E-OBS daily Tmax where available (else a synthetic ` +
+        `ensemble built from assumed climatology); vulnerability — a climaterisk custom ` +
+        `age-stratified dose-response (relative risk × baseline mortality), NOT a damage ` +
+        `curve and NOT a CLIMADA-provided impact function.`
       );
     case "heatwave":
       return (
@@ -244,6 +245,13 @@ function PhysicalResult({ result, currency }: { result: PhysicalRunResult; curre
         <strong>Data:</strong> {perilProvenance(result.peril, result.target_year)} exposure —{" "}
         {isMortality ? "on-site headcount or a population layer" : "your inputs"}. ({result.detail}
         .)
+        {result.parameter_status && (
+          <>
+            <br />
+            <strong>Model status:</strong> {result.parameter_status.label}.{" "}
+            {result.parameter_status.detail}
+          </>
+        )}
       </MethodNote>
     </div>
   );
