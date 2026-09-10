@@ -405,6 +405,13 @@ export interface UncertaintyResult {
   delta_mean?: number | null;
   delta_p5?: number | null;
   delta_p95?: number | null;
+  // Method transparency: SALib Sobol wrapper around ImpactCalc (not climada unsequa), TC only.
+  method?: string | null;
+  scope?: string | null;
+  bounds?: Record<string, number[]>;
+  bounds_provenance?: string | null;
+  frequency_treatment?: string | null;
+  seed?: number | null;
   detail: string | null;
 }
 
@@ -457,7 +464,31 @@ export interface CalibrationResult {
   initial: number;
   calibrated: number;
   observed_annual_loss: number;
+  // Provenance (optional for older results) — mirrors engines/base.py CalibrationResult.
+  fit_status?: string | null; // "fitted" (never "validated" from this runner)
+  observed_source?: string | null;
+  observed_period?: number[];
+  n_observed_events?: number | null;
+  hazard?: string | null;
+  objective?: string | null;
+  method?: string | null;
+  bounds?: number[];
+  modelled_annual_loss_at_calibrated?: number | null;
+  calibrated_at?: string | null;
+  schema_version?: number | null;
+  persisted_to?: string | null;
+  applies_when?: string | null;
   detail: string | null;
+  // Comparability metadata (worker, 2026-09-07). A run can finish with status "error" because the
+  // gate refused to fit, or with status "ok" and comparison_status "not_comparable" when the
+  // caller opted in deliberately. Read by lib/calibration.ts.
+  comparison_status?: string | null; // comparable | not_comparable | unknown
+  blockers?: string[]; // one entry per failed comparability check
+  observed_unit?: string | null;
+  observed_currency?: string | null;
+  observed_price_basis?: string | null;
+  target_covers_subperils?: string[];
+  model_covers_subperils?: string[];
 }
 
 export interface ForecastResult {

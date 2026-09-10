@@ -66,10 +66,35 @@ FLOOD_REGIONS = {
 }
 
 
+def _tc_countries_per_region() -> dict[str, list[str]]:
+    """CLIMADA's own Eberenz region membership (ISO3 lists), keyed by region code."""
+    from climada.entity.impact_funcs.trop_cyclone import get_countries_per_region
+
+    regions, _impf_ids, countries, _names = get_countries_per_region()
+    return {code: sorted(str(c) for c in countries[i]) for i, code in enumerate(regions)}
+
+
+def _flood_countries_per_region() -> dict[str, list[str]]:
+    """CLIMADA's own JRC region membership from ``NatRegIDs.csv`` (column ``impf_RF``)."""
+    import pandas as pd
+    from climada.util.constants import RIVER_FLOOD_REGIONS_CSV
+
+    # impf_RF 1..6 = Africa, Asia, Europe, North America, Oceania, South America — the
+    # ordering petals ``ImpfRiverFlood`` uses (REGION_CO_ID // 10).
+    id_to_code = dict(enumerate(FLOOD_REGIONS, start=1))
+    info = pd.read_csv(RIVER_FLOOD_REGIONS_CSV)
+    out: dict[str, list[str]] = {code: [] for code in FLOOD_REGIONS}
+    for iso, rid in zip(info["ISO"], info["impf_RF"], strict=True):
+        if isinstance(iso, str) and int(rid) in id_to_code:
+            out[id_to_code[int(rid)]].append(iso)
+    return {k: sorted(v) for k, v in out.items()}
+
+
 def _tc_presets() -> list[dict[str, Any]]:
     from climada.entity.impact_funcs.trop_cyclone import ImpfSetTropCyclone
 
     v_half = ImpfSetTropCyclone.calibrated_regional_vhalf(q=0.5)
+    countries = _tc_countries_per_region()
     prov = f"Eberenz et al. (2021) regional calibration, v_thresh={TC_V_THRESH_MS} m/s"
     presets = [
         {
@@ -80,7 +105,7 @@ def _tc_presets() -> list[dict[str, Any]]:
             "provenance": "Emanuel (2011), ImpfTropCyclone.from_emanuel_usa default v_half",
         }
     ]
-    for code, label in TC_REGION_LABELS.items():
+    for i, (code, label) in enumerate(TC_REGION_LABELS.items(), start=1):
         if code not in v_half:
             continue
         presets.append(
@@ -90,6 +115,10 @@ def _tc_presets() -> list[dict[str, Any]]:
                 "label": f"TC — {label} ({code})",
                 "tc_v_half": round(float(v_half[code]), 1),
                 "provenance": prov,
+                # Geography-aware default selection (worker/climaterisk_worker/vulnerability.py)
+                "region_code": code,
+                "climada_impf_id": i,
+                "countries": countries.get(code, []),
             }
         )
     return presets
@@ -98,8 +127,9 @@ def _tc_presets() -> list[dict[str, Any]]:
 def _flood_presets() -> list[dict[str, Any]]:
     from climada_petals.entity.impact_funcs.river_flood import ImpfRiverFlood
 
+    countries = _flood_countries_per_region()
     presets = []
-    for code, label in FLOOD_REGIONS.items():
+    for i, (code, label) in enumerate(FLOOD_REGIONS.items(), start=1):
         f = ImpfRiverFlood.from_jrc_region_sector(code, "residential")
         mdr = [round(float(np.interp(d, f.intensity, f.mdd * f.paa)), 3) for d in FLOOD_DEPTHS_M]
         presets.append(
@@ -109,6 +139,10 @@ def _flood_presets() -> list[dict[str, Any]]:
                 "label": f"Flood — {label} (JRC residential)",
                 "flood_mdr": mdr,
                 "provenance": "Huizinga et al. (2017) JRC global depth-damage, residential",
+                # Geography-aware default selection (worker/climaterisk_worker/vulnerability.py)
+                "region_code": label,
+                "climada_impf_rf_id": i,
+                "countries": countries.get(code, []),
             }
         )
     return presets

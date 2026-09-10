@@ -50,7 +50,9 @@ def test_peril_is_in_the_backend_enum_and_library() -> None:
     from climaterisk.core.enums import Peril
 
     assert Peril("heat_mortality") is Peril.HEAT_MORTALITY
-    perils = json.loads((REPO / "assets" / "libraries" / "perils.json").read_text())["perils"]
+    perils = json.loads(
+        (REPO / "assets" / "libraries" / "perils.json").read_text(encoding="utf-8")
+    )["perils"]
     entry = next(p for p in perils if p["id"] == "heat_mortality")
     assert entry["supported_mvp"] is True  # else the UI silently drops it
     assert entry["result_kind"] == "mortality"

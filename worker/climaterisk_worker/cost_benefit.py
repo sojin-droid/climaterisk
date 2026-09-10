@@ -9,14 +9,17 @@ A measure maps to a CLIMADA ``Measure``:
   - ``hazard_freq_cutoff``           -> drop the most frequent events above this frequency
   - ``risk_transf_attach`` / ``risk_transf_cover`` -> insurance layer (deductible / limit)
 
-TC-first (the best-supported peril); the contract/UI are peril-generic.
+Peril scope: the request's ``peril`` is honoured — ``tropical_cyclone`` is computed;
+any other peril returns a structured ``status="error"`` (no silent fallback to TC). The
+contract/UI are peril-generic; extending ``_SUPPORTED_PERILS`` requires the matching
+hazard resolver and impact-function family for that peril.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from climaterisk_worker import catalog
+from climaterisk_worker import catalog, vulnerability
 from climaterisk_worker._dataapi import resilient_get_hazard
 from climaterisk_worker.physical import (
     _TC_REF_YEARS,
@@ -57,14 +60,19 @@ def _tc_hazard(iso3: str | None, climate_scenario: str, ref_year: int | None):  
     )
 
 
-def _build_measure(spec: dict[str, Any]):  # type: ignore[no-untyped-def]
+# Perils with an adaptation model wired end-to-end (hazard resolver + impact-function
+# family + Measure haz_type). Others are rejected explicitly.
+_SUPPORTED_PERILS: dict[str, str] = {"tropical_cyclone": "TC"}
+
+
+def _build_measure(spec: dict[str, Any], haz_type: str = "TC"):  # type: ignore[no-untyped-def]
     import numpy as np
     from climada.entity import Measure
 
     r = float(spec.get("damage_reduction", 0.0))
     return Measure(
         name=spec["name"],
-        haz_type="TC",
+        haz_type=haz_type,
         cost=float(spec.get("cost", 0.0)),
         mdd_impact=(1.0 - r, 0.0),
         paa_impact=(1.0, 0.0),
@@ -76,39 +84,64 @@ def _build_measure(spec: dict[str, Any]):  # type: ignore[no-untyped-def]
 
 
 def compute_cost_benefit(request: dict[str, Any]) -> dict[str, Any]:
-    """Run an adaptation cost-benefit analysis; return a CostBenefitResult dict."""
+    """Run an adaptation cost-benefit analysis; return a CostBenefitResult dict.
+
+    The requested ``peril`` decides the hazard/impact-function family. Perils without an
+    adaptation model return a structured error *before* any CLIMADA import, so the caller
+    sees "unsupported" rather than a tropical-cyclone number.
+    """
+    peril = str(request.get("peril") or "tropical_cyclone")
+    measures: list[dict[str, Any]] = request.get("measures", [])
+    if peril not in _SUPPORTED_PERILS:
+        return {
+            "status": "error",
+            "peril": peril,
+            "measures": [],
+            "detail": (
+                f"cost-benefit is implemented for {sorted(_SUPPORTED_PERILS)} only; "
+                f"peril '{peril}' has no adaptation model (hazard resolver + Measure haz_type "
+                "+ impact-function family) wired yet. Not computed."
+            ),
+        }
+    if not measures:
+        return {
+            "status": "error",
+            "peril": peril,
+            "detail": "no adaptation measures provided",
+            "measures": [],
+        }
+
     import numpy as np
     from climada.engine import CostBenefit
     from climada.entity import DiscRates, Entity, ImpactFuncSet, MeasureSet
     from climada.entity.impact_funcs.trop_cyclone import ImpfTropCyclone
 
+    haz_type = _SUPPORTED_PERILS[peril]
     assets: list[dict[str, Any]] = request["assets"]
     scenario: str = request["climate_scenario"]
     anchor_years: list[int] = request["anchor_years"]
     discount_rate = float(request.get("discount_rate", 0.05))
-    measures: list[dict[str, Any]] = request.get("measures", [])
-    if not measures:
-        return {"status": "error", "detail": "no adaptation measures provided", "measures": []}
 
     ref_year = _nearest(_TC_REF_YEARS, max(anchor_years) if anchor_years else _TC_REF_YEARS[0])
-    iso3 = _single_country_iso3(
-        _per_asset_iso3([a["lat"] for a in assets], [a["lon"] for a in assets])
-    )
+    iso3s = _per_asset_iso3([a["lat"] for a in assets], [a["lon"] for a in assets])
+    iso3 = _single_country_iso3(iso3s)
 
-    # Exposures + per-asset Emanuel impact functions (mirrors the impact run).
-    v_halves = sorted({round(float(a["tc_v_half"]), 1) for a in assets})
+    # Exposures + per-asset Emanuel impact functions (mirrors the impact run, including the
+    # geography-aware v_half default — vulnerability.resolve_tc_vhalf).
+    vh_per_asset, _vh_src, vh_note = vulnerability.resolve_tc_vhalf(
+        assets, iso3s, request.get("options")
+    )
+    v_halves = sorted({round(v, 1) for v in vh_per_asset})
     id_by_v = {v: i + 1 for i, v in enumerate(v_halves)}
     impf_set = ImpactFuncSet(
         [ImpfTropCyclone.from_emanuel_usa(impf_id=i + 1, v_half=v) for i, v in enumerate(v_halves)]
     )
-    exp, _ = _build_exposures(
-        assets, "impf_TC", [id_by_v[round(float(a["tc_v_half"]), 1)] for a in assets]
-    )
+    exp, _ = _build_exposures(assets, "impf_TC", [id_by_v[round(v, 1)] for v in vh_per_asset])
 
     present = _tc_hazard(iso3, "None", None)
     future = _tc_hazard(iso3, scenario, ref_year)
 
-    measure_set = MeasureSet(measure_list=[_build_measure(m) for m in measures])
+    measure_set = MeasureSet(measure_list=[_build_measure(m, haz_type) for m in measures])
     # Year-varying discount rates: a {year: rate} schedule (linearly interpolated over the
     # horizon) if supplied, else the flat discount_rate. CLIMADA DiscRates entity component.
     # Horizon spans the analysis/schedule years inside a 2000–2100 default envelope, so NPV
@@ -146,11 +179,13 @@ def compute_cost_benefit(request: dict[str, Any]) -> dict[str, Any]:
         )
     return {
         "status": "ok",
-        "peril": "tropical_cyclone",
+        "peril": peril,
         "future_year": ref_year,
         "discount_rate": discount_rate,
         "currency": assets[0]["currency"] if assets else "USD",
         "tot_climate_risk": float(cb.tot_climate_risk),
         "measures": out_measures,
-        "detail": f"{iso3 or 'global'} TC; present vs {ref_year}, discount {discount_rate:.1%}",
+        "detail": (
+            f"{iso3 or 'global'} TC; present vs {ref_year}, discount {discount_rate:.1%}; {vh_note}"
+        ),
     }

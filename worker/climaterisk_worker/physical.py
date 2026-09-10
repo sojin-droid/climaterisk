@@ -20,8 +20,11 @@ from __future__ import annotations
 from functools import partial
 from typing import Any
 
-from climaterisk_worker import catalog
+from climaterisk_worker import catalog, vulnerability
 from climaterisk_worker._dataapi import resilient_get_hazard
+from climaterisk_worker._params import (
+    HEATWAVE_HAZ_TYPE as _HEATWAVE_HAZ_TYPE,
+)
 from climaterisk_worker._params import (
     RF_SCENARIO_MAP as _RF_SCENARIO_MAP,
 )
@@ -354,13 +357,17 @@ def _run_tropical_cyclone(
     iso3s = _per_asset_iso3([a["lat"] for a in assets], [a["lon"] for a in assets])
     iso3 = _single_country_iso3(iso3s)
 
-    # One Emanuel impact function per distinct v_half; assign each asset to its id.
-    v_halves = sorted({round(float(a["tc_v_half"]), 1) for a in assets})
+    # Geography-aware default: the bundled Eberenz (2021) regional preset replaces the
+    # indicative class v_half when the asset's country is known and the user did not set
+    # v_half explicitly (see vulnerability.resolve_tc_vhalf for the precedence). One Emanuel
+    # impact function per distinct v_half; assign each asset to its id.
+    vh_per_asset, _vh_src, vh_note = vulnerability.resolve_tc_vhalf(assets, iso3s, options)
+    v_halves = sorted({round(v, 1) for v in vh_per_asset})
     impf_id_by_v = {v: i + 1 for i, v in enumerate(v_halves)}
     impf_set = ImpactFuncSet(
         [ImpfTropCyclone.from_emanuel_usa(impf_id=i + 1, v_half=v) for i, v in enumerate(v_halves)]
     )
-    impf_ids = [impf_id_by_v[round(float(a["tc_v_half"]), 1)] for a in assets]
+    impf_ids = [impf_id_by_v[round(v, 1)] for v in vh_per_asset]
     exp, src_idx = _build_exposures(assets, "impf_TC", impf_ids)
 
     client = Client()
@@ -437,8 +444,46 @@ def _run_tropical_cyclone(
             "max_resolvable_return_period": _max_rp,
             "record_years": _rec_yrs,
         },
-        "detail": f"{src}; Emanuel v_half {v_halves}",
+        "detail": f"{src}; Emanuel v_half {v_halves}; {vh_note}",
     }
+
+
+def _flood_impf_set(  # type: ignore[no-untyped-def]
+    assets: list[dict[str, Any]],
+    iso3s: list[str | None],
+    options: dict[str, Any] | None,
+    haz_type: str,
+    name_prefix: str,
+):
+    """Depth-damage ``ImpactFuncSet`` shared by river flood, coastal flood and TC surge.
+
+    Geography-aware default: the bundled JRC (Huizinga et al. 2017) regional residential
+    preset replaces the class curve when the asset's country is known and the user did not
+    set ``flood_mdr`` explicitly (see ``vulnerability.resolve_flood_mdr``). One
+    ``ImpactFunc`` per distinct curve; returns ``(impf_set, impf_ids, provenance_note)``.
+    """
+    import numpy as np
+    from climada.entity import ImpactFunc, ImpactFuncSet
+
+    curves, _src, note = vulnerability.resolve_flood_mdr(assets, iso3s, options)
+    curve_key = [tuple(round(float(x), 4) for x in c) for c in curves]
+    distinct = sorted(set(curve_key))
+    id_by_curve = {c: i + 1 for i, c in enumerate(distinct)}
+    funcs = []
+    for curve, fid in id_by_curve.items():
+        depths = np.array(assets[curve_key.index(curve)]["flood_depth_m"], dtype=float)
+        funcs.append(
+            ImpactFunc(
+                haz_type=haz_type,
+                id=fid,
+                intensity=depths,
+                mdd=np.array(curve, dtype=float),
+                paa=np.ones_like(depths),
+                intensity_unit="m",
+                name=f"{name_prefix}_{fid}",
+            )
+        )
+    return ImpactFuncSet(funcs), [id_by_curve[c] for c in curve_key], note
 
 
 def _run_river_flood(
@@ -447,8 +492,6 @@ def _run_river_flood(
     anchor_years: list[int],
     options: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    import numpy as np
-    from climada.entity import ImpactFunc, ImpactFuncSet
     from climada.util.api_client import Client
 
     scenario = _RF_SCENARIO_MAP.get(climate_scenario, "rcp60")
@@ -459,26 +502,7 @@ def _run_river_flood(
     iso3s = _per_asset_iso3([a["lat"] for a in assets], [a["lon"] for a in assets])
     iso3 = _single_country_iso3(iso3s)
 
-    # One depth-damage ImpactFunc per distinct curve; assign each asset to its id.
-    curve_key = [tuple(round(float(x), 4) for x in a["flood_mdr"]) for a in assets]
-    distinct = sorted(set(curve_key))
-    id_by_curve = {c: i + 1 for i, c in enumerate(distinct)}
-    funcs = []
-    for curve, fid in id_by_curve.items():
-        depths = np.array(assets[curve_key.index(curve)]["flood_depth_m"], dtype=float)
-        funcs.append(
-            ImpactFunc(
-                haz_type="RF",
-                id=fid,
-                intensity=depths,
-                mdd=np.array(curve, dtype=float),
-                paa=np.ones_like(depths),
-                intensity_unit="m",
-                name=f"flood_class_{fid}",
-            )
-        )
-    impf_set = ImpactFuncSet(funcs)
-    impf_ids = [id_by_curve[c] for c in curve_key]
+    impf_set, impf_ids, curve_note = _flood_impf_set(assets, iso3s, options, "RF", "flood_class")
     exp, src_idx = _build_exposures(assets, "impf_RF", impf_ids)
 
     client = Client()
@@ -534,7 +558,7 @@ def _run_river_flood(
             "max_resolvable_return_period": _max_rp,
             "record_years": _rec_yrs,
         },
-        "detail": f"{src} RF set",
+        "detail": f"{src} RF set; {curve_note}",
     }
 
 
@@ -544,6 +568,16 @@ def _run_wildfire(
     anchor_years: list[int],
     options: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """Wildfire — **historical seasons only, indicative vulnerability**.
+
+    Status (audit 2026-09-07): hazard = CLIMADA Data API / catalog ``WFseason`` brightness
+    temperature (historical record; the Data API publishes **no future wildfire set**, so
+    ``present_aai_agg``/``delta_pct`` are None and no climate scenario is applied). The
+    damage function is a logistic in brightness temperature with hard-coded ``x0=325 K``,
+    ``k=0.035`` and **no ignition threshold** below which damage is zero — it is a platform
+    parameterisation, not the Lüthi et al. (2021) calibrated form. Treat results as
+    screening-grade (GAP G3).
+    """
     from climada.entity import ImpactFunc, ImpactFuncSet
     from climada.util.api_client import Client
 
@@ -780,9 +814,6 @@ def _run_coastal_flood(
     WRI Aqueduct coastal layers first (``source='aqueduct'``, ``peril='coastal_flood'``).
     Uses the same depth-damage curve fields as river flood (intensity = inundation m).
     """
-    import numpy as np
-    from climada.entity import ImpactFunc, ImpactFuncSet
-
     target = max(anchor_years) if anchor_years else 2050
     iso3s = _per_asset_iso3([a["lat"] for a in assets], [a["lon"] for a in assets])
     iso3 = _single_country_iso3(iso3s)
@@ -795,26 +826,7 @@ def _run_coastal_flood(
             "coastal layers first (Data tab → Fetch & ingest, source 'aqueduct')."
         )
 
-    # One depth-damage ImpactFunc per distinct curve; assign each asset to its id.
-    curve_key = [tuple(round(float(x), 4) for x in a["flood_mdr"]) for a in assets]
-    distinct = sorted(set(curve_key))
-    id_by_curve = {c: i + 1 for i, c in enumerate(distinct)}
-    funcs = []
-    for curve, fid in id_by_curve.items():
-        depths = np.array(assets[curve_key.index(curve)]["flood_depth_m"], dtype=float)
-        funcs.append(
-            ImpactFunc(
-                haz_type="CF",
-                id=fid,
-                intensity=depths,
-                mdd=np.array(curve, dtype=float),
-                paa=np.ones_like(depths),
-                intensity_unit="m",
-                name=f"coastal_flood_{fid}",
-            )
-        )
-    impf_set = ImpactFuncSet(funcs)
-    impf_ids = [id_by_curve[c] for c in curve_key]
+    impf_set, impf_ids, curve_note = _flood_impf_set(assets, iso3s, options, "CF", "coastal_flood")
     exp, src_idx = _build_exposures(assets, "impf_CF", impf_ids)
 
     fut = _impact(exp, impf_set, future)
@@ -854,7 +866,7 @@ def _run_coastal_flood(
             "max_resolvable_return_period": _max_rp,
             "record_years": _rec_yrs,
         },
-        "detail": f"local catalog coastal flood (WRI Aqueduct), region {region}",
+        "detail": f"local catalog coastal flood (WRI Aqueduct), region {region}; {curve_note}",
     }
 
 
@@ -885,8 +897,6 @@ def _run_tc_surge(
             "source 'copdem') or set CLIMATERISK_DEM_PATH."
         )
 
-    import numpy as np
-    from climada.entity import ImpactFunc, ImpactFuncSet
     from climada_petals.hazard import TCSurgeBathtub
 
     from climaterisk_worker.cost_benefit import _tc_hazard  # TC wind resolver (catalog-first)
@@ -906,25 +916,7 @@ def _run_tc_surge(
     surge = TCSurgeBathtub.from_tc_winds(wind, topo_path=dem, add_sea_level_rise=slr)
     htype = surge.haz_type  # surge height (m)
 
-    curve_key = [tuple(round(float(x), 4) for x in a["flood_mdr"]) for a in assets]
-    distinct = sorted(set(curve_key))
-    id_by_curve = {c: i + 1 for i, c in enumerate(distinct)}
-    funcs = []
-    for curve, fid in id_by_curve.items():
-        depths = np.array(assets[curve_key.index(curve)]["flood_depth_m"], dtype=float)
-        funcs.append(
-            ImpactFunc(
-                haz_type=htype,
-                id=fid,
-                intensity=depths,
-                mdd=np.array(curve, dtype=float),
-                paa=np.ones_like(depths),
-                intensity_unit="m",
-                name=f"tc_surge_{fid}",
-            )
-        )
-    impf_set = ImpactFuncSet(funcs)
-    impf_ids = [id_by_curve[c] for c in curve_key]
+    impf_set, impf_ids, curve_note = _flood_impf_set(assets, iso3s, options, htype, "tc_surge")
     exp, src_idx = _build_exposures(assets, f"impf_{htype}", impf_ids)
     imp = _impact(exp, impf_set, surge)
     eai = _eai_by_asset(imp, src_idx, len(assets))
@@ -954,7 +946,10 @@ def _run_tc_surge(
             "max_resolvable_return_period": _max_rp,
             "record_years": _rec_yrs,
         },
-        "detail": f"{iso3 or 'global'} TC surge (TCSurgeBathtub bathtub model, SLR +{slr} m)",
+        "detail": (
+            f"{iso3 or 'global'} TC surge (TCSurgeBathtub bathtub model, SLR +{slr} m); "
+            f"{curve_note}"
+        ),
     }
 
 
@@ -1025,7 +1020,7 @@ _CATALOG_PERILS: dict[str, Any] = {
         "expected annual low-flow impact",
     ),
     "heatwave": (
-        "HW",
+        _HEATWAVE_HAZ_TYPE,
         [0.0, 30.0, 35.0, 40.0, 45.0],
         [0.0, 0.0, 0.1, 0.3, 0.6],
         "degC",
@@ -1156,12 +1151,21 @@ def _run_heat_mortality(
     region = str(opts.get("country_iso3") or iso3 or _majority_iso3(iso3s) or "global")
 
     # Resolve the hazard FIRST so a missing layer fails fast with the standard message.
-    haz = catalog.load_hazard("heat_mortality", "historical", region, target)
+    # Requested scenario first (e.g. a KMA SSP layer filed under rcp45), else the
+    # historical layer — the fallback is reported in ``detail`` so a present-climate
+    # answer is never mistaken for a scenario run.
+    haz, heat_scenario = _resolve_heat_hazard(region, climate_scenario, target)
     if haz is None:
         raise ValueError(
             "heat_mortality has no local hazard for this portfolio — ingest a heat "
-            "exceedance-degree-days hazard first (scripts/heatwave_europe.py --register)."
+            "exceedance-degree-days hazard first (scripts/heatwave_europe.py --register "
+            "or scripts/heat_korea.py register)."
         )
+    scenario_note = (
+        f"scenario {heat_scenario}"
+        if heat_scenario == climate_scenario
+        else f"scenario {heat_scenario} (requested {climate_scenario} not in catalog — fallback)"
+    )
 
     default_headcount = float(opts.get("default_headcount") or _DEFAULT_HEADCOUNT)
     assumed = [a for a in assets if not float(a.get("headcount") or 0.0) > 0.0]
@@ -1227,10 +1231,23 @@ def _run_heat_mortality(
         "result_kind": "mortality",
         "metric_unit": "expected annual heat-attributable deaths",
         "detail": (
-            f"{region} heat mortality (local catalog; exceedance degree-days above the "
-            f"minimum-mortality comfort band, age-stratified dose-response; {head_note})"
+            f"{region} heat mortality (local catalog, {scenario_note}; exceedance degree-days "
+            f"above the minimum-mortality comfort band, age-stratified dose-response; {head_note})"
         ),
     }
+
+
+def _resolve_heat_hazard(region: str, climate_scenario: str, target: int):  # type: ignore[no-untyped-def]
+    """Return ``(hazard, scenario_used)`` for ``heat_mortality``: requested, then historical.
+
+    Both lookups go through the catalog's nearest-year rule. ``(None, None)`` when neither
+    layer exists, so the caller raises the standard "ingest first" error.
+    """
+    for scen in dict.fromkeys((climate_scenario, "historical")):
+        haz = catalog.load_hazard("heat_mortality", scen, region, target)
+        if haz is not None:
+            return haz, scen
+    return None, None
 
 
 _RUNNERS = {

@@ -25,6 +25,7 @@ def compute_forecast(request: dict[str, Any]) -> dict[str, Any]:
         from climada.hazard import Centroids, TropCyclone
         from climada_petals.hazard import TCForecast
 
+        from climaterisk_worker import vulnerability
         from climaterisk_worker.physical import (
             _build_exposures,
             _eai_by_asset,
@@ -65,7 +66,12 @@ def compute_forecast(request: dict[str, Any]) -> dict[str, Any]:
             cent = Centroids.from_lat_lon(np.array(lats), np.array(lons))
         tc = TropCyclone.from_tracks(tf, centroids=cent)
 
-        v_halves = sorted({round(float(a["tc_v_half"]), 1) for a in assets})
+        iso3s = _per_asset_iso3(lats, lons)
+        # Same geography-aware v_half default as the impact run.
+        vh_per_asset, _vh_src, vh_note = vulnerability.resolve_tc_vhalf(
+            assets, iso3s, request.get("options")
+        )
+        v_halves = sorted({round(v, 1) for v in vh_per_asset})
         id_by = {v: i + 1 for i, v in enumerate(v_halves)}
         impf_set = ImpactFuncSet(
             [
@@ -73,11 +79,10 @@ def compute_forecast(request: dict[str, Any]) -> dict[str, Any]:
                 for i, v in enumerate(v_halves)
             ]
         )
-        impf_ids = [id_by[round(float(a["tc_v_half"]), 1)] for a in assets]
+        impf_ids = [id_by[round(v, 1)] for v in vh_per_asset]
         exp, src_idx = _build_exposures(assets, "impf_TC", impf_ids)
         imp = ImpactCalc(exp, impf_set, tc).impact(assign_centroids=True)
         eai = _eai_by_asset(imp, src_idx, len(assets))
-        iso3s = _per_asset_iso3(lats, lons)
         return {
             "status": "ok",
             "peril": "tropical_cyclone",
@@ -93,7 +98,9 @@ def compute_forecast(request: dict[str, Any]) -> dict[str, Any]:
                 }
                 for i, a in enumerate(assets)
             ],
-            "detail": f"ECMWF ensemble forecast: {n_tracks} member tracks over the portfolio.",
+            "detail": (
+                f"ECMWF ensemble forecast: {n_tracks} member tracks over the portfolio; {vh_note}"
+            ),
         }
     except Exception as exc:
         return {

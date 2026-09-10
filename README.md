@@ -95,8 +95,10 @@ layer** that converts each source into a CLIMADA-ready hazard and files it in a 
   *Data → Fetch & ingest* — both write the HDF5 **and** register it, so the matching runner picks it
   up automatically (no manual wiring).
 - **Importers** (`worker/climaterisk_worker/ingest.py`) — one refiner per source. Wired today:
-  CLIMADA Data API (tropical cyclone, river flood, wildfire, earthquake) and WRI Aqueduct (river
-  flood). New formats map onto the standardized-grid on-ramp (`hazard_convert.py`).
+  CLIMADA Data API (tropical cyclone, river flood, wildfire, earthquake), WRI Aqueduct (river and
+  coastal flood), Copernicus DEM (for TC surge) and IBTrACS TCTracks; a TCRain refiner exists in
+  the worker but is not yet accepted by the API. New formats map onto the standardized-grid
+  on-ramp (`hazard_convert.py`).
 - **CLIMADA's own cache** — `~/climada/data/` (managed by CLIMADA). The only manual drop-in is the
   GPW population raster for LitPop (login-gated). See `assets/libraries/data_sources.json`.
 
@@ -156,7 +158,7 @@ What each step reproduces:
 |---|---|---|
 | Spain heat mortality on observed summers (3,522 deaths/yr, 2022 ranked first) | step 3, `--register`, then a `heat_mortality` run in the app on a population exposure | yes (observed input) |
 | Reference-city figure, comfort bands, 2020→2050 warming/ageing split (baseline 2,117 → 6,065 deaths/yr: +1,620 warming, +1,318 ageing, +1,010 joint) | step 3, `--decompose --warming-c 1.5 --demography-year 2050` + `heatwave_poster_figure.py` | yes (seed 42) |
-| Korean typhoon / river flood / wildfire / earthquake runs | no step needed — runners fetch from the CLIMADA Data API on first use and cache under `data/hazard_db/` (or pre-cache via `scripts/build_hazard.py cache …` / the Data tab) | yes |
+| Korean typhoon / river flood / wildfire / earthquake runs | no step needed — runners fetch from the CLIMADA Data API when the local catalog has no entry (CLIMADA keeps its own download cache under `~/climada/data/`); to run offline, pre-cache into `data/hazard_db/` via `scripts/build_hazard.py cache …` or the Data tab | yes |
 | Supply-chain (WIOD16, ~900 MB), uncertainty, cost-benefit, finance, transition | first run downloads what it needs | yes (seeded) |
 
 Not reproducible without a human step (all free, but gated):
@@ -184,10 +186,24 @@ captured CLIMADA baseline and run in the worker env.
 
 ## Status
 
-Asset-level **physical risk** (CLIMADA — tropical cyclone, river flood, wildfire, earthquake,
-European windstorm; cost-benefit + Monte-Carlo uncertainty + LitPop exposure) and **transition risk**
-(NGFS Phase-5 carbon-cost passthrough) are working end-to-end. Next: portfolio- and national-level
-aggregation and the TCFD/ISSB report. See the build plan for the full roadmap.
+Asset-level **physical risk** (CLIMADA — 15 perils incl. TC + surge + rainfall, river/coastal
+flood, wildfire, earthquake, European windstorm, heat mortality; cost-benefit, **Sobol**
+uncertainty, ECMWF TC forecast, 7 exposure sources, EM-DAT calibration runner) and
+**transition risk** (NGFS Phase-5 carbon-cost passthrough) plus the TCFD/ISSB report and the
+finance CRP view are working end-to-end — the capability-by-capability record (each with the
+implementing module) is **[docs/CLIMADA_COVERAGE.md](docs/CLIMADA_COVERAGE.md)**, audited
+against the code 2026-09-06 and updated 2026-09-07 (geography-aware regional vulnerability
+defaults by country; heat-mortality scenario routing; calibration persistence; cost-benefit is
+tropical-cyclone only and says so). Regional defaults are CLIMADA-shipped presets selected by
+CLIMADA's own country tables — **not validated against Korean observed losses yet**.
+
+What each peril computes, and with which vulnerability defaults:
+**[docs/METHODOLOGY.md](docs/METHODOLOGY.md)**. Which of that is CLIMADA-native, which is
+platform-custom, and which is missing — per peril and per component, with a doc-vs-code
+consistency audit: **[docs/CLIMADA_METHODS.md](docs/CLIMADA_METHODS.md)** (2026-09-07). Known methodology gaps (uncalibrated
+defaults, missing bands, sub-peril combination) with severity and fixes:
+**[docs/GAP_ANALYSIS_KO.md](docs/GAP_ANALYSIS_KO.md)** (한국어). Korea data localization
+plan and source licences: **[docs/RISK_REGISTER.md](docs/RISK_REGISTER.md)**.
 
 
 ## Conference poster

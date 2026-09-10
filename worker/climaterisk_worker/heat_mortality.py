@@ -33,6 +33,7 @@ inside the band in Cordoba and far above it in Hamburg.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -737,6 +738,8 @@ def grid_from_summer_tmax(
     country: str,
     tag: str = "obs",
     land_mask: bool = True,
+    reference_band: Sequence[RefCity] | None = None,
+    band_shift_c: float = 0.0,
 ) -> tuple[tuple[RefCity, ...], np.ndarray, np.ndarray]:
     """Turn a daily-Tmax stack into hazard cells + season exceedance degree-days.
 
@@ -748,11 +751,36 @@ def grid_from_summer_tmax(
         $$ D_{c,y} = \\sum_{d} \\max\\bigl(0,\\; T_{c,y,d} - \\mathrm{mmt\\_high}_c\\bigr) $$
         ASCII: D[c,y] = sum_d max(0, T[c,y,d] - mmt_high[c]),  mmt_high = a + b*mean_T[c]
 
+    **Adaptation.** The band is a property of the *population*, not of the weather, so a
+    future window must not silently re-derive it from its own (warmer) climatology: doing so
+    shifts the threshold by ``b·dT`` with ``b = 1.078 > 1``, which makes warming *reduce*
+    exceedance load — an outcome no projection supports. Pass ``reference_band`` (the cells of
+    the baseline window) to hold each cell's threshold fixed, and express adaptation as an
+    explicit absolute shift via ``band_shift_c``.
+
+    ``band_shift_c`` is the threshold-shift axis of Lee et al. (2019, *IJERPH* 16:1026,
+    doi:10.3390/ijerph16061026), whose projection for seven Korean metropolitan cities uses
+    +1, +2 and +3 degC against a no-adaptation reference of 0 degC. Korean studies report
+    substantial *past* adaptation (Choi et al. 2024, *PLoS One*, doi:10.1371/journal.pone.0310797:
+    heat-wave excess death rate 17.6 -> 8.3 per 100k between 1994 and 2018), but every Korean
+    projection reviewed treats no adaptation as the reference case and adaptation as a reported
+    scenario — see ``docs/HEAT_ADAPTATION_KR.md``.
+
     Args:
         obs: Daily Tmax stack, degC, shape ``(n_cells, n_years, SEASON_DAYS)``.
         country: ISO3 code (names the cells; frames the optional land mask).
         tag: Short source tag embedded in cell names (``eobs``, ``kma``).
         land_mask: See :func:`masked_summer_tmax`.
+        reference_band: Cells of a baseline window whose ``mmt_high`` this window reuses,
+            cell for cell. Required for any window that is not the baseline itself; the cells
+            must be the same grid (same length and coordinates), which holds when both windows
+            come from the same loader and ``coarsen``.
+        band_shift_c: Absolute upward shift of the comfort band, degC. ``0.0`` = no
+            adaptation (the reference case). Applies to the reference band, or to the fitted
+            band when no reference is given.
+
+    Raises:
+        ValueError: when ``reference_band`` does not describe the same grid as ``obs``.
 
     Returns:
         ``(cells, degree_days, years)`` with ``degree_days`` in degC-days,
@@ -763,8 +791,25 @@ def grid_from_summer_tmax(
 
     t_mean = tmax.mean(axis=(1, 2))
     t_sd = tmax.reshape(tmax.shape[0], -1).std(axis=1)
-    a, b = adaptation_fit()
-    mmt_high = a + b * t_mean
+    if reference_band is None:
+        a, b = adaptation_fit()
+        mmt_high = a + b * t_mean
+    else:
+        ref = tuple(reference_band)
+        if len(ref) != lat.size:
+            raise ValueError(
+                f"reference_band has {len(ref)} cells but this window has {lat.size}; "
+                "both windows must come from the same loader and coarsen"
+            )
+        ref_lat = np.array([c.lat for c in ref], dtype=float)
+        ref_lon = np.array([c.lon for c in ref], dtype=float)
+        if not (np.allclose(ref_lat, lat, atol=1e-6) and np.allclose(ref_lon, lon, atol=1e-6)):
+            raise ValueError(
+                "reference_band cells do not line up with this window's grid — the bands "
+                "would be attached to the wrong locations"
+            )
+        mmt_high = np.array([c.mmt_high for c in ref], dtype=float)
+    mmt_high = mmt_high + float(band_shift_c)
 
     cells = tuple(
         RefCity(

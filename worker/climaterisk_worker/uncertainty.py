@@ -1,22 +1,33 @@
-"""Uncertainty + Sobol sensitivity for physical risk (CLIMADA ``ImpactCalc`` + SALib).
+"""SALib Sobol-based uncertainty wrapper around CLIMADA ``ImpactCalc`` (tropical cyclone only).
 
-Propagates three input uncertainties through repeated impact calculations:
-  - exposure value   (× U[0.8, 1.2])
-  - vulnerability    (Emanuel ``v_half`` × U[0.9, 1.1])
-  - hazard frequency (× U[0.85, 1.15])
+**What this is:** a platform-written sampler that re-runs CLIMADA's ``ImpactCalc`` for each
+Saltelli sample and decomposes the AAI variance with SALib's Sobol analyser. **What it is
+not:** CLIMADA's ``climada.engine.unsequa`` (``InputVar``/``CalcImpact``/``CalcDeltaImpact``)
+— none of those classes are used.
 
-Sampling is a Saltelli design (SALib — the same engine CLIMADA's ``unsequa`` uses), so
-the variance decomposition yields proper **Sobol** indices: first-order ``S1`` (each
-input's own contribution to AAI variance) and total-order ``ST`` (its contribution
-including interactions). Returns the AAI distribution (mean/std/percentiles) too. TC-first.
+Perturbed inputs (multipliers on the base run):
+  - exposure value             × U[0.8, 1.2]
+  - vulnerability (``v_half``) × U[0.9, 1.1]
+  - hazard frequency           × U[0.85, 1.15] — applied **after** ImpactCalc as a linear
+    scaling of ``aai_agg`` (the hazard object itself is not perturbed)
 
-Model evaluations = base_N × (num_inputs + 2); base_N is capped for tractability.
+The three bounds are **indicative platform assumptions** (``BOUNDS_PROVENANCE``): no
+literature source was recorded for them, they are not user-configurable, and results
+should be read as a sensitivity screen under these ranges, not as a calibrated
+uncertainty envelope. Hazard intensity, ``v_thresh``, curve shape and scenario are held fixed.
+
+Scope: tropical cyclone only (``_tc_hazard``, Emanuel ``ImpfTropCyclone``). The base
+``v_half`` follows the same geography-aware default as the impact run
+(``vulnerability.resolve_tc_vhalf``). Sampling is seeded (``_SOBOL_SEED``, overridable via
+``request["seed"]``) so a rerun with the same inputs reproduces the same distribution.
+Model evaluations = base_N × (num_inputs + 2); base_N is clamped to [8, 64].
 """
 
 from __future__ import annotations
 
 from typing import Any
 
+from climaterisk_worker import vulnerability
 from climaterisk_worker.cost_benefit import _tc_hazard  # reuse TC hazard resolver (catalog-first)
 from climaterisk_worker.physical import (
     _TC_REF_YEARS,
@@ -30,6 +41,16 @@ _PROBLEM = {
     "names": ["exposure_value", "vulnerability", "hazard_frequency"],
     "bounds": [[0.8, 1.2], [0.9, 1.1], [0.85, 1.15]],
 }
+BOUNDS_PROVENANCE = (
+    "indicative platform assumption — no literature source; multiplicative uniform ranges "
+    "on exposure value, Emanuel v_half and event frequency chosen for a sensitivity screen"
+)
+METHOD = (
+    "SALib Saltelli sampling + Sobol S1/ST around CLIMADA ImpactCalc (not climada.engine.unsequa)"
+)
+SCOPE = "tropical_cyclone only"
+# Fixed Saltelli/Sobol' sequence seed → identical samples for identical inputs.
+_SOBOL_SEED = 1789
 
 
 def compute_uncertainty(request: dict[str, Any]) -> dict[str, Any]:
@@ -50,10 +71,10 @@ def compute_uncertainty(request: dict[str, Any]) -> dict[str, Any]:
 
     # base_N drives the Saltelli design; cap evals = base_N*(D+2) for tractability.
     base_n = max(8, min(int(request.get("n_samples", 16)), 64))
+    seed = int(request.get("seed") or _SOBOL_SEED)
     ref_year = _nearest(_TC_REF_YEARS, max(anchor_years) if anchor_years else _TC_REF_YEARS[0])
-    iso3 = _single_country_iso3(
-        _per_asset_iso3([a["lat"] for a in assets], [a["lon"] for a in assets])
-    )
+    iso3s = _per_asset_iso3([a["lat"] for a in assets], [a["lon"] for a in assets])
+    iso3 = _single_country_iso3(iso3s)
     haz = _tc_hazard(iso3, scenario, ref_year)
 
     # Present-day baseline hazard for the climate-change delta (best-effort: Data API / cache).
@@ -92,7 +113,11 @@ def compute_uncertainty(request: dict[str, Any]) -> dict[str, Any]:
     lats = [float(a["lat"]) for a in assets]
     lons = [float(a["lon"]) for a in assets]
     base_values = np.array([float(a["value"]) for a in assets])
-    base_vhalf = np.array([float(a["tc_v_half"]) for a in assets])
+    # Same v_half resolution as the impact run (regional preset unless overridden).
+    vh_per_asset, _vh_src, vh_note = vulnerability.resolve_tc_vhalf(
+        assets, iso3s, request.get("options")
+    )
+    base_vhalf = np.array(vh_per_asset, dtype=float)
 
     def evaluate(fv: float, fh: float, ff: float) -> float:
         scaled = base_vhalf * fh
@@ -114,7 +139,7 @@ def compute_uncertainty(request: dict[str, Any]) -> dict[str, Any]:
         imp = ImpactCalc(exp, impf_set, haz).impact(assign_centroids=True)
         return float(imp.aai_agg) * ff  # frequency scales AAI linearly
 
-    param_values = sobol_sample.sample(_PROBLEM, base_n, calc_second_order=False)
+    param_values = sobol_sample.sample(_PROBLEM, base_n, calc_second_order=False, seed=seed)
     Y = np.array([evaluate(float(r[0]), float(r[1]), float(r[2])) for r in param_values])
 
     Si = sobol_analyze.analyze(_PROBLEM, Y, calc_second_order=False, print_to_console=False)
@@ -172,8 +197,17 @@ def compute_uncertainty(request: dict[str, Any]) -> dict[str, Any]:
         "delta_mean": float(np.mean(delta)) if delta is not None else None,
         "delta_p5": float(np.percentile(delta, 5)) if delta is not None else None,
         "delta_p95": float(np.percentile(delta, 95)) if delta is not None else None,
+        # Method transparency (see module docstring): what was sampled, with which bounds,
+        # from which seed — so the result is never mistaken for a CLIMADA unsequa run.
+        "method": METHOD,
+        "scope": SCOPE,
+        "bounds": {n: list(b) for n, b in zip(names, _PROBLEM["bounds"], strict=True)},
+        "bounds_provenance": BOUNDS_PROVENANCE,
+        "frequency_treatment": "post-hoc linear multiplier on aai_agg (hazard not perturbed)",
+        "seed": seed,
         "detail": (
-            f"{iso3 or 'global'} TC; Sobol variance decomposition "
-            f"({len(Y)} model evals, base N={base_n}), horizon {ref_year}"
+            f"{iso3 or 'global'} TC; SALib Sobol variance decomposition around ImpactCalc "
+            f"({len(Y)} model evals, base N={base_n}, seed {seed}), horizon {ref_year}; "
+            f"bounds are indicative assumptions; {vh_note}"
         ),
     }

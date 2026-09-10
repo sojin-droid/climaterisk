@@ -68,6 +68,49 @@ export function ScenariosView({
             </select>
           </div>
         )}
+        {run_config.perils.includes("tropical_cyclone") && (
+          <div className="field">
+            <label>Tropical-cyclone vulnerability default (v½)</label>
+            <select
+              value={(run_config.options?.tc_impf_default as string) ?? "regional"}
+              onChange={(e) => {
+                const opts = { ...run_config.options };
+                if (e.target.value === "regional") delete opts.tc_impf_default;
+                else opts.tc_impf_default = e.target.value;
+                setRun({ options: opts });
+              }}
+              title="Applies only to assets without an explicit v½ override in the Vulnerability studio"
+            >
+              <option value="regional">
+                Regional preset by country — Eberenz et al. 2021 (default)
+              </option>
+              <option value="class">Indicative class default (70–110 m/s, not regional)</option>
+              <option value="calibrated">
+                Calibrated record for the portfolio country (falls back to regional)
+              </option>
+            </select>
+          </div>
+        )}
+        {["river_flood", "coastal_flood", "tc_surge"].some((p) => run_config.perils.includes(p)) && (
+          <div className="field">
+            <label>Flood-family vulnerability default (depth–damage)</label>
+            <select
+              value={(run_config.options?.flood_impf_default as string) ?? "regional"}
+              onChange={(e) => {
+                const opts = { ...run_config.options };
+                if (e.target.value === "regional") delete opts.flood_impf_default;
+                else opts.flood_impf_default = e.target.value;
+                setRun({ options: opts });
+              }}
+              title="Applies only to assets without an explicit depth-damage override"
+            >
+              <option value="regional">
+                Regional preset by continent — JRC Huizinga 2017 residential (default)
+              </option>
+              <option value="class">Generic class curve (Europe-like, not regional)</option>
+            </select>
+          </div>
+        )}
         {run_config.perils.includes("european_windstorm") && (
           <div className="field">
             <label>EU windstorm damage function</label>
