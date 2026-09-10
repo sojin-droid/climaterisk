@@ -102,6 +102,12 @@ layer** that converts each source into a CLIMADA-ready hazard and files it in a 
 - **CLIMADA's own cache** — `~/climada/data/` (managed by CLIMADA). The only manual drop-in is the
   GPW population raster for LitPop (login-gated). See `assets/libraries/data_sources.json`.
 
+## Data sources
+
+Every external dataset, its link and whether you can fetch it without an account:
+**[docs/DATA_SOURCES.md](docs/DATA_SOURCES.md)** (generated from
+`assets/libraries/data_sources.json`, so it cannot drift from what the code reads).
+
 ## Reproduce the analyses from a fresh clone
 
 Everything needed is public and scripted except the login-gated Korean files. Seeds are pinned
@@ -115,8 +121,8 @@ conda env create -f worker/climaterisk_worker/env_climada.yml --prefix ./.climad
 
 # 1. Observed climate for the heat perils: E-OBS daily Tmax, 0.25° ensemble mean (843 MB, no login)
 mkdir -p ~/climada/data
-curl -sSfL -o ~/climada/data/tx_ens_mean_0.25deg_reg_v31.0e.nc \
-  https://knmi-ecad-assets-prd.s3.amazonaws.com/ensembles/data/Grid_0.25deg_reg_ensemble/tx_ens_mean_0.25deg_reg_v31.0e.nc
+curl -sSfL -o ~/climada/data/tg_ens_mean_0.25deg_reg_v31.0e.nc \
+  https://knmi-ecad-assets-prd.s3.amazonaws.com/ensembles/data/Grid_0.25deg_reg_ensemble/tg_ens_mean_0.25deg_reg_v31.0e.nc
 
 # 2. Country boundaries + population (both login-free). Either use the app's Data tab
 #    (Natural Earth 110m, WorldPop) or fetch them directly. The Natural Earth layer is what

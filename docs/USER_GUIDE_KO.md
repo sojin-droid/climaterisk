@@ -39,6 +39,10 @@ macOS 때문에 생기는 제약 두 가지가 있습니다.
 3. **Results** — 재해를 고르고 **Run analysis**. 연평균 피해, 미래 변화율, 자산별 지도, 재현주기 곡선. 재현주기는 기록 길이의 절반까지만 표시합니다. 사망·생산성 같은 비화폐 결과는 통화 합계에서 제외됩니다. CSV/GeoJSON/PDF 내보내기 가능.
 4. **Adapt** 적응 비용편익 · **Finance** DSCR·등급·NPV · **Supply** 공급망 간접손실 · **Data** 해저드 카탈로그와 데이터 수집 · **Method** 방법론.
 
+## 필요한 데이터
+
+전체 목록·링크·접근 조건은 **[DATA_SOURCES.md](DATA_SOURCES.md)** 한 곳에 있습니다.
+
 ## 한국 포트폴리오
 
 - 태풍·하천홍수·산불·지진은 첫 실행 때 CLIMADA Data API에서 자동으로 받아 `data/hazard_db/`에 캐시합니다.
