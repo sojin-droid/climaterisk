@@ -1230,9 +1230,14 @@ def _run_heat_mortality(
         },
         "result_kind": "mortality",
         "metric_unit": "expected annual heat-attributable deaths",
+        # What the model is, and what its parameters rest on. CLIMADA ships no
+        # heat-mortality impact function, so the curve is this repository's own and its
+        # parameters are indicative — the UI shows this alongside the number.
+        "parameter_status": hm.provenance_summary(),
         "detail": (
             f"{region} heat mortality (local catalog, {scenario_note}; exceedance degree-days "
-            f"above the minimum-mortality comfort band, age-stratified dose-response; {head_note})"
+            f"above the minimum-mortality comfort band, custom climaterisk age-stratified "
+            f"dose-response with indicative parameters; {head_note})"
         ),
     }
 

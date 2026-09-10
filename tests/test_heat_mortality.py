@@ -136,12 +136,17 @@ def test_exceedance_load_reorders_cities_versus_raw_temperature() -> None:
 # --------------------------------------------------------------------------- #
 # Population exposure: run a whole country with no facility placed.           #
 # --------------------------------------------------------------------------- #
-def test_adaptation_fit_tracks_climate() -> None:
-    """A gridded hazard derives its comfort band from climatology, so the fit must hold."""
+def test_adaptation_fit_uses_the_published_slope() -> None:
+    """The slope is Tobías et al. (2021)'s 0.8 degC per degC, not a local fit."""
     a, b = hm.adaptation_fit()
-    assert 0.8 < b < 1.4, f"implausible adaptation slope {b}"
-    resid = [c.mmt_high - (a + b * c.tmax_jja_mean) for c in hm.REF_CITIES]
-    assert max(abs(r) for r in resid) < 2.5  # degC — the relation is tight by construction
+    assert b == pytest.approx(hm.MMT_ANNUAL_MEAN_SLOPE) == pytest.approx(0.8)
+    assert b < 1.0, "a slope >= 1 would let warming reduce the exceedance load"
+    # the intercept still places the curve on the reference table's level
+    hot, cool = (
+        max(hm.REF_CITIES, key=lambda c: c.tmax_jja_mean),
+        min(hm.REF_CITIES, key=lambda c: c.tmax_jja_mean),
+    )
+    assert a + b * hot.tmax_jja_mean > a + b * cool.tmax_jja_mean
 
 
 def test_country_grid_is_denser_than_the_reference_points() -> None:
@@ -350,7 +355,7 @@ def test_eobs_missing_file_gives_actionable_help() -> None:
     from climaterisk_worker import eobs
 
     err = eobs.EobsUnavailable()
-    assert "curl" in err.detail and "CLIMATERISK_EOBS_TX" in err.detail
+    assert "curl" in err.detail and "CLIMATERISK_EOBS_TG" in err.detail
     # `available()` is the switch every caller uses to pick observed vs synthetic.
     assert isinstance(eobs.available(), bool)
 

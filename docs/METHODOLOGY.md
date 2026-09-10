@@ -71,7 +71,7 @@ family) the preset replaces the class value; otherwise the generic class curve i
 | Wildfire | historical brightness temperature | sigmoid `x0=325 K` from 295 K, per-class max MDD | **no ignition threshold** — overstates low-intensity seasons vs the Lüthi-calibrated form → GAP G3 |
 | European windstorm | WISC/Schwierz sets | calibrated **Schwierz** (default) ↔ Welker toggle | the one peril with a calibrated default |
 | Earthquake | observed catalog | EMS-98/HAZUS-style MMI classes | labelled indicative; no published CLIMADA impf exists |
-| Heat mortality | exceedance degree-days (E-OBS obs / KMA onramp; requested scenario layer if registered, else `historical` with an explicit fallback note) | age-band dose-response, comfort *band* | ranking validated vs 2022 Europe; ~2.3× under on extreme years (RISK_REGISTER B2); no heat present→future delta; Korea not validated |
+| Heat mortality | exceedance degree-days above a **cited threshold** (93rd percentile of the local summer daily-mean distribution, Kim 2020) on daily **mean** temperature (E-OBS `tg` / KMA `TA`; requested scenario layer if registered, else `historical` with an explicit fallback note) | **climaterisk custom** age-band dose-response over a comfort *band* — CLIMADA ships no heat-mortality impact function | **parameters are indicative / unknown provenance, none calibrated** (§ below, `HEAT_MORTALITY_PROVENANCE.md`); summer ranking reproduced vs observed 2022 Europe but ~2.3× under on extreme years (RISK_REGISTER B2); Korea not validated |
 | Heatwave / drought / low_flow / hail / landslide / crop_yield | local catalog only | **indicative ramps** scaled by the class `wf_max_mdd` | honest "needs ingestion" errors; ramps are not calibrated → GAP G4 |
 
 Cross-cutting rigor already in place: return periods capped at half the event record;
@@ -83,6 +83,39 @@ excluded from currency aggregation; result interpretation strings disambiguating
 bands, sub-peril combination, pluvial absence) and **`docs/RISK_REGISTER.md`** (Korea data).
 **Which parts are CLIMADA-native vs platform-custom, per peril and per component, is audited in
 `docs/CLIMADA_METHODS.md`** (2026-09-07).
+
+### Heat mortality — framework, custom parts and status
+
+**Model framework (CLIMADA).** The risk calculation uses CLIMADA as container and engine:
+`ImpactFunc` and `ImpactFuncSet` hold the curves, `ImpactCalc` does
+`impact = value × mdd × paa` over the event set, and the standard outputs (`aai_agg`,
+`at_event`, the frequency curve, `Warn` bands) are CLIMADA's.
+
+**Vulnerability model (climaterisk).** The heat-mortality dose-response is **this
+repository's own implementation**, not a CLIMADA-provided function: CLIMADA core ships
+impact functions for tropical cyclone and European windstorm, petals for drought, crop
+yield, river flood and wildfire — none for heat, mortality or health. Concretely custom:
+the minimum-mortality comfort band and its width, the age stratification (<65 / ≥65), the
+relative-risk slopes β, the baseline mortality rates folded into `mdd`, and the
+degree-days → dose power law.
+
+**Current status (2026-09-09).** Of the 22 constants inventoried, **4 record an external
+source** — the exposure metric (daily mean temperature), the adaptation slope (0.8 degC per
+degC, Tobías et al. 2021), the Korean heat-onset threshold (93rd percentile of the summer
+daily-mean distribution, Kim 2020) and Korea's 65+ share — 2 are internal fits, and **16 remain
+indicative platform assumptions or of unknown provenance**. What is still uncited is the
+dose-response itself: β per age band and the baseline mortality rates. The published Korean
+estimates are heatwave-episode relative risks at percentile cut-offs with a lag structure, not
+per-day slopes per degC, so they cannot be converted into β by arithmetic alone. None has been calibrated against observed mortality,
+Korean or otherwise. The Spain comparison against MoMo is a *comparison*: no parameter was
+fitted to a surveillance series. Every value, its location in the code and its status is
+listed in **`HEAT_MORTALITY_PROVENANCE.md`**, mirrored in code as
+`heat_mortality.PARAMETER_PROVENANCE`, and reported at run time in the result's
+`parameter_status` so the Results card carries the caveat next to the number.
+
+Consequence for use: read per-100k rates and the ranking of locations; do not read absolute
+death counts as estimates of reality until the B-stage parameter work
+(`HEAT_MORTALITY_PROVENANCE.md` §6) is done.
 
 ## Known data caveats
 

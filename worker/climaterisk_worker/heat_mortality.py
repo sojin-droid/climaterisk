@@ -29,6 +29,22 @@ only above ``high``. The cold arm is a different peril and out of scope here.
 **Where the band sits and how wide it is is the location's thermal adaptation** —
 hot-adapted places have a higher, wider plateau, so the same 35 degC day can sit
 inside the band in Cordoba and far above it in Hamburg.
+
+Scientific status (read this before quoting any number)
+-------------------------------------------------------
+CLIMADA ships **no** heat-mortality impact function (core: tropical cyclone, European
+windstorm; petals: drought, crop yield, river flood, wildfire). What is CLIMADA here is the
+*container and engine* — ``ImpactFunc`` / ``ImpactFuncSet`` / ``ImpactCalc`` and
+``impact = value * mdd * paa``. **The vulnerability curve itself is a climaterisk custom
+implementation**, unlike tropical cyclone (Eberenz presets) or flood (JRC presets) where a
+published curve is bundled.
+
+Its parameters are, with one exception, **indicative platform assumptions or of unknown
+provenance**: no external source is recorded for beta, the baseline mortality rates, the
+reference-city minimum-mortality edges or the band-width coefficients, and none of them has
+been calibrated against observed mortality. :data:`PARAMETER_PROVENANCE` records each value,
+its location and its status; :func:`provenance_summary` is what the runner reports and the UI
+displays. Full table and the remaining gaps: ``docs/HEAT_MORTALITY_PROVENANCE.md``.
 """
 
 from __future__ import annotations
@@ -42,7 +58,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 if TYPE_CHECKING:  # pragma: no cover
-    from climaterisk_worker.eobs import SummerTmax
+    from climaterisk_worker.eobs import SummerDailyMean
 
 HAZ_TYPE = "HM"  # CLIMADA hazard tag for the heat-mortality (degree-day) layer
 INTENSITY_UNIT = "degC-days"  # season exceedance degree-days above the comfort band
@@ -209,6 +225,87 @@ def project_age_structure(cities: tuple[RefCity, ...], year: int) -> tuple[RefCi
     return tuple(out)
 
 
+#: Heat-onset threshold as a percentile of the **summer (Jun-Sep) daily mean** temperature
+#: distribution, per country. This replaces the hand-set per-city ``mmt_high`` on every
+#: gridded path: the threshold is read off the location's own measured distribution, so
+#: thermal adaptation enters by construction instead of through a fitted table.
+#:
+#: KOR is the published value for exactly this construction — same window (Jun-Sep), same
+#: metric (district-specific daily mean), same country:
+#:
+#:   Kim (2020) *Heatwave-Related Mortality Risk and the Risk-Based Definition of Heat Wave
+#:   in South Korea: A Nationwide Time-Series Study for 2011-2017*, IJERPH 17:5720,
+#:   doi:10.3390/ijerph17165720 — threshold point of heatwave mortality risk at the **93rd
+#:   percentile** of the summer daily-mean distribution over 229 districts (urban 92nd,
+#:   rural 95th).
+#:
+#: Countries without a summer-window study of their own fall back to that Korean estimate
+#: (:data:`DEFAULT_HEAT_ONSET_PERCENTILE`); that is an extrapolation and is labelled as one.
+#: For reference, the year-round minimum-mortality percentiles of Gasparrini et al. (2015)
+#: *Lancet* 386:369-375 are **not** interchangeable with these summer-window percentiles
+#: (KOR 89th, ESP 78th, ITA 79th, JPN 86th year-round) — they are recorded in
+#: ``docs/HEAT_MORTALITY_PROVENANCE.md`` as a cross-check, not used here.
+HEAT_ONSET_PERCENTILE: dict[str, float] = {
+    "KOR": 93.0,
+}
+DEFAULT_HEAT_ONSET_PERCENTILE = 93.0
+
+#: Observed spatial adaptation of the minimum-mortality temperature, from
+#: Tobías A, Hashizume M, Honda Y, Sera F, Ng CFS, et al. (2021) *Geographical Variations of
+#: the Minimum Mortality Temperature at a Global Scale: A Multicountry Study*,
+#: Environmental Epidemiology 5:e169, doi:10.1097/EE9.0000000000000169 (658 communities,
+#: 43 countries): the MMT rises **0.8 degC per 1 degC** of a community's annual mean
+#: temperature and **1.0 degC per 1 degC** of its SD.
+#:
+#: It replaces the repository's own OLS over 54 hand-set city values (slope 1.078). The sign
+#: matters as much as the value: a published slope **below 1** means warming cannot become
+#: protective, which the old fit implied. Used for the *partial adaptation* future scenario
+#: (band shift = ``MMT_ANNUAL_MEAN_SLOPE x dT``) alongside the reference case (no shift) and
+#: the +1/+2/+3 degC scenarios of Lee et al. (2019) — see ``docs/HEAT_ADAPTATION_KR.md``.
+MMT_ANNUAL_MEAN_SLOPE = 0.8
+MMT_SD_SLOPE = 1.0
+
+
+def heat_onset_percentile(country: str | None) -> tuple[float, bool]:
+    """Published summer-percentile threshold for ``country``.
+
+    Args:
+        country: ISO3 code, or None.
+
+    Returns:
+        ``(percentile, is_cited)`` — ``is_cited`` is False when the Korean estimate is being
+        extrapolated because the country has no study of its own.
+    """
+    key = (country or "").upper()
+    if key in HEAT_ONSET_PERCENTILE:
+        return (HEAT_ONSET_PERCENTILE[key], True)
+    return (DEFAULT_HEAT_ONSET_PERCENTILE, False)
+
+
+def heat_onset_from_distribution(
+    daily_temperature: np.ndarray, country: str | None = None
+) -> np.ndarray:
+    """Heat-onset threshold per cell, read off each cell's own summer distribution.
+
+    Algorithm:
+        $$ H_c = Q_{p}\bigl(\{T_{c,y,d}\}_{y,d}\bigr) $$
+        ASCII: H[c] = percentile(all summer days of cell c, p), p from
+        HEAT_ONSET_PERCENTILE (Kim 2020: 93rd for Korea).
+
+    Args:
+        daily_temperature: Daily mean temperature ``(n_cells, n_years, n_days)``, degC.
+        country: ISO3 code selecting the published percentile.
+
+    Returns:
+        ``(n_cells,)`` thresholds in degC.
+    """
+    p, _ = heat_onset_percentile(country)
+    flat = np.asarray(daily_temperature, dtype=float).reshape(
+        np.asarray(daily_temperature).shape[0], -1
+    )
+    return np.percentile(flat, p, axis=1)
+
+
 def comfort_band(city: RefCity) -> tuple[float, float, float]:
     """Minimum-mortality (comfort) band ``(low, high, width)`` for a location, degC.
 
@@ -313,6 +410,293 @@ def band_by_key(key: str) -> AgeBand:
 
 
 # --------------------------------------------------------------------------- #
+# Provenance of every constant this model uses.                               #
+# --------------------------------------------------------------------------- #
+#: Provenance classes, deliberately coarse so a value cannot be dressed up:
+#:
+#: * ``external``     — an external source is recorded and the value comes from it
+#: * ``internal_fit`` — computed inside this repository (a fit or a reduction)
+#: * ``indicative``   — a platform design choice, no external source
+#: * ``unknown``      — provenance cannot be traced from the code or the docs
+PROVENANCE_CLASSES = ("external", "internal_fit", "indicative", "unknown")
+
+
+@dataclass(frozen=True)
+class ParameterRecord:
+    """One constant of the heat-mortality model and where it comes from.
+
+    Attributes:
+        parameter: Human-readable name.
+        value: The value **as written in the code**, rendered as text. Never re-derived
+            here — this record documents, it does not compute.
+        unit: Physical unit, or ``"-"`` when dimensionless.
+        location: ``file::symbol`` where the value lives.
+        rationale: The justification actually present in the code/docs, verbatim in spirit.
+        citation: External source, or ``"source unavailable"``.
+        provenance: One of :data:`PROVENANCE_CLASSES`.
+    """
+
+    parameter: str
+    value: str
+    unit: str
+    location: str
+    rationale: str
+    citation: str
+    provenance: str
+
+
+#: Inventory taken from the code on 2026-09-09. Adding a constant to the model without
+#: adding it here fails ``tests/test_heat_provenance.py``.
+PARAMETER_PROVENANCE: tuple[ParameterRecord, ...] = (
+    ParameterRecord(
+        "beta, under 65",
+        "0.010",
+        "1/degC",
+        "heat_mortality.py::AGE_BANDS",
+        "comment: the elderly heat-mortality slope is several times the non-elderly slope",
+        "source unavailable",
+        "indicative",
+    ),
+    ParameterRecord(
+        "beta, 65 and over",
+        "0.034",
+        "1/degC",
+        "heat_mortality.py::AGE_BANDS",
+        "comment: the elderly heat-mortality slope is several times the non-elderly slope",
+        "source unavailable",
+        "indicative",
+    ),
+    ParameterRecord(
+        "baseline daily mortality, under 65",
+        "1.3e-3 / 365",
+        "1/day",
+        "heat_mortality.py::AGE_BANDS",
+        "comment: crude all-cause rate ~1.3/1000/yr, shared across countries (a limitation)",
+        "source unavailable",
+        "indicative",
+    ),
+    ParameterRecord(
+        "baseline daily mortality, 65 and over",
+        "45.0e-3 / 365",
+        "1/day",
+        "heat_mortality.py::AGE_BANDS",
+        "comment: crude all-cause rate ~45/1000/yr, shared across countries (a limitation)",
+        "source unavailable",
+        "indicative",
+    ),
+    ParameterRecord(
+        "mmt_high (comfort-band upper edge) per reference city",
+        "54 values, 26.0-40.0",
+        "degC",
+        "heat_mortality.py::REF_CITIES",
+        "comment: approximate but realistic, a locally-adapted heat-onset edge; explicitly "
+        "not a substitute for national statistics + AEMET/E-OBS microdata. Since the "
+        "gridded paths read the threshold off the measured distribution, this table now "
+        "sets only the synthetic/interpolated path's level and the fitted intercept",
+        "source unavailable",
+        "unknown",
+    ),
+    ParameterRecord(
+        "tmax_jja_mean / tmax_jja_sd per reference city",
+        "54 pairs, 23.0-36.5 / 3.0-4.6",
+        "degC",
+        "heat_mortality.py::REF_CITIES",
+        "comment: present-day summer daily-Tmax climatology, approximate",
+        "source unavailable",
+        "unknown",
+    ),
+    ParameterRecord(
+        "population / share_over65 per reference city",
+        "54 pairs",
+        "persons / -",
+        "heat_mortality.py::REF_CITIES",
+        "comment: provincial or metro figures, approximate",
+        "source unavailable",
+        "unknown",
+    ),
+    ParameterRecord(
+        "band-width coefficients",
+        "0.35, 22.0, clip 1.5-8.0",
+        "- / degC",
+        "heat_mortality.py::comfort_band",
+        "docstring: the width scales with how hot-adapted the place is",
+        "source unavailable",
+        "indicative",
+    ),
+    ParameterRecord(
+        "exposure metric",
+        "daily mean temperature, Jun-Sep",
+        "degC",
+        "eobs.py::load_summer_daily_mean / kma_scenario.py (TA)",
+        "every citable threshold and exposure-response estimate used here is expressed in "
+        "daily mean temperature, so the hazard is built in that metric",
+        "Kim (2020) IJERPH 17:5720 doi:10.3390/ijerph17165720; Gasparrini et al. (2015) "
+        "Lancet 386:369-375; Tobías et al. (2021) Environ Epidemiol 5:e169",
+        "external",
+    ),
+    ParameterRecord(
+        "adaptation slope (MMT vs local climate)",
+        "0.8 degC per degC of mean temperature (SD slope 1.0 recorded, not applied)",
+        "-",
+        "heat_mortality.py::MMT_ANNUAL_MEAN_SLOPE / adaptation_fit",
+        "published spatial adaptation of the minimum mortality temperature; replaces the "
+        "repository's own OLS slope of 1.078, which let warming reduce the exceedance load",
+        "Tobías A, Hashizume M, Honda Y, Sera F, Ng CFS, et al. (2021) Environ Epidemiol "
+        "5:e169, doi:10.1097/EE9.0000000000000169 (658 communities, 43 countries)",
+        "external",
+    ),
+    ParameterRecord(
+        "adaptation intercept",
+        "a = mean(mmt_high) - 0.8 x mean(tmax_jja_mean)",
+        "degC",
+        "heat_mortality.py::adaptation_fit",
+        "only the level is fitted, over REF_CITIES, with the slope held at the published "
+        "value; inherits the reference table's provenance",
+        "source unavailable",
+        "internal_fit",
+    ),
+    ParameterRecord(
+        "heat-onset percentile, Korea",
+        "93.0",
+        "percentile of the summer (Jun-Sep) daily-mean distribution",
+        "heat_mortality.py::HEAT_ONSET_PERCENTILE",
+        "threshold point of heatwave mortality risk over 229 Korean districts, same season "
+        "window and same metric as this model (urban 92nd, rural 95th)",
+        "Kim (2020) Heatwave-Related Mortality Risk and the Risk-Based Definition of Heat "
+        "Wave in South Korea, IJERPH 17:5720, doi:10.3390/ijerph17165720",
+        "external",
+    ),
+    ParameterRecord(
+        "heat-onset percentile, countries without a local study",
+        "93.0",
+        "percentile of the summer daily-mean distribution",
+        "heat_mortality.py::DEFAULT_HEAT_ONSET_PERCENTILE",
+        "the Korean estimate applied elsewhere for want of a summer-window study; an "
+        "extrapolation, reported as one by heat_onset_percentile()",
+        "source unavailable",
+        "indicative",
+    ),
+    ParameterRecord(
+        "dose power law per age band",
+        "fitted (a, b) per band",
+        "-",
+        "heat_mortality.py::dose_curve",
+        "least squares in log space on a seeded internal ensemble of REF_CITIES seasons",
+        "source unavailable",
+        "internal_fit",
+    ),
+    ParameterRecord(
+        "internal calibration ensemble",
+        "_CALIB_SEED = 20240811, _CALIB_SEASONS = 400",
+        "-",
+        "heat_mortality.py",
+        "fixed so the fitted dose curve is identical in every process (reproducibility)",
+        "source unavailable",
+        "indicative",
+    ),
+    ParameterRecord(
+        "season anomaly spreads (synthetic generator)",
+        "1.0 Europe-wide, 1.2 per country",
+        "degC",
+        "heat_mortality.py::simulate_seasons",
+        "a physically-grounded stand-in for reanalysis when no observed grid is present",
+        "source unavailable",
+        "indicative",
+    ),
+    ParameterRecord(
+        "warm-season window",
+        "Jun 1 - Sep 30, 122 days",
+        "days",
+        "heat_mortality.py::SEASON_START/SEASON_END/SEASON_DAYS",
+        "modelling choice; narrower than MoMo's attribution window, a known cause of the "
+        "tail under-prediction",
+        "source unavailable",
+        "indicative",
+    ),
+    ParameterRecord(
+        "age-structure projection multipliers",
+        "6 countries x 4 years, 1.00-1.65",
+        "-",
+        "heat_mortality.py::_AGE_SHARE_MULTIPLIER",
+        "used to project share_over65 to 2030/2040/2050",
+        "source unavailable",
+        "unknown",
+    ),
+    ParameterRecord(
+        "age-share ceiling",
+        "0.45",
+        "-",
+        "heat_mortality.py::MAX_SHARE_OVER65",
+        "comment: a demographic ceiling so interpolation cannot produce nonsense",
+        "source unavailable",
+        "indicative",
+    ),
+    ParameterRecord(
+        "share_over65 for Korea",
+        "0.203",
+        "-",
+        "heat_mortality.py::COUNTRY_SHARE_OVER65",
+        "comment: 주민등록인구 기준 2025년 약 20.3%",
+        "KOSIS / 행정안전부 주민등록인구통계 (recorded in the code comment; figure not "
+        "re-verified against the source in this pass)",
+        "external",
+    ),
+    ParameterRecord(
+        "impact-function intensity grid",
+        "0-900 degC-days, 61 points",
+        "degC-days",
+        "heat_mortality.py::build_impact_functions",
+        "discretisation of the curve; the upper end is far above any realistic season so "
+        "the mdd cap does not bind",
+        "source unavailable",
+        "indicative",
+    ),
+    ParameterRecord(
+        "default headcount per site",
+        "250",
+        "persons",
+        "physical.py::_DEFAULT_HEADCOUNT",
+        "exposure fallback when an asset carries no headcount; the assumption used is "
+        "always stated in the result detail",
+        "source unavailable",
+        "indicative",
+    ),
+)
+
+
+def provenance_summary() -> dict[str, Any]:
+    """Machine-readable status of the model, for the run payload and the UI.
+
+    Returns:
+        ``model`` (what is CLIMADA and what is custom), ``counts`` per provenance class,
+        ``calibrated_on_observed_mortality`` (always False until a calibration exists) and
+        a short ``label`` for display.
+    """
+    counts = dict.fromkeys(PROVENANCE_CLASSES, 0)
+    for record in PARAMETER_PROVENANCE:
+        counts[record.provenance] += 1
+    unsupported = counts["indicative"] + counts["unknown"]
+    return {
+        "model": (
+            "climaterisk custom heat-mortality dose-response; CLIMADA supplies "
+            "ImpactFunc/ImpactFuncSet/ImpactCalc only (it ships no heat-mortality "
+            "impact function)"
+        ),
+        "counts": counts,
+        "n_parameters": len(PARAMETER_PROVENANCE),
+        "calibrated_on_observed_mortality": False,
+        "label": (
+            "Custom heat-mortality model · vulnerability parameters: indicative / not calibrated"
+        ),
+        "detail": (
+            f"{unsupported} of {len(PARAMETER_PROVENANCE)} parameters are indicative "
+            "platform assumptions or of unknown provenance; none is calibrated against "
+            "observed mortality (docs/HEAT_MORTALITY_PROVENANCE.md)"
+        ),
+    }
+
+
+# --------------------------------------------------------------------------- #
 # Season ensemble + the two heat metrics.                                     #
 # --------------------------------------------------------------------------- #
 def simulate_seasons(
@@ -404,7 +788,7 @@ def exceedance_degree_days(tmax: np.ndarray, cities: tuple[RefCity, ...]) -> np.
 
 
 # --------------------------------------------------------------------------- #
-# degC-days -> dose: the calibrated non-linear vulnerability curve.           #
+# degC-days -> dose: the internally fitted non-linear vulnerability curve.     #
 # --------------------------------------------------------------------------- #
 _CALIB_SEED = 20240811  # fixed so the fitted curve is identical on every process
 _CALIB_SEASONS = 400
@@ -544,25 +928,37 @@ def build_hazard(
 
 @lru_cache(maxsize=1)
 def adaptation_fit() -> tuple[float, float]:
-    """Fit ``mmt_high ≈ a + b · tmax_jja_mean`` across the reference locations.
+    """Heat-onset threshold as a function of local climate, with a **published** slope.
 
-    Thermal adaptation tracks local climate: places with hotter summers sit at a higher
-    heat-onset threshold. Fitting that relation lets a *gridded* hazard derive a comfort
-    band anywhere from interpolated climatology alone, instead of needing a hand-set MMT
-    per grid cell.
+    The slope is not fitted here. It is the observed spatial adaptation of the
+    minimum-mortality temperature reported by Tobías et al. (2021, *Environ Epidemiol*
+    5:e169, doi:10.1097/EE9.0000000000000169) over 658 communities in 43 countries:
+    :data:`MMT_ANNUAL_MEAN_SLOPE` = 0.8 degC of MMT per 1 degC of local mean temperature.
+    Only the intercept is fitted, so the reference table sets the *level* while the
+    published relation sets the *response to climate*.
+
+    Earlier revisions fitted both terms over :data:`REF_CITIES` and obtained a slope of
+    1.078. A slope above 1 makes a uniformly warmer climate produce **fewer** exceedance
+    degree-days — warming as protection — which no projection supports. The published
+    slope is below 1, so that outcome is structurally impossible.
+
+    Prefer :func:`heat_onset_from_distribution` wherever a measured daily series exists:
+    reading the threshold off the location's own distribution needs no intercept at all.
+    This function is for the synthetic/interpolated paths, which have no distribution yet.
 
     Algorithm:
-        Ordinary least squares over the reference table:
-        $$ \\mathrm{mmt\\_high} = a + b\\,\\bar T $$
-        ASCII: mmt_high = a + b * tmax_jja_mean
+        Slope fixed, intercept by least squares (equivalently the mean residual):
+        $$ a = \overline{\mathrm{mmt\_high}} - b\,\overline{\bar T}, \quad b = 0.8 $$
+        ASCII: a = mean(mmt_high) - 0.8 * mean(tmax_jja_mean); b = 0.8
 
     Returns:
-        ``(a, b)`` — intercept (degC) and slope (dimensionless).
+        ``(a, b)`` — intercept (degC) and the published slope (dimensionless).
     """
     t = np.array([c.tmax_jja_mean for c in REF_CITIES])
     m = np.array([c.mmt_high for c in REF_CITIES])
-    b, a = np.polyfit(t, m, 1)
-    return (float(a), float(b))
+    b = MMT_ANNUAL_MEAN_SLOPE
+    a = float(m.mean() - b * t.mean())
+    return (a, float(b))
 
 
 def _land_mask(lats: np.ndarray, lons: np.ndarray, country: str) -> np.ndarray:
@@ -704,27 +1100,29 @@ def degree_days_chunked(
     return out
 
 
-def masked_summer_tmax(obs: SummerTmax, country: str, land_mask: bool = True) -> SummerTmax:
+def masked_summer_tmax(
+    obs: SummerDailyMean, country: str, land_mask: bool = True
+) -> SummerDailyMean:
     """Restrict an observed/scenario Tmax stack to the cells inside ``country``.
 
     Args:
-        obs: Any :class:`~climaterisk_worker.eobs.SummerTmax` (E-OBS, KMA, …).
+        obs: Any :class:`~climaterisk_worker.eobs.SummerDailyMean` (E-OBS, KMA, …).
         country: ISO3 code used for the Natural Earth polygon test.
         land_mask: Apply the polygon test. Pass False for products that are already
             land-only within the country (KMA 남한상세 is masked to South Korea at source,
             and the 1:110m polygon would wrongly drop Jeju and thin coastal cells).
 
     Returns:
-        A new :class:`SummerTmax` with the kept cells (all cells if none pass the mask).
+        A new :class:`SummerDailyMean` with the kept cells (all cells if none pass the mask).
     """
-    from climaterisk_worker.eobs import SummerTmax
+    from climaterisk_worker.eobs import SummerDailyMean
 
     if not land_mask:
         return obs
     inside = _land_mask(obs.lat, obs.lon, country)
     if not inside.any():  # pragma: no cover - boundary layer missing or tiny country
         return obs
-    return SummerTmax(
+    return SummerDailyMean(
         lat=obs.lat[inside],
         lon=obs.lon[inside],
         years=obs.years,
@@ -734,7 +1132,7 @@ def masked_summer_tmax(obs: SummerTmax, country: str, land_mask: bool = True) ->
 
 
 def grid_from_summer_tmax(
-    obs: SummerTmax,
+    obs: SummerDailyMean,
     country: str,
     tag: str = "obs",
     land_mask: bool = True,
@@ -792,8 +1190,9 @@ def grid_from_summer_tmax(
     t_mean = tmax.mean(axis=(1, 2))
     t_sd = tmax.reshape(tmax.shape[0], -1).std(axis=1)
     if reference_band is None:
-        a, b = adaptation_fit()
-        mmt_high = a + b * t_mean
+        # A measured series is available, so take the published percentile of it rather
+        # than interpolating a table (Kim 2020 for Korea; see HEAT_ONSET_PERCENTILE).
+        mmt_high = heat_onset_from_distribution(tmax, country)
     else:
         ref = tuple(reference_band)
         if len(ref) != lat.size:

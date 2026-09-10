@@ -23,12 +23,14 @@ if str(WORKER) not in sys.path:
     sys.path.insert(0, str(WORKER))
 
 from climaterisk_worker import heat_mortality as hm  # noqa: E402
-from climaterisk_worker.eobs import SEASON_DAYS, SummerTmax  # noqa: E402
+from climaterisk_worker.eobs import SEASON_DAYS, SummerDailyMean  # noqa: E402
 
 WARMING_C = 3.0
 
 
-def _stack(offset_c: float = 0.0, n_cells: int = 6, n_years: int = 3, seed: int = 7) -> SummerTmax:
+def _stack(
+    offset_c: float = 0.0, n_cells: int = 6, n_years: int = 3, seed: int = 7
+) -> SummerDailyMean:
     """A synthetic Jun-Sep stack: same weather in every call, shifted by ``offset_c``."""
     rng = np.random.default_rng(seed)
     season = 6.0 * np.sin(np.linspace(0.0, np.pi, SEASON_DAYS))  # peaks mid-season
@@ -38,7 +40,7 @@ def _stack(offset_c: float = 0.0, n_cells: int = 6, n_years: int = 3, seed: int 
         + season[None, None, :]
         + rng.normal(0.0, 1.0, (n_cells, n_years, SEASON_DAYS))
     )
-    return SummerTmax(
+    return SummerDailyMean(
         lat=37.0 + 0.05 * np.arange(n_cells),
         lon=127.0 + 0.05 * np.arange(n_cells),
         years=np.arange(2000, 2000 + n_years),
@@ -52,10 +54,11 @@ def _baseline() -> tuple[tuple[hm.RefCity, ...], np.ndarray]:
     return cells, dd
 
 
-def test_the_fitted_band_exceeds_one_to_one_with_climate() -> None:
-    """The premise of the whole module: the spatial fit cannot be reused for time."""
+def test_the_published_slope_is_below_one_to_one_with_climate() -> None:
+    """Tobías et al. (2021): MMT rises 0.8 degC per degC — so warming always adds load."""
     _, b = hm.adaptation_fit()
-    assert b > 1.0, "if the slope were <= 1 a refit would not make warming protective"
+    assert b == pytest.approx(0.8)
+    assert b < 1.0
 
 
 def test_a_fixed_band_makes_warming_increase_the_heat_load() -> None:
@@ -67,13 +70,18 @@ def test_a_fixed_band_makes_warming_increase_the_heat_load() -> None:
     assert (warm_dd >= base_dd).all(), "a warmer season cannot lower any cell's exceedance"
 
 
-def test_refitting_the_band_makes_warming_look_protective() -> None:
-    """Documents the trap the reference band exists to prevent (not desired behaviour)."""
+def test_recomputing_the_threshold_can_at_most_cancel_the_warming() -> None:
+    """The percentile construction caps full adaptation at 1:1 — never protective.
+
+    A uniformly warmer distribution has its percentile shifted by the same amount, so
+    recomputing the threshold on the future window leaves the load unchanged. Under the
+    old fitted slope (1.078) the same operation *reduced* the load.
+    """
     _, base_dd = _baseline()
     _, refit_dd, _ = hm.grid_from_summer_tmax(
         _stack(offset_c=WARMING_C), "KOR", tag="kma", land_mask=False
     )
-    assert refit_dd.mean() < base_dd.mean()
+    np.testing.assert_allclose(refit_dd, base_dd, rtol=0.0, atol=1e-9)
 
 
 def test_an_equal_band_shift_cancels_the_warming_exactly() -> None:

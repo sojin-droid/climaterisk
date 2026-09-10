@@ -349,6 +349,16 @@ export interface PhysicalRunResult {
   warn_levels?: WarnLevels | null;
   result_kind?: "monetary" | "yield" | "productivity" | "mortality";
   metric_unit?: string | null;
+  // Scientific status of the peril's vulnerability model, when the worker reports one
+  // (heat mortality: a climaterisk custom curve whose parameters are indicative).
+  parameter_status?: {
+    model: string;
+    label: string;
+    detail: string;
+    calibrated_on_observed_mortality?: boolean;
+    n_parameters?: number;
+    counts?: Record<string, number>;
+  } | null;
   interpretation?: string | null;
   detail: string | null;
 }
