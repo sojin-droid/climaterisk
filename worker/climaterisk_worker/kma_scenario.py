@@ -49,6 +49,12 @@ from climaterisk_worker.eobs import SEASON_DAYS, SEASON_END, SEASON_START, Summe
 
 _HOME_KMA = Path.home() / "climada" / "data" / "kma"
 
+#: File-name token of the variable the heat model consumes. ``TA`` is 평균기온 (daily mean):
+#: every citable threshold and exposure-response estimate is expressed in daily mean
+#: temperature (``docs/HEAT_MORTALITY_PROVENANCE.md``). ``TAMAX`` (최고평균기온) is what the
+#: model used before 2026-09-09 and is no longer read by default.
+DEFAULT_VARIABLE = "TA"
+
 MISSING_VALUE = -9990.0
 GRID_RES_DEG = 0.01
 GRID_ORIGIN_LAT_LON = (33.0, 124.5)
@@ -165,7 +171,7 @@ def extract_archives(directory: Path | None = None) -> list[Path]:
 
 def list_files(
     directory: Path | None = None,
-    variable: str = "TA",
+    variable: str = DEFAULT_VARIABLE,
     step: str = "daily",
     scenario: str | None = None,
 ) -> list[KmaFile]:
@@ -226,7 +232,7 @@ def load_summer_tmax(
     year_start: int | None = None,
     year_end: int | None = None,
     coarsen: int = 5,
-    variable: str = "TA",
+    variable: str = DEFAULT_VARIABLE,
     directory: Path | None = None,
     max_missing_frac: float = 0.02,
 ) -> SummerDailyMean:
