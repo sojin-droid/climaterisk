@@ -77,12 +77,25 @@ DEMO_ASSETS = [
 ]
 
 
-def expected_files() -> list[str]:
-    """File names the on-ramp needs (archive names as served by 기후변화 상황지도)."""
-    names = ["MKPRISM_MKPRISMv21_skorea_TAMAX_gridraw_daily_2000_2019_nc.tar.gz"]
+def expected_files(variable: str = kma.DEFAULT_VARIABLE) -> list[str]:
+    """Archive names the on-ramp needs, as 기후변화 상황지도 serves them.
+
+    The variable token comes from the loader (:data:`kma_scenario.DEFAULT_VARIABLE`) so this
+    list cannot drift from what ``register`` actually reads — it did once, listing ``TAMAX``
+    after the model moved to daily mean temperature.
+
+    Args:
+        variable: File-name variable token (``TA`` = 평균기온, daily mean).
+
+    Returns:
+        Archive file names, historical window first.
+    """
+    names = [f"MKPRISM_MKPRISMv21_skorea_{variable}_gridraw_daily_2000_2019_nc.tar.gz"]
     for ssp in ("SSP245", "SSP585"):
         for y0 in range(2021, 2100, 10):
-            names.append(f"AR6_{ssp}_5ENSMN_skorea_TAMAX_gridraw_daily_{y0}_{y0 + 9}_nc.tar.gz")
+            names.append(
+                f"AR6_{ssp}_5ENSMN_skorea_{variable}_gridraw_daily_{y0}_{y0 + 9}_nc.tar.gz"
+            )
     return names
 
 
@@ -94,7 +107,7 @@ def cmd_files(_: argparse.Namespace) -> int:
         nc = name.replace("_nc.tar.gz", ".nc")
         have = nc in present or (d / name).is_file()
         print(f"  [{'x' if have else ' '}] {name}")
-    print(f"present daily TAMAX files: {len(present)}")
+    print(f"present daily {kma.DEFAULT_VARIABLE} files: {len(present)}")
     return 0
 
 
@@ -219,7 +232,7 @@ def cmd_register(args: argparse.Namespace) -> int:
     scenarios = sorted(args.scenarios, key=lambda s: 0 if s == "historical" else 1)
     for scen in scenarios:
         if not kma.available(scen):
-            print(f"  {scen:>10}: no TAMAX daily file present — skipped")
+            print(f"  {scen:>10}: no {kma.DEFAULT_VARIABLE} daily file present — skipped")
             continue
         if scen == "historical":
             windows = [(2020, args.year_start, args.year_end)]

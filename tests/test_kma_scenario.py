@@ -274,3 +274,23 @@ def test_requested_ssp_layer_is_resolved_end_to_end_for_korea(
         [{**site, "value": 1.0e6}], "rcp45", [2030], {"country_iso3": "KOR"}
     )
     assert hw["status"] == "ok" and hw["result_kind"] == "productivity"
+
+
+def test_the_cli_shopping_list_uses_the_variable_the_loader_reads() -> None:
+    """It drifted once: the loader moved to TA while the CLI still listed TAMAX."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("heat_korea", REPO / "scripts" / "heat_korea.py")
+    assert spec is not None and spec.loader is not None
+    hk = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(hk)
+
+    names = hk.expected_files()
+    assert names, "the shopping list must not be empty"
+    token = f"_{kma.DEFAULT_VARIABLE}_gridraw_daily_"
+    assert all(token in n for n in names), names[:2]
+    # and every listed name must parse back through the loader's own parser
+    for n in names:
+        parsed = kma.parse_name(Path(n.replace("_nc.tar.gz", ".nc")))
+        assert parsed is not None and parsed.variable == kma.DEFAULT_VARIABLE, n
+    assert kma.DEFAULT_VARIABLE == "TA", "daily mean is the metric the citable estimates use"
