@@ -870,7 +870,7 @@ numbers only**.
 | WRI Aqueduct floods | river_flood, coastal_flood RP layers | `/vsicurl` GeoTIFF | `[EXTERNAL]` |
 | Copernicus GLO-30 DEM | tc_surge | tile download, decimated | `[EXTERNAL]` |
 | IBTrACS (via CLIMADA) | tctracks / tcrain ingest | CLIMADA download | `[EXTERNAL]` |
-| E-OBS `tx_ens_mean` | heat_mortality / heatwave (Europe) | open, ~0.8 GB | `[EXTERNAL]` |
+| E-OBS `tg_ens_mean` (daily **mean** temperature) | heat_mortality / heatwave (Europe) | open, ~0.8 GB | `[EXTERNAL]` |
 | KMA 남한상세 1 km SSP (기후변화 상황지도) | heat_mortality / heatwave (Korea) | login + request; **not yet on disk** | `[EXTERNAL]` |
 | 홍수위험지도 SHP | river_flood/KOR (planned) | downloaded; non-commercial, no-derivatives | `[EXTERNAL]` |
 | ECMWF TC ensemble (petals `TCForecast.fetch_ecmwf`) | forecast mode | live | `[EXTERNAL]` |

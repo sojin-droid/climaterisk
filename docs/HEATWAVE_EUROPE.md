@@ -263,8 +263,8 @@ opts out).
 
 ```bash
 # open, no login (~0.8 GB, 0.25 deg regular grid, ensemble mean)
-curl -sSfL -o ~/climada/data/tx_ens_mean_0.25deg_reg_v31.0e.nc \
-  https://knmi-ecad-assets-prd.s3.amazonaws.com/ensembles/data/Grid_0.25deg_reg_ensemble/tx_ens_mean_0.25deg_reg_v31.0e.nc
+curl -sSfL -o ~/climada/data/tg_ens_mean_0.25deg_reg_v31.0e.nc \
+  https://knmi-ecad-assets-prd.s3.amazonaws.com/ensembles/data/Grid_0.25deg_reg_ensemble/tg_ens_mean_0.25deg_reg_v31.0e.nc
 ./.climada-env/bin/python scripts/heatwave_europe.py --register      # now observed
 ```
 

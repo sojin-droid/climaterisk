@@ -139,6 +139,8 @@ python3 scripts/fetch_floodmap_kor.py                            # 환경부 flo
 
 ## 7. Data: what downloads itself, what needs you
 
+The complete list with links lives in **[DATA_SOURCES.md](DATA_SOURCES.md)**; the summary:
+
 | Data | Access | Where it goes |
 |---|---|---|
 | CLIMADA hazards (typhoon, river flood, wildfire, earthquake) | automatic from the CLIMADA Data API on first run | `data/hazard_db/` |
