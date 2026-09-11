@@ -60,8 +60,10 @@ No source was invented for this pass. Where none exists the citation column says
 |---|---|---|---|---|---|---|
 | beta, under 65 | `0.010` | 1/degC | `heat_mortality.py::AGE_BANDS` | comment: the elderly heat-mortality slope is several times the non-elderly slope | source unavailable | C · indicative assumption |
 | beta, 65 and over | `0.034` | 1/degC | `heat_mortality.py::AGE_BANDS` | comment: the elderly heat-mortality slope is several times the non-elderly slope | source unavailable | C · indicative assumption |
-| baseline daily mortality, under 65 | `1.3e-3 / 365` | 1/day | `heat_mortality.py::AGE_BANDS` | comment: crude all-cause rate ~1.3/1000/yr, shared across countries (a limitation) | source unavailable | C · indicative assumption |
-| baseline daily mortality, 65 and over | `45.0e-3 / 365` | 1/day | `heat_mortality.py::AGE_BANDS` | comment: crude all-cause rate ~45/1000/yr, shared across countries (a limitation) | source unavailable | C · indicative assumption |
+| baseline daily mortality, under 65 (legacy fallback outside Korea) | `130.0 per 100,000 person-years` | deaths per 100,000 person-years (÷1e5÷365 per day) | `heat_mortality.py::LEGACY_BASELINE_PER_100K` | comment: the pre-2026-09-11 shared pair, retained only for countries without a cited table | source unavailable | C · indicative assumption |
+| baseline daily mortality, 65 and over (legacy fallback outside Korea) | `4500.0 per 100,000 person-years` | deaths per 100,000 person-years (÷1e5÷365 per day) | `heat_mortality.py::LEGACY_BASELINE_PER_100K` | comment: the pre-2026-09-11 shared pair, retained only for countries without a cited table | source unavailable | C · indicative assumption |
+| baseline mortality, under 65, Korea | `163.2` | deaths per 100,000 person-years | `heat_mortality.py::BASELINE_MORTALITY_PER_100K` | the table publishes no under-65 row; **derived from its own published totals** — deaths(계) 358,569 − deaths(65+) 291,539 = 67,030 over the population implied by deaths/rate for each group (51,034,586 − 9,955,573 = 41,079,013). `derived_from_published_totals = true` | KOSIS 통계청 사망원인통계, 사망원인(104항목)/성/연령(5세)별 사망자수, 사망률 — orgId 101, tblId **DT_1B34E01**, 기준년도 **2024**, 전체 사인(계), 남녀 계; `itmId=T1,T5 · objL1=0 · objL2=0 · objL3=00,63 · prdSe=Y`; retrieved 2026-09-11 | **A · external** |
+| baseline mortality, 65 and over, Korea | `2928.4` | deaths per 100,000 person-years | `heat_mortality.py::BASELINE_MORTALITY_PER_100K` | published crude death rate of the 65세 이상 group, read directly (`objL3=63`). `derived_from_published_totals = false` | KOSIS 통계청 사망원인통계 DT_1B34E01, 2024, 전체 사인, 남녀 계, `itmId=T5`; retrieved 2026-09-11 | **A · external** |
 | mmt_high (comfort-band upper edge) per reference city | `54 values, 26.0-40.0` | degC | `heat_mortality.py::REF_CITIES` | comment: approximate but realistic, a locally-adapted heat-onset edge; explicitly not a substitute for national statistics + AEMET/E-OBS microdata. Since the gridded paths read the threshold off the measured distribution, this table now sets only the synthetic/interpolated path's level and the fitted intercept | source unavailable | D · unknown provenance |
 | tmax_jja_mean / tmax_jja_sd per reference city | `54 pairs, 23.0-36.5 / 3.0-4.6` | degC | `heat_mortality.py::REF_CITIES` | comment: present-day summer daily-Tmax climatology, approximate | source unavailable | D · unknown provenance |
 | population / share_over65 per reference city | `54 pairs` | persons / - | `heat_mortality.py::REF_CITIES` | comment: provincial or metro figures, approximate | source unavailable | D · unknown provenance |
@@ -81,11 +83,42 @@ No source was invented for this pass. Where none exists the citation column says
 | impact-function intensity grid | `0-900 degC-days, 61 points` | degC-days | `heat_mortality.py::build_impact_functions` | discretisation of the curve; the upper end is far above any realistic season so the mdd cap does not bind | source unavailable | C · indicative assumption |
 | default headcount per site | `250` | persons | `physical.py::_DEFAULT_HEADCOUNT` | exposure fallback when an asset carries no headcount; the assumption used is always stated in the result detail | source unavailable | C · indicative assumption |
 
-**Tally**: 4 x A, 2 x B, 12 x C, 4 x D of 22 records. The **band and its response to
+### Change record — Korea-specific baseline mortality (2026-09-11)
+
+The two shared baseline rates were replaced **for Korea only** by the KOSIS 2024 values;
+every other country still runs on the legacy pair (`age_bands_for(country)`). β, the comfort
+band, its width, the dose exponent and the adaptation coefficients were **not** touched.
+
+| Age group | Previous (legacy, shared) | KOSIS 2024 (Korea) | Change |
+|---|---:|---:|---:|
+| <65 | 130.0 | 163.2 | +25.5 % |
+| 65+ | 4500.0 | 2928.4 | −34.9 % |
+
+Unit: deaths per 100,000 person-years; folded into `mdd` as `/1e5/365` per day. Because the
+dose curve is shared, `mdd_KOR / mdd_legacy` equals exactly these ratios per band
+(`test_korean_impact_functions_differ_from_legacy_by_the_baseline_ratio_only`). Korean
+heat-mortality results therefore change — that is the expected consequence of the new
+baseline and of nothing else. Measured on the registered KMA catalog with the 2,600-person
+demo portfolio (`scripts/heat_korea.py`): `aai_agg` historical 0.019305 → 0.012928,
+SSP2-4.5 0.050748 → 0.033980, SSP5-8.5 0.050728 → 0.033967 deaths/yr — a uniform factor of
+**0.670** across all three, as a rescale of the elderly-dominated `mdd` implies. The number
+changed because the baseline changed; no other parameter explains any of it. The legacy result is preserved as the fallback path
+(`legacy/current baseline`); the Korean path is labelled `KOSIS-2024 mortality baseline` in
+`parameter_status.baseline_mortality`.
+
+**Cross-source demographic consistency: not yet unified.** Age-specific baseline mortality
+now comes from KOSIS cause-of-death statistics (DT_1B34E01, 2024); the age-group *exposure
+share* `COUNTRY_SHARE_OVER65["KOR"] = 0.203` comes from a separate resident-registration
+population source. The population implied by the KOSIS table has 19.5 % aged 65+; the 0.203
+is deliberately left as is rather than harmonised by hand, and the two sources are recorded
+as different.
+
+**Tally**: 6 x A, 2 x B, 12 x C, 4 x D of 24 records. The **band and its response to
 climate are now cited** (Kim 2020 for the Korean threshold percentile; Tobías et al. 2021 for
 the adaptation slope; the metric choice follows all three source papers). What remains
-unsupported is the **dose-response itself** — β per age band and the baseline mortality rates —
-and none of the 22 is calibrated against observed mortality.
+unsupported is the **dose-response itself** — β per age band, and outside Korea the baseline
+mortality rates — and none of the 24 is calibrated against observed mortality. A KOSIS-anchored
+baseline is a cited *level*, not a validation of the model.
 
 Why β is still uncited, precisely: the Korean estimates available are **heatwave-episode
 relative risks at percentile cut-offs with a lag structure** (Kim 2020: total 1.11 at the 93rd,
@@ -121,7 +154,9 @@ not treated as provenance.
 
 ## 6. Remaining scientific gap (B stage)
 
-1. Korean age-specific mortality rates (KOSIS) to replace the two shared baseline rates.
+1. ~~Korean age-specific mortality rates (KOSIS) to replace the two shared baseline rates.~~
+   **Done 2026-09-11 for Korea** (DT_1B34E01, 2024 — see the change record in §3). Other
+   countries remain on the legacy pair; the exposure-share source is still not unified.
 2. A Korean heat-mortality dose-response, age-stratified, with a stated exposure metric.
 3. A Korean MMT / temperature-mortality relationship — the platform has none; the 54-city
    table is European and its own comment disclaims it.
