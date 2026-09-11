@@ -345,6 +345,20 @@
       "notes": "~0.8 GB, one file for the whole domain, no login. Daily MEAN temperature (tg): the metric every citable minimum-mortality threshold is expressed in (docs/HEAT_MORTALITY_PROVENANCE.md). The 0.1° product works too — eobs.py globs tg_ens_mean_*deg_reg_*.nc under ~/climada/data, or set CLIMATERISK_EOBS_TG."
     },
     {
+      "id": "kma_skorea_1km",
+      "category": "hazard",
+      "name": "기상청 남한상세 1 km 일평균기온 TA (MK-PRISM v3.1 + AR6 SSP 5ENSMN)",
+      "url": "https://climate.go.kr/atlas/ana/cdd",
+      "access": "login",
+      "license": "기상청 기후변화 시나리오 — 출처 표시, 재배포 전 확인",
+      "for": "heat_mortality + heatwave hazard over Korea (observed + SSP daily mean temperature)",
+      "fetch": {
+        "mode": "manual"
+      },
+      "dest": "kma",
+      "notes": "로그인 + 소속/활용목적 설문 후 tar.gz. 남한상세 › 격자 › 기후요소 › 평균기온 › 일자료. 관측(MK-PRISM v3.1)은 nc, AR6 SSP 시나리오는 asc만 제공된다. 압축을 풀지 말고 ~/climada/data/kma/ 에 두면 kma_scenario.py 가 nc는 풀고 asc는 스트리밍한다 (ASCII 한 해 1.3 GB). 파일 ID는 docs/KMA_DOWNLOAD_LIST.md."
+    },
+    {
       "id": "ecmwf_open",
       "category": "forecast",
       "name": "ECMWF Open Data (ensemble TC tracks)",
