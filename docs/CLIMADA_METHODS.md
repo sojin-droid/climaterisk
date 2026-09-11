@@ -778,6 +778,48 @@ number it produced (`frontend/climaterisk/src/lib/calibration.ts`). **A calibrat
 rejection is a reported result, not a missing one: it must not be read as "the run did
 nothing".** Nothing is fitted or persisted when the gate blocks.
 
+### 8.4 TC capture diagnostic (Korea) — `scripts/tc_capture_kr.py`
+
+**Diagnostic ≠ Calibration.** This answers a narrower question than the fit the gate refuses:
+*how much of the observed year-to-year variation in Korean typhoon damage does the wind-only
+model reproduce, and where does its structure differ?* It fits nothing, persists nothing, and
+does not touch `calibration.py`; the gate stays BLOCKED throughout.
+
+| | |
+|---|---|
+| Observed | 재해연보 15107318 태풍, national, KRW million, nominal — the F1 `observed_kr` series |
+| Model | existing TC runner (`physical._impact`, Emanuel with the Eberenz WP4 `v_half`), no fit |
+| Hazard | CLIMADA Data API `tropical_cyclone`, `event_type=observed` — **original tracks only** |
+| Window | the year intersection of the two; excluded years are recorded, not silently dropped |
+| Exposure | WorldPop 1 km **as a spatial proxy**, values normalised so the national total is 1.0 |
+
+Two design choices carry the method. **Original tracks** are what make a per-year comparison
+defensible at all (`validation.check_annual_basis`): a synthetic ensemble's members inherit
+their parent track's date, so summing by calendar year multiplies that year by the ensemble
+size. **Normalised exposure** removes the absolute scale, which the repository does not have —
+there is no citable Korean asset-stock figure — while keeping the spatial distribution, which
+it does. Every modelled number is therefore a *fraction of normalised exposure*, never a
+currency amount, and the report prints `ABSOLUTE CAPTURE RATE = NOT ESTIMATED`.
+
+Metrics are scale-free by construction (rank, coefficient of variation, non-zero max:min,
+share carried by the worst year) so a KRW series and a normalised one can be compared. A
+`variability_inflation_factor` (model CV ÷ observed CV) summarises the difference in
+concentration; it describes that pair over that window and is not a general model-error
+coefficient. Correlations are reported with `n` and `p` and carry their own interpretability
+verdict — below eight paired years the report states *do not interpret as statistically
+significant*.
+
+**What a gap between the two series means.** The observed figure books wind + surge + rain
+together while the runner models wind only, so the difference contains a model **coverage**
+gap and not only parameter error — no re-parameterisation of the wind curve would close it.
+Accordingly this diagnostic does not validate Korean TC vulnerability, does not demonstrate
+national damage reproduction, and yields no capture percentage.
+
+Outputs (`annual_comparison.csv`, `distribution_summary.json`, `diagnostic_summary.md`) are
+written under `outputs/` and **not committed** — they carry observed loss values that the
+loader fetches at run time, so the repository keeps the reproduction path instead of the
+numbers, as it does for `data/calibrations/`.
+
 ---
 
 ## 9. Adaptation and Cost-Benefit
