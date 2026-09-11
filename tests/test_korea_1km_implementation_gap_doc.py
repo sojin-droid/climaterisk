@@ -139,3 +139,129 @@ def test_the_doc_does_not_prescribe_tamax_as_the_fix() -> None:
     assert not re.search(r"TAMAX(을|를) (연결|배선)한다\.", doc), (
         "the doc must present TAMAX vs redefinition as an open decision, not a prescription"
     )
+
+
+# --------------------------------------------------------------------------- #
+# Part 2 — S7 / S1 / S4 / S2-S3 design and the 1km-ready definition            #
+# --------------------------------------------------------------------------- #
+import json  # noqa: E402
+
+CATALOG_JSON = REPO / "data" / "hazard_db" / "catalog.json"
+PERILS_JSON = REPO / "assets" / "libraries" / "perils.json"
+
+
+def _kor_entries() -> list[dict]:  # type: ignore[type-arg]
+    import pytest
+
+    if not CATALOG_JSON.is_file():
+        pytest.skip("local hazard catalog not present (gitignored)")
+    data = json.loads(CATALOG_JSON.read_text(encoding="utf-8"))
+    return [e for e in data.get("entries", []) if e.get("region") == "KOR"]
+
+
+def _status_table(doc: str) -> dict[str, str]:
+    """peril → status from the '페릴별 현재 상태' table (first cell → last cell)."""
+    start = doc.index("### 페릴별 현재 상태")
+    end = doc.index("\n## ", start)
+    rows = {}
+    for line in doc[start:end].splitlines():
+        if line.startswith("| `"):
+            cells = [c.strip() for c in line.strip("|").split("|")]
+            for name in re.findall(r"`([a-z_]+)`", cells[0]):
+                rows[name] = cells[-1]
+    return rows
+
+
+def test_s7_documents_three_options_with_the_same_fields_and_chooses_none() -> None:
+    doc = _doc()
+    sec = doc[
+        doc.index("## Heatwave intensity definition") : doc.index("## Resolution metadata design")
+    ]
+    for opt in ("Option A", "Option B", "Option C"):
+        assert opt in sec
+    for field in (
+        "물리적 의미",
+        "필요 KMA 변수",
+        "시간 집계",
+        "공간 해상도",
+        "임팩트 함수 호환",
+        "필요한 과학적 근거",
+        "현재 구현",
+        "다음 결정",
+    ):
+        assert sec.count(f"| {field} |") == 3, f"{field!r} must appear once per option"
+    assert "어느\n안도 선택하지 않는다" in sec or "어느 안도 선택하지 않는다" in sec
+    assert "762ad5a" in sec and "UTCI" in sec
+
+
+def test_every_kor_layer_has_source_stored_and_calculation_resolution() -> None:
+    doc = _doc()
+    table = _status_table(doc)
+    for e in _kor_entries():
+        assert e["peril"] in table, f"{e['peril']} missing from the status table"
+    start = doc.index("### 페릴별 현재 상태")
+    header = doc[start : doc.index("\n|---", start)]
+    for col in ("source", "stored", "calculation", "exposure", "metadata"):
+        assert col in header
+
+
+def test_requested_vs_served_scenario_is_represented_explicitly() -> None:
+    doc = _doc()
+    assert "`requested_scenario`" in doc and "`served_scenario`" in doc
+    assert "requested_scenario = rcp45" in doc and "served_scenario = rcp60" in doc
+    for e in _kor_entries():
+        served = re.findall(r"rcp\d\d|SSP\d{3}|historical|observed", str(e.get("source", "")))
+        if served and served[0] != e["climate_scenario"] and served[0].startswith("rcp"):
+            assert f"served_scenario = {served[0]}" in doc, e["file"]
+
+
+def test_heatwave_label_cannot_claim_tmax_when_the_array_is_ta() -> None:
+    doc = _doc()
+    assert "18.7–32.6" in doc and "일평균 TA" in doc and "daily Tmax" in doc
+    for e in _kor_entries():
+        if e["peril"] == "heatwave":
+            src = str(e.get("source", ""))
+            assert "TA" in src and "Tmax" in src, (
+                "the on-disk label/variable discrepancy vanished — update the doc"
+            )
+    # the doc must never assert the heatwave layer IS daily max
+    assert not re.search(r"heatwave 레이어(는|가) (일최고|daily Tmax)(기온)?(이다|다)\.", doc)
+
+
+def test_one_km_ready_requires_exposure_and_metadata_and_nothing_is_ready() -> None:
+    doc = _doc()
+    sec = doc[doc.index("## 1km-ready 정의") :]
+    for cond in (
+        "hazard source/grid",
+        "stored grid",
+        "calculation grid",
+        "exposure matched",
+        "metadata records",
+    ):
+        assert cond in sec, cond
+    assert "**1km-ready: 0.**" in sec
+    assert not any(v.startswith("**1km-ready") for v in _status_table(doc).values())
+
+
+def test_tc_0_1_deg_is_not_counted_as_1km() -> None:
+    doc = _doc()
+    assert "res=0.1" in doc
+    assert "TC = 1 km" in doc  # quoted as the thing not to say
+    assert _status_table(doc)["tropical_cyclone"].startswith("**missing")
+
+
+def test_unimplemented_perils_are_never_marked_current_or_ready() -> None:
+    doc = _doc()
+    table = _status_table(doc)
+    data = json.loads(PERILS_JSON.read_text(encoding="utf-8"))
+    items = data["perils"] if isinstance(data, dict) and "perils" in data else data
+    items = items if isinstance(items, list) else list(items.values())
+    assert all(p.get("supported_mvp") for p in items)  # the flag means selectable, not implemented
+    assert "`supported_mvp`는 한국 구현이 아니다" in doc
+    kor_perils = {e["peril"] for e in _kor_entries()}
+    for peril, status in table.items():
+        if peril not in kor_perils:
+            assert not (status.startswith("**5km") or status.startswith("**1km-ready")), (
+                peril,
+                status,
+            )
