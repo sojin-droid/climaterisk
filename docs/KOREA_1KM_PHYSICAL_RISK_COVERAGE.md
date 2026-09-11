@@ -331,7 +331,8 @@ CLIMADA 구분: **CLIMADA native**(엔진 제공 해저드/곡선) · **CLIMADA 
 |---|---|---|---|---|---|---|---|---|
 | TA | heat mortality | 일평균 → 초과도일 → 연령별 용량-반응 → 사망 | **container only + climaterisk custom** (native heat 곡선 없음) | 인구, 연령 2행 | β indicative · MMT 외부(Kim 2020) · 기저사망률 legacy→KOSIS(PR #16) | **Partial** (①–⑦) | ⑧ 사망 검증 0; 2030 앵커만; 5 km | `kma_scenario.py:56`, `heat_mortality.grid_from_summer_tmax`, `physical.py:1173-1195`, HM 레이어 3 |
 | TA | heat productivity (`heatwave`) | 시즌 p95 일평균 → indicative 램프 | container only + climaterisk custom | 자산 value | 램프 `[0,30,35,40,45]°C→[0,0,.1,.3,.6]` indicative | **Partial** — 계산되나 램프가 지표와 불일치 | 레이어 최대 32.6 °C < 램프 0.1 지점 35 °C → 손실 구조적 ≈0 | `heat_korea.py:124,134`, `_CATALOG_PERILS["heatwave"]`, HW 레이어 3 |
-| TA / TAMIN | cold wave | 저온 arm → 사망/생산성 | not implemented | 인구 | 없음 | **Missing** | 페릴·러너·곡선 전부 부재 | grep cold/snow → 0건 |
+| TAMIN | cold wave | 일최저기온 저온 arm → 사망/생산성 (TA는 보조 지표) | not implemented | 인구 | 없음 — 현 폭염 모델은 cold arm을 명시 제외 | **Missing** | 페릴·러너·곡선 전부 부재 | grep cold/snow → 0건; `heat_mortality.py` docstring "cold arm … out of scope" |
+| TAMIN | tropical night | 야간 최저 ≥25 °C → 수면·사망 보정 | not implemented | 인구 | 단독 페릴 아님(폭염 보정 인자) | **Missing** | 변수 미배선 | 소비자 0 |
 | TAMAX | heatwave (일최고 임계) | Tmax → 초과일수/강도 | not implemented | 인구·노동 | Tmax 기준 곡선 필요 | **Missing** | 변수 미배선; 지표 혼용 금지 | `heat_korea.py:84` 드리프트 기록 |
 | RN | extreme precipitation | 일강수 → 극한지표(RX1day 등) → 피해 | container only 가능 | 자산 | 강수-피해 곡선 없음 | **Missing** | 지표 정의만 명확 | 소비자 0 |
 | RN | pluvial flood | 강수 → 유출 → 침수 수심 | **external model needed** | 자산 | JRC 수심-피해(수심 입력) | **Missing** | G7 구조 공백; 수리 모델 없음 | `GAP_ANALYSIS_KO.md` G7 |
