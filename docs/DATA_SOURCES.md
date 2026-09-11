@@ -17,7 +17,7 @@
 
 | # | 데이터 | 왜 필요한가 | 접근 | 어디서 |
 |---|---|---|---|---|
-| 1 | **기상청 남한상세 1 km — 평균기온(TA) 일자료 nc** | 국내 폭염 사망 해저드. 이것만 있으면 `heat_korea.py register` 한 줄로 끝납니다 | 🔑 기후변화 상황지도 계정 | [climate.go.kr/atlas/ana/cdd](https://climate.go.kr/atlas/ana/cdd) · 파일 ID는 [KMA_DOWNLOAD_LIST.md](KMA_DOWNLOAD_LIST.md) |
+| 1 | **기상청 남한상세 1 km — 평균기온(TA) 일자료** (관측은 nc, SSP 시나리오는 asc) | 국내 폭염 사망 해저드. 이것만 있으면 `heat_korea.py register` 한 줄로 끝납니다 | 🔑 기후변화 상황지도 계정 | [climate.go.kr/atlas/ana/cdd](https://climate.go.kr/atlas/ana/cdd) · 파일 ID는 [KMA_DOWNLOAD_LIST.md](KMA_DOWNLOAD_LIST.md) |
 | 2 | **KOSIS 연령별 조사망률** | 기저사망률 상수를 실측으로 대체 (현재 반올림 가정) | 🔑 KOSIS Open API 키 (자동 승인) | [kosis.kr/openapi](https://kosis.kr/openapi/) |
 | 3 | **행안부 재해연보 지역별 자연재난 피해** | 취약성 보정 — 불확실성의 83 %가 여기서 나옴 | 🔑 공공데이터포털 인증키 | [data.go.kr 15107316](https://www.data.go.kr/data/15107316/openapi.do) · 명세는 [OBSERVED_LOSSES_KR_SPEC.md](OBSERVED_LOSSES_KR_SPEC.md) |
 | 4 | GPW v4.11 인구 격자 | LitPop 노출(로그인 게이트). WorldPop으로 대체 가능 | 🔑 NASA Earthdata | [Earthdata](https://www.earthdata.nasa.gov/data/projects/gpw) |
@@ -29,6 +29,8 @@
 | 데이터 | 위치 | 크기 |
 |---|---|---|
 | E-OBS 일평균기온 `tg` | `~/climada/data/tg_ens_mean_0.25deg_reg_v31.0e.nc` | 788 MB |
+| 기상청 남한상세 1 km TA — MK-PRISM v3.1 2000–2019 (nc) | `~/climada/data/kma/MKPRISM_MKPRISMv31_TA_gridraw_daily_2000_2019_nc.tar.gz` | 5.2 GB |
+| 기상청 남한상세 1 km TA — SSP2-4.5 / SSP5-8.5 2021–2030 (asc) | `~/climada/data/kma/AR6_SSP{245,585}_5ENSMN_skorea_TA_gridraw_daily_2021_2030_asc.tar.gz` | 440 MB × 2 |
 | IBTrACS 태풍 트랙 | `~/climada/data/IBTrACS.ALL.v04r01.nc` | — |
 | WorldPop 1 km (ESP·KOR·JPN) | `~/climada/data/*_ppp_2020_1km_Aggregated.tif` | — |
 | Natural Earth 110m 경계 | `data/downloads/ne_110m_admin_0_countries.geojson` | 0.8 MB |
