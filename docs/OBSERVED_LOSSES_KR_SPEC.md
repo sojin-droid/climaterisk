@@ -1,16 +1,21 @@
 # 국내 실측 손실 적재 명세 — 재해연보 → ObservedSeries → 보정 → 검증
 
-작성 2026-09-07 · 갱신 2026-09-07(구현 반영). 이 문서는 로더 **구현 전에** 계약을 확정하기 위한 것이며,
-지금은 데이터 게이트 **이전 단계(F2·F4·F5)가 구현된** 상태다. 현재 저장소에 재해연보 데이터는 **없고**,
-이 명세는 어떤 임의 데이터도 만들지 않는다.
+작성 2026-09-07 · 갱신 **2026-09-11(F1 구현·실데이터 적재)**. 이 문서는 로더 구현 전에 계약을 확정하려고
+쓴 것이고, 그 계약대로 F1이 구현됐다. 인증키가 들어오면서 데이터 게이트가 풀렸고, **실제 응답 1건이
+남아 있던 스키마 의문 2건(§4 `seq`, §12)을 종결**시켰다.
+
+저장소에는 여전히 재해연보 **값을 커밋하지 않는다** — 로더가 실행 시점에 API에서 받고, 테스트는
+합성 픽스처만 쓴다. 이 명세는 어떤 임의 데이터도 만들지 않는다.
+
+**보정은 데이터가 들어온 뒤에도 계속 차단 상태다.** 막고 있는 것이 데이터 부재가 아니기 때문이다(§6-1, §8).
 
 | 단계 | 상태 |
 |---|---|
-| **F1** `observed_kr.py` (재해연보 로더) | 🔴 **BLOCKED** — 만들지 않았다. 스키마(§4)·**단위 백만원**(§5-A)·가격기준(§5-A) 확인 완료. 남은 차단: **data.go.kr 인증키 없음**, **`seq` 의미 미확정**(위험은 축소 — §5-A), 그리고 원천 자체의 결함 3건(§5-B)을 로더가 처리해야 함 |
+| **F1** `observed_kr.py` (재해연보 로더) | ✅ **IMPLEMENTED** (2026-09-11) — 실 API에서 **2016–2023 전국 태풍 피해 8년 계열**(비영 7년, 백만원, `national:KOR`, nominal)을 만든다. 원천 결함 4건(`tot`·`typhoon_heavy_rain`·중복 `seq`·×1000 연도)을 모두 방어한다. 값은 커밋하지 않는다 |
 | **F2** `validation.py` 확장 | ✅ **IMPLEMENTED** — 단위/통화 파싱·검사, 서브페릴 커버리지, 공간범위, 연도기준, `comparability_report` |
 | **F3** `calibration.py` | 🟡 **부분** — 소스 선택 + 게이트 + 기록 메타데이터만(전체 리팩터는 F1 이후) |
 | **F4** `CalibrationRequest.observed_source` | ✅ **IMPLEMENTED** (기본 `emdat`, 후방호환) |
-| **F5** `tests/test_observed_kr.py` | ✅ **IMPLEMENTED** — 픽스처 + 파서 계약 + 게이트 테스트 24건(CLIMADA 불요) |
+| **F5** `tests/test_observed_kr.py` | ✅ **IMPLEMENTED** — 픽스처 + 파서 계약 + 로더 + 게이트 테스트 **43건**(CLIMADA 불요) |
 | **F6** API 전달 | ✅ **IMPLEMENTED** — `POST …/calibration?observed_source=` |
 | **F7** 문서 정합 | ✅ 이 문서 · `CLIMADA_METHODS.md` §8 · `RISK_REGISTER.md` C2/C5 |
 | **F8** UI 표시 갭 | ✅ **IMPLEMENTED** — 워커의 비-`ok` 출력을 카드로 표시(이유 + `blockers` + `comparison_status`), opt-in `not_comparable` 적합은 값 옆에 경고. `frontend/…/lib/calibration.ts` |
@@ -257,7 +262,7 @@ API 설명이 지목하는 원천은 「행정안전 통계연보」다. 그 표
 
 | # | 파일 | 변경 | 성격 |
 |---|---|---|---|
-| F1 | `worker/climaterisk_worker/observed_kr.py` **(신규)** | 재해연보 XML → `ObservedSeries`. 인증키 env(`CLIMATERISK_DATAGOKR_KEY`), 응답 원문 캐시, 단위·물가기준 `notes` 기입, 디플레이트 옵션 | 신규 |
+| F1 ✅ | `worker/climaterisk_worker/observed_kr.py` **(신규)** | **구현됨** 2026-09-11: 재해연보 XML → `ObservedSeries`. 인증키 env(`CLIMATERISK_DATAGOKR_KEY`, Decoding 형식), `type=xml` 필수(§4-A), 이름 기반 원인열 판독, 단위·가격기준·범위·커버리지 선언, 결함 방어 4건. **디플레이트는 미구현**(계열이 nominal이고 아직 환산 요구가 없음) | 신규 |
 | F2 ✅ | `worker/climaterisk_worker/validation.py` | **구현됨**: `parse_unit`/`check_units`(통화+배수, 미인식은 unknown=차단), `check_peril_coverage`, `check_scope`, `check_annual_basis`, `comparability_report`; `ObservedSeries`에 `currency`·`covers_subperils`·`scope`·`price_basis` 후방호환 추가; `annual_comparison`에 `years_compared`·단위·커버리지·`comparison_status` 메타데이터(기존 지표 무변경) | 확장 |
 | F3 🟡 | `worker/climaterisk_worker/calibration.py` | **부분 구현**: 소스 선택(`disaster_yearbook`→데이터게이트 오류), `calibration_gate`(=`comparability_report` 재사용)로 적합 **전** 차단, `portfolio_currency`, 기록에 §10 메타데이터. **목표 계산 자체는 무변경**(EM-DAT total/span) — `ObservedSeries` 경유 통일은 F1 이후 | 리팩터(잔여) |
 | F4 ✅ | `src/climaterisk/engines/base.py` | **구현됨**: `OBSERVED_SOURCES=("emdat","disaster_yearbook")`, `CalibrationRequest.observed_source="emdat"`, `from_portfolio(portfolio, observed_source="emdat")` | 스키마 |
@@ -266,8 +271,12 @@ API 설명이 지목하는 원천은 「행정안전 통계연보」다. 그 표
 | F7 ✅ | `docs/RISK_REGISTER.md` · `docs/CLIMADA_METHODS.md` | **갱신됨**: C2(게이트·소스선택), C5(비교 프레임워크 존재·관측 계열 없음), §8(게이트·메타데이터·기본동작 변경·UI 갭) | 문서 |
 | **F8** ✅ | `frontend/climaterisk/src/lib/calibration.ts` **(신규)** · `views/VulnerabilityView.tsx` · `types.ts` | **구현됨**: `calibrationOutcome()`이 출력 상태를 `ok`/`blocked`/`error`로 분류(블로커 有 또는 `comparison_status` 有 → `blocked`), `detail` 부재 시 일반 문구로 대체(빈 카드 금지). 성공 카드는 무변경이며, opt-in `not_comparable` 적합에는 경고 박스 추가. **게이트 차단은 "결과 없음"이 아니라 보고된 결과** | 소 |
 
-**착수 조건(데이터 게이트)**: F1은 실제 인증키와 컬럼정의서 확보 후 착수한다. 그 전에는 F2·F4의 계약과
-F5의 픽스처 골격까지만 진행 가능하다. **픽스처는 형식 검증용 소형 XML이며 분석·인용에 쓰지 않는다.**
+**착수 조건(데이터 게이트)** — **해소됨 2026-09-11.** 인증키가 확보돼 F1을 착수·완료했다. 픽스처 원칙은
+그대로다: **픽스처는 형식 검증용 소형 XML이며 분석·인용에 쓰지 않고, 실 응답 값을 저장소에 넣지 않는다.**
+
+**F1의 경계** — F1은 관측 데이터의 공급 계층이다. `v_half` 적합, `ImpactCalc`, 보정 최적화, 검증,
+포착률(capture ratio)은 F1의 책임이 **아니며** 하류 계층에 둔다. 특히 **TC capture diagnostic은
+별도의 하류 분석**이고 이 명세나 로더 문서에 그 수치를 싣지 않는다.
 
 ## 10. 금지 사항
 
@@ -313,11 +322,26 @@ F5의 픽스처 골격까지만 진행 가능하다. **픽스처는 형식 검�
 - ✅ **가격기준 = 당해연도(nominal)** — 판본 주석 모순을 값 대조로 판정(§5-A 확정 3).
 - ✅ **`seq`가 금액·인명을 섞을 위험** — 원천 표가 재산피해 단일 측정값임을 확인해 **배제**.
 
-**여전히 미해결(추측 금지 유지)**
-1. **`seq`가 세는 대상** — 행 순번인지 판본 구분인지. 응답 1건이면 확정된다.
-2. **API가 어느 판본을 담는지** — 2026판(2024행 포함, 단위 오류 있음)인지 그 이전인지. `wrttimeid`
-   최댓값과 값 크기로 판별 가능하나 **응답이 필요**하다.
-3. **인증키** — 유일한 하드 블로커.
+**해소된 것 (2026-09-11, 실 응답 1건)** — §12-A 참조. 위 3건 모두 종결됐다.
+
+### 12-A. 실 응답으로 종결된 항목 (2026-09-11)
+
+인증키를 확보해 **API를 실제로 호출**했다. 응답 1건이 남은 의문을 전부 닫았다.
+
+| 이전 상태 | 실 응답이 보여준 것 | 결론 |
+|---|---|---|
+| **인증키 없음** (하드 블로커) | `.env`의 `CLIMATERISK_DATAGOKR_KEY`(Decoding 형식, 64자) | 해소 |
+| **`seq`가 세는 대상 미확정** | `totalCount=8`, 연도 8개, **모든 행 `seq=1`**, 연도당 정확히 1행 | 이 데이터셋에서 `seq`는 금액/인명을 가르지 않는다(원천 표가 재산피해 단일 측정값). 로더는 **연도당 2행 이상이면 거부**하고 어느 행이 금액인지 추측하지 않는다 |
+| **어느 판본을 담는지 미확정** | `wrttimeid` 최댓값 **2023**, 2020 = `1,318,177` | 2024행을 포함한 2026판이 **아니다**. §5-B-1의 ×1000 결함은 현재 응답에 **없다**. 그래도 로더는 매번 검사한다(판본이 갱신될 수 있으므로) |
+
+**명세에 없던 사실 — `type=xml`이 필수다.** Swagger가 고지하는 요청 파라미터는 `ServiceKey`·`pageNo`·
+`numOfRows` 3개뿐인데, 이대로 호출하면 게이트웨이가 **HTTP 200 본문에 `HTTP_ERROR`(returnReasonCode 04)
+봉투**를 돌려준다. 데이터가 아니라 오류 봉투이므로 **빈 응답으로 오인하기 쉽다** — 로더는 봉투 루트 태그를
+검사해 거부하고, 테스트로 고정했다(`test_loader_rejects_a_gateway_error_envelope`).
+
+**단위 재확인.** §5-A가 원천 표에서 확정한 백만원이 실 응답과 일치한다: 2020 `tot` = 1,318,177 =
+1조 3,182억 원(공표치). 2023년 `tot`(958,221)과 API 원인열 합(845,558)의 차이 112,663도 §4가 기록한
+누락 3종 합계와 정확히 일치한다 — 단위와 열 누락 구조가 동시에 확인됐다.
 
 ---
 
