@@ -543,7 +543,7 @@ CLIMADA-standard peril.
 | `ImpactFunc` / `ImpactFuncSet` container | CLIMADA | Native |
 | Heat-mortality vulnerability curve | climaterisk | Custom |
 | Age stratification (<65 / ≥65) | climaterisk | Custom |
-| Baseline mortality | climaterisk | Indicative — no source identified |
+| Baseline mortality | KOR: KOSIS 사망원인통계 DT_1B34E01 (2024) via `age_bands_for` · elsewhere: legacy climaterisk pair | **External** for KOR (KOSIS-anchored baseline); indicative elsewhere |
 | Heat-onset threshold (band upper edge) | Kim 2020 (KOR, 93rd percentile of the summer daily-mean distribution) | **External** for KOR; extrapolated elsewhere |
 | Adaptation slope (MMT vs climate) | Tobías et al. 2021 (0.8 degC per degC) | **External** |
 | Band width, β, age split | climaterisk | Indicative — no source identified |
@@ -552,8 +552,8 @@ CLIMADA-standard peril.
 | Empirical validation | Korean mortality / loss data | Not validated |
 
 Every constant, its exact value, its location in the code and its provenance class is
-inventoried in **`docs/HEAT_MORTALITY_PROVENANCE.md`** (1 external, 2 internal fits, 15
-indicative or unknown of 18) and mirrored in code as `heat_mortality.PARAMETER_PROVENANCE`;
+inventoried in **`docs/HEAT_MORTALITY_PROVENANCE.md`** (6 external, 2 internal fits, 16
+indicative or unknown of 24) and mirrored in code as `heat_mortality.PARAMETER_PROVENANCE`;
 the runner returns it as `parameter_status` and the Results card displays it.
 
 | Row | Content | Tag |
@@ -562,7 +562,7 @@ the runner returns it as `parameter_status` and the Results card displays it.
 | Hazard type | `HM`, units `degC-days` | custom tag |
 | Hazard representation | One event per summer season (Jun–Sep, 122 days); intensity = season exceedance degree-days above the local minimum-mortality comfort band `mmt_high = a + b·mean_Tmax` fitted on 54 hand-set city values; `frequency = 1/n_seasons` | `[CLIMATERISK CUSTOM]` |
 | Exposure | Two `Exposures` rows per site (<65 / ≥65), `value = headcount × share`, `value_unit="persons"`; headcount default 250 when missing (stated in `detail`); ≥65 share from override → `COUNTRY_SHARE_OVER65["KOR"]=0.203` → nearest reference city | `[CLIMATERISK CUSTOM]` |
-| Impact function | Two custom `ImpactFunc`s: `mdd(D) = min(baseline_daily_mortality × a·D^b, 1)`, `paa=1`; `(a,b)` fitted by `dose_curve` on a **seeded synthetic ensemble** (400 seasons) bridging degree-days to `Σ max(exp(β·ΔT)−1, 0)`; `β` = 0.010 (<65) / 0.034 (≥65), baselines 1.3e-3 and 45e-3 per person-year — no citation in code | `[CLIMATERISK CUSTOM]` |
+| Impact function | Two custom `ImpactFunc`s: `mdd(D) = min(baseline_daily_mortality × a·D^b, 1)`, `paa=1`; `(a,b)` fitted by `dose_curve` on a **seeded synthetic ensemble** (400 seasons) bridging degree-days to `Σ max(exp(β·ΔT)−1, 0)`; `β` = 0.010 (<65) / 0.034 (≥65), baselines per country via `age_bands_for`: KOR 163.2 / 2,928.4 deaths per 100,000 person-years (KOSIS DT_1B34E01, 2024 — cited), elsewhere the legacy 130 / 4,500 pair (no citation) | `[CLIMATERISK CUSTOM]` |
 | CLIMADA component | `ImpactCalc`, `calc_freq_curve` (`P:1196-1199`) | `[CLIMADA NATIVE]` |
 | Custom component | Everything else, including `grid_from_summer_tmax`, `standardized_grid`, comfort band, dose curve | `[CLIMATERISK CUSTOM]` |
 | Main risk metric | `aai_agg` = expected annual heat-attributable **deaths**; `per_asset.eai` deaths; RP curve (45 E-OBS summers → cap 22.5 yr); `result_kind="mortality"`; **no yearset** (`P:1217`) | — |

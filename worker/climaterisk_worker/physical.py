@@ -1170,7 +1170,7 @@ def _run_heat_mortality(
     default_headcount = float(opts.get("default_headcount") or _DEFAULT_HEADCOUNT)
     assumed = [a for a in assets if not float(a.get("headcount") or 0.0) > 0.0]
 
-    impf_set, impf_ids = hm.build_impact_functions(haz_type=haz.haz_type)
+    impf_set, impf_ids = hm.build_impact_functions(haz_type=haz.haz_type, country=region)
     impf_col = f"impf_{haz.haz_type}"
 
     # One exposure row per (site, age band); value = people in that band at that site.
@@ -1184,7 +1184,7 @@ def _run_heat_mortality(
         share65 = hm.share_over65_for(
             float(a["lat"]), float(a["lon"]), iso3s[i], opts.get("share_over65")
         )
-        for band in hm.AGE_BANDS:
+        for band in hm.age_bands_for(region):
             frac = share65 if band.key == "o65" else 1.0 - share65
             lats.append(float(a["lat"]))
             lons.append(float(a["lon"]))
@@ -1233,7 +1233,7 @@ def _run_heat_mortality(
         # What the model is, and what its parameters rest on. CLIMADA ships no
         # heat-mortality impact function, so the curve is this repository's own and its
         # parameters are indicative — the UI shows this alongside the number.
-        "parameter_status": hm.provenance_summary(),
+        "parameter_status": hm.provenance_summary(region),
         "detail": (
             f"{region} heat mortality (local catalog, {scenario_note}; exceedance degree-days "
             f"above the minimum-mortality comfort band, custom climaterisk age-stratified "
