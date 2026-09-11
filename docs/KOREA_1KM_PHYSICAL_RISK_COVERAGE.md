@@ -159,3 +159,268 @@ KOR 카탈로그 매니페스트(`data/hazard_db/`, 2026-09-11)에 있는 레이
 **한 줄 결론**: "CLIMADA를 썼다"는 참이고, "한국 1 km 물리위험을 계산한다"는 **폭염 두 페릴의 해저드 단계까지만
 참**이며 그것도 5 km로 계산한다. 나머지는 전지구 산출물·지역 프리셋·지시적 램프이고, 한국 실측 검증은 어느 페릴도
 끝나지 않았다.
+
+---
+
+# 제2부 — KMA 변수 → 물리위험 방법론 인벤토리 (2026-09-11)
+
+제1부는 "무엇이 구현돼 있는가"를 페릴 축으로 감사했다. 제2부는 축을 뒤집어 **KMA 남한상세 변수 7종 각각이 어떤
+한국 물리위험에 연결될 수 있는가**를 방법론 수준에서 정리한다. **코드 변경 없음** — 새 러너·새 `ImpactFunc`·새
+인제스션·해상도 변경·미래 시나리오 구현을 하지 않았다. 아래 모든 "가능"은 *물리적 경로가 존재한다*는 뜻이고
+*구현돼 있다*는 뜻이 아니다.
+
+두 원칙을 문서 전체에 적용한다.
+
+```
+rainfall ≠ flood          강수 입력이 있다고 홍수 해저드가 생기지 않는다 — 수문·수리 모델이 사이에 있다
+Fetched ≠ Implemented     디스크에 받아둔 자료(홍수위험지도 4.9 GB)는 worker 소비자가 없으면 미구현이다
+```
+
+## 7. KMA 변수 인벤토리 — 7종
+
+정의의 1차 출처: 기후변화 상황지도 카드의 기후요소 버튼 라벨(2026-09-11 화면: 평균기온 · 최고평균기온 ·
+최저평균기온 · 강수량 · 상대습도 · 풍속 · 일사량)과 `kma_scenario.py` 모듈 docstring이 인용하는 기상청
+기후변화 시나리오 활용매뉴얼 v5.1(2024-12). **단위·집계 정의는 이번 패스에서 매뉴얼을 다시 열어 재검증하지
+않았다** — 표에 "매뉴얼 미재확인"으로 표시한다. 포털 페이지는 JS 렌더링이라 정적 HTML에서 라벨을 추출할 수 없었다.
+
+공통: 남한상세 격자, 관측 MK-PRISM v3.1 0.005°(1201×1501) / SSP 5ENSMN 0.01°(601×751), 일자료(윤년 366행),
+결측 −9990. 파일 규칙은 `kma_scenario._NAME_RE`(`AR6_<SSP>_5ENSMN_skorea_<VAR>_gridraw_daily_<y0>_<y1>_asc` /
+`MKPRISM_MKPRISMv31_<VAR>_…_nc`).
+
+### 7.1 TA — 평균기온 (일평균)
+
+| 항목 | 내용 |
+|---|---|
+| KMA 정의 | 일평균기온, °C (포털 라벨 "평균기온"; 매뉴얼 미재확인) |
+| 물리적 의미 | 하루 평균 열 부하 — 인용 가능한 한국 임계값(Kim 2020 93백분위)과 MMT 적응 문헌(Tobías 2021)이 모두 이 지표 |
+| 원 해상도 | 관측 0.005°, SSP 0.01° |
+| 시간 해상도 | 일 |
+| **현재 소비자** | **✅ 유일하게 소비되는 변수.** `kma_scenario.DEFAULT_VARIABLE = "TA"`(`:56`) → `load_summer_tmax` → `heat_mortality.grid_from_summer_tmax` → `hazard_convert` |
+| 기존 KOR 레이어 | `HM_{historical,rcp45,rcp85}` 3개 · `HW_{historical,rcp45,rcp85}` 3개 (§10) |
+| 후보 페릴 | 폭염 사망(구현) · 폭염 생산성(구현, 단 §13-2) · 한파(TA/TAMIN 기반, 미구현) · SPEI 가뭄의 온도 항(미구현) |
+| CLIMADA 표현 | `Hazard(haz_type="HM", units="degC-days")` 초과도일 / `Hazard("HW", "degC")` p95 — 둘 다 **CLIMADA container only**, 곡선은 climaterisk custom |
+| 필요 노출 | 인구(연령 2행), WorldPop KOR 1 km 보유 |
+| 필요 취약성 | 연령별 용량-반응(β·MMT·기저사망률) — β·밴드 indicative, 기저사망률 PR #16에서 KOSIS anchored |
+| 현재/미래 | historical 2000–2019 · SSP245/585 **2021–2030만** (2030 앵커, 10시즌) |
+| 현재 구현 | **Partial** — 체인 ①~⑦ 연결, ⑧ 없음 |
+| 방법론 성숙도 | 중 — 해저드 검증(2018 1위) 있음, 사망 검증 없음 |
+| 주요 갭 | 2031–2060 파일 미확보; β 미인용; 5 km 계산 |
+
+**실제 배열 내용(§10에서 HDF5 직접 읽음)**: `HM_historical` 4,312 센트로이드, 간격 정확히 0.0500°, 20 이벤트(연도명
+2000–2019), 초과도일 중앙값 4.93 · 최대 90.1 °C·days, 빈도 합 1.0. `HW_historical` 같은 격자, 시즌 p95 값
+**18.7–32.3 °C** — 이 범위는 일*평균*의 p95이며 일최고의 p95(한국 여름 ~33–36 °C)가 아니다. 파일명·매니페스트
+`source`는 "daily Tmax"라고 적혀 있다(§13-1).
+
+### 7.2 TAMAX — 최고기온
+
+| 항목 | 내용 |
+|---|---|
+| KMA 정의 | 일최고기온, °C (포털 라벨 "최고평균기온" — 일최고기온의 기간 평균을 뜻하는 표기로 보이나 매뉴얼 미재확인) |
+| 물리적 의미 | 하루 최고 열 부하 — 폭염특보 기준(일최고 33/35 °C), 열 스트레스 상한 |
+| 원/시간 해상도 | 동일, 일 |
+| 현재 소비자 | ❌ 없음. 2026-09-09 이전 소비했고 `heat_korea.py:84`가 드리프트 사고를 기록. 디스크 파일도 없음 |
+| 기존 KOR 레이어 | 없음 (HW 레이어는 이름과 달리 TA 기반) |
+| 후보 페릴 | 폭염특보형 heatwave(일최고 임계 초과일수) · Tmax 기반 사망 관계 · 열대야는 **TAMIN**의 영역이라 제외 |
+| CLIMADA 표현 | `Hazard("HW", "degC")` 또는 초과일수 — container only |
+| 필요 노출 / 취약성 | 인구·노동인구 / **Tmax 기준으로 추정된 노출-반응** — 현재 모델의 β·MMT는 일평균 기준이라 재사용 불가(지표 혼용 금지) |
+| 현재 구현 | **Missing** (변수 미배선) |
+| 성숙도 | 낮음 |
+| 주요 갭 | 현 `heatwave` 램프(`[0,30,35,40,45] °C`)는 Tmax/열지수 스케일로 설계된 듯하나 TA p95를 먹고 있다(§13-2). TAMAX를 넣으면 램프와 지표가 맞아지지만 그건 **새 해저드 정의**다 |
+
+### 7.3 TAMIN — 최저기온
+
+| 항목 | 내용 |
+|---|---|
+| KMA 정의 | 일최저기온, °C (포털 라벨 "최저평균기온"; 매뉴얼 미재확인) |
+| 물리적 의미 | 야간 최저 — 열대야(≥25 °C), 한파(≤−12 °C 특보), 냉해 |
+| 현재 소비자 | ❌ 없음 |
+| 기존 KOR 레이어 | 없음 |
+| 후보 페릴 | **한파 사망/생산성**(페릴 부재) · 열대야(수면·사망 보정 인자) · 냉해/동해(농업) · 대설은 강설 변수가 없어 TAMIN만으로 불가 |
+| 러너 존재? | **❌** — `perils.json`·`physical._RUNNERS`·`_CATALOG_PERILS`에 cold/snow 항목 없음(grep 결과: `windstorm_impf` 1건만, 유럽 폭풍) |
+| CLIMADA 표현 | cold-arm 용량-반응이 필요 — 현 `heat_mortality`는 "The cold arm is a different peril and out of scope"로 명시 제외(`heat_mortality.py` docstring) |
+| 필요 취약성 | 한국 저온-사망 곡선(연령별) — 저장소에 없음 |
+| 현재 구현 | **Missing** |
+| 주요 갭 | 페릴 정의 자체 부재; 한파는 재해연보 원인열(`cold_wave`)이 있어 **관측 손실은 F1 로더로 읽을 수 있다** — 모델만 없다 |
+
+### 7.4 RN — 강수량
+
+| 항목 | 내용 |
+|---|---|
+| KMA 정의 | 일강수량, mm (포털 라벨 "강수량"; 매뉴얼 미재확인) |
+| 물리적 의미 | 하루 강수 총량 — 극한강수·유출·침수의 **강제력**이지 침수 자체가 아님 |
+| 현재 소비자 | ❌ 없음 |
+| 기존 KOR 레이어 | 없음 (RF 레이어는 ISIMIP 전지구 수문모델 산출, KMA 아님) |
+| 후보 페릴 | 세 경로를 **분리**한다(§8) — 극한강수 / 내수침수 입력 / 수문모델 강제력 |
+| CLIMADA 표현 | 극한강수: `Hazard("<RN>", "mm")` 직접 가능(container only). 내수·하천침수: **불가** — 수문·수리 모델(외부)이 사이에 필요 |
+| 필요 노출 / 취약성 | 자산 / 강수-피해 곡선은 문헌 희소; 침수 수심-피해(JRC)는 **수심**을 입력으로 요구하므로 RN에 직접 못 붙임 |
+| 현재 구현 | **Missing** (`rainfall ≠ flood`) |
+| 성숙도 | 극한강수 지표 — 중(정의 명확); 침수 — 외부 모델 필요 |
+| 주요 갭 | G7 내수침수 구조 공백; 홍수위험지도 4.9 GB `Fetched ≠ Implemented`; 재해연보 `heavy_rain` 열은 읽을 수 있으나 대응 모델 없음 |
+
+### 7.5 RHM — 상대습도
+
+| 항목 | 내용 |
+|---|---|
+| KMA 정의 | 일평균 상대습도, % (매뉴얼 미재확인) |
+| 물리적 의미 | 증발 냉각 억제 — 체감온도·열지수·WBGT의 둘째 인자 |
+| 현재 소비자 | ❌ 없음 |
+| 후보 페릴 | 인체 열 스트레스(WBGT/UTCI/Heat Index) · 노동생산성(WBGT 기반 ISO 7243) |
+| CLIMADA 표현 | 파생 지표 해저드(container only). petals의 ERA5-HEAT/UTCI 인터페이스는 petals 6.1에서 분리되어 **저장소에 없음**(CLIMADA_METHODS §5.8) |
+| 필요 취약성 | **별도 역학 함수 필요** — 현 폭염 사망 β는 일평균기온 단일 지표로 정의됐으므로 RHM을 "추가"할 수 없다. 습도를 넣으려면 지표 자체(예: WBGT)를 바꾸고 그 지표로 추정된 노출-반응이 있어야 한다 |
+| 현재 구현 | **Missing** |
+| 주요 갭 | `_CATALOG_PERILS["heatwave"]` 힌트가 "ERA5-HEAT/UTCI"를 요구하지만 인제스터가 없고, 있는 KOR HW 레이어는 기온 p95다 |
+
+### 7.6 WS — 풍속
+
+| 항목 | 내용 |
+|---|---|
+| KMA 정의 | 일평균 풍속, m/s (매뉴얼 미재확인; **일최대·순간최대 제공 여부 미확인**) |
+| 물리적 의미 | 평균 풍속 — 구조 피해는 **최대풍속/돌풍**이 지배하므로 일평균 WS는 피해 지표로 부족할 수 있다 |
+| 현재 소비자 | ❌ 없음 |
+| 기존 KOR 레이어 | 없음. TC 레이어(`TC_rcp45_KOR_2040`)는 IBTrACS 합성 트랙의 **1분 지속풍속** 바람장(m/s, 17.5–70.7)이며 KMA 아님 |
+| 후보 페릴 | 비태풍 강풍(페릴 부재) · 태풍 바람의 지역 검증 자료(대체 아님) |
+| CLIMADA 관계 | **KMA WS로 CLIMADA TC 해저드를 대체하지 않는다** — TC 바람장은 이벤트(트랙) 단위이고 Emanuel 곡선은 지속풍속 정의에 묶여 있다. 유럽 폭풍(`storm_europe`)은 돌풍 기반이며 한국 비대상 |
+| 필요 취약성 | 일평균 풍속-피해 곡선은 문헌·저장소 모두 없음 |
+| 현재 구현 | **Missing** |
+| 주요 갭 | 극한풍 변수 존재 여부부터 확인 필요 |
+
+### 7.7 SI — 일사량
+
+| 항목 | 내용 |
+|---|---|
+| KMA 정의 | 일사량 (포털 라벨 "일사량"; 단위 MJ/m²/day 추정 — **매뉴얼 미재확인**) |
+| 물리적 의미 | 지표 단파 복사 — 태양광 발전량·증발산·WBGT 복사 항·농업 |
+| 현재 소비자 | ❌ 없음 (`build_impf_presets.py:50`의 `"SI"`는 **남인도양 TC 분지 코드**로 무관) |
+| 후보 용도 | 태양광 발전 잠재량(자산 수익 축 — 물리 *피해* 페릴 아님) · WBGT 복사 항 · 가뭄 증발산 |
+| CLIMADA 표현 | `present in data`이나 **`usable as hazard`가 아님** — 일사량은 피해를 일으키는 강도가 아니라 부차 입력이다 |
+| 현재 구현 | **Missing** |
+| 주요 갭 | 물리위험 해저드로서의 정의 자체가 성립하지 않음; 열 스트레스 지표의 보조 입력으로만 의미 |
+
+## 8. 물리 경로 — 변수를 페릴에 바로 잇지 않는다
+
+```
+TA ──┬─ 폭염 사망 (초과도일 → 용량-반응 → 사망)          [구현 · 5 km]
+     ├─ 폭염 생산성 (시즌 p95 → 램프)                    [구현 · 램프 스케일 불일치 §13-2]
+     └─ 한파 (저온 arm)                                   [페릴 없음]
+
+TAMAX ── 폭염특보형 heatwave / Tmax 사망 관계             [변수 미배선 · Tmax 기준 곡선 필요]
+
+TAMIN ─┬─ 한파 / 냉해                                    [페릴 없음]
+       └─ 열대야                                          [보정 인자, 단독 페릴 아님]
+
+RN ────┬─ 극한강수 지표 (RX1day, R95p …)                  [직접 가능 · 미구현]
+       ├─ 내수침수 입력 (강수 → 유출 → 침수)               [수리 모델 필요 · G7]
+       └─ 수문모델 강제력 (강수 → 유역 수문 → 하천홍수)    [외부 모델 · ISIMIP가 이미 그 산출물]
+
+RHM ─── 열 스트레스 (TA+RHM → WBGT/HI → 생산성/사망)       [지표 교체 + 별도 역학 함수 필요]
+
+WS ────┬─ 비태풍 강풍                                     [페릴 없음 · 극한풍 변수 미확인]
+       └─ 태풍 바람 지역 검증 자료                         [CLIMADA TC 대체 아님]
+
+SI ────┬─ WBGT 복사 항 / 증발산                            [보조 입력]
+       └─ 태양광 발전량                                   [피해 페릴 아님]
+```
+
+## 9. KMA Variable → Physical Risk Methodology Matrix
+
+CLIMADA 구분: **CLIMADA native**(엔진 제공 해저드/곡선) · **CLIMADA container only**(`Hazard`/`ImpactFunc`/`ImpactCalc`
+그릇만) · **climaterisk custom**(우리 정의) · **external model needed**(수문·수리·역학 등 외부 모델 선행) ·
+**not implemented**.
+
+| KMA variable | Candidate peril | Physical pathway | CLIMADA role | Exposure | Vulnerability | Current status | Gap | Evidence |
+|---|---|---|---|---|---|---|---|---|
+| TA | heat mortality | 일평균 → 초과도일 → 연령별 용량-반응 → 사망 | **container only + climaterisk custom** (native heat 곡선 없음) | 인구, 연령 2행 | β indicative · MMT 외부(Kim 2020) · 기저사망률 legacy→KOSIS(PR #16) | **Partial** (①–⑦) | ⑧ 사망 검증 0; 2030 앵커만; 5 km | `kma_scenario.py:56`, `heat_mortality.grid_from_summer_tmax`, `physical.py:1173-1195`, HM 레이어 3 |
+| TA | heat productivity (`heatwave`) | 시즌 p95 일평균 → indicative 램프 | container only + climaterisk custom | 자산 value | 램프 `[0,30,35,40,45]°C→[0,0,.1,.3,.6]` indicative | **Partial** — 계산되나 램프가 지표와 불일치 | 레이어 최대 32.6 °C < 램프 0.1 지점 35 °C → 손실 구조적 ≈0 | `heat_korea.py:124,134`, `_CATALOG_PERILS["heatwave"]`, HW 레이어 3 |
+| TA / TAMIN | cold wave | 저온 arm → 사망/생산성 | not implemented | 인구 | 없음 | **Missing** | 페릴·러너·곡선 전부 부재 | grep cold/snow → 0건 |
+| TAMAX | heatwave (일최고 임계) | Tmax → 초과일수/강도 | not implemented | 인구·노동 | Tmax 기준 곡선 필요 | **Missing** | 변수 미배선; 지표 혼용 금지 | `heat_korea.py:84` 드리프트 기록 |
+| RN | extreme precipitation | 일강수 → 극한지표(RX1day 등) → 피해 | container only 가능 | 자산 | 강수-피해 곡선 없음 | **Missing** | 지표 정의만 명확 | 소비자 0 |
+| RN | pluvial flood | 강수 → 유출 → 침수 수심 | **external model needed** | 자산 | JRC 수심-피해(수심 입력) | **Missing** | G7 구조 공백; 수리 모델 없음 | `GAP_ANALYSIS_KO.md` G7 |
+| RN | river flood | 강수 → 유역 수문 → 하천 수심 | **external model needed**; 현 RF는 **CLIMADA native**(ISIMIP 전지구) | 자산 | **native JRC Asia** 프리셋 | **Partial/External** — KMA RN 미사용 | 홍수위험지도 `Fetched ≠ Implemented`; 키 rcp45/소스 rcp60(§13-3) | `physical.py:508-525`, `ingest.py:295,351`, RF 레이어 1 |
+| RHM (+TA) | heat stress (WBGT/HI/UTCI) | 기온+습도 → 열지수 → 생산성/사망 | container only; petals UTCI 인터페이스 저장소 밖 | 인구·노동 | **별도 역학 함수 필요** | **Missing** | 지표 교체 없이는 추가 불가 | `_CATALOG_PERILS["heatwave"]` 힌트 vs 실제 레이어 |
+| WS | non-TC wind | 풍속 → 구조 피해 | not implemented (TC 바람은 **CLIMADA native** 별도) | 자산 | 없음 | **Missing** | 극한풍 변수 미확인; TC 대체 금지 | TC 레이어 IBTrACS 합성 |
+| SI | solar / secondary | 일사 → 발전량·증발산·WBGT 항 | not a hazard | — | — | **Missing** | `present in data ≠ usable as hazard` | `build_impf_presets.py:50` 오인 주의 |
+
+## 10. KOR 레이어 실태 — HDF5 직접 판독 (2026-09-11)
+
+`data/hazard_db/catalog.json`의 `region == "KOR"` 10건. 해상도는 `Centroids.lat/lon` 고유값 간격의 중앙값.
+
+| 파일 | 변수/강도 | 등록 시나리오 키 | 기간(이벤트명) | 저장 해상도 | 소스(매니페스트 `source`) | haz_type · 단위 |
+|---|---|---|---|---|---|---|
+| `heat_mortality/HM_historical_KOR_2020.hdf5` | KMA **TA** → 초과도일 | historical | 2000–2019 (20) | **0.0500°**, 4,312 | KMA 남한상세 TA MKPRISMv31, 0.05 deg block mean | HM · degC-days |
+| `heat_mortality/HM_rcp45_KOR_2030.hdf5` | TA | rcp45 | 2021–2030 (10) | 0.0500°, 4,312 | KMA TA SSP245 5ENSMN | HM · degC-days |
+| `heat_mortality/HM_rcp85_KOR_2030.hdf5` | TA | rcp85 | 2021–2030 (10) | 0.0500°, 4,312 | KMA TA SSP585 5ENSMN | HM · degC-days |
+| `heatwave/HW_historical_KOR_2020.hdf5` | TA → 시즌 p95 (**라벨 "daily Tmax"**) | historical | 2000–2019 (20) | 0.0500°, 4,312 | "season p95 daily Tmax — KMA … TA MKPRISMv31" | HW · degC (18.7–32.3) |
+| `heatwave/HW_rcp45_KOR_2030.hdf5` | TA (라벨 Tmax) | rcp45 | 2021–2030 (10) | 0.0500°, 4,312 | "… daily Tmax — KMA TA SSP245" | HW · degC (19.5–32.5) |
+| `heatwave/HW_rcp85_KOR_2030.hdf5` | TA (라벨 Tmax) | rcp85 | 2021–2030 (10) | 0.0500°, 4,312 | "… daily Tmax — KMA TA SSP585" | HW · degC (20.6–32.6) |
+| `river_flood/RF_rcp45_KOR_2050.hdf5` | ISIMIP 하천 수심 | **rcp45** | 2030–… (480; `2030_clm45_gfdl-esm2m` …) | 0.0417°, 5,708 | "CLIMADA Data API (river_flood, **rcp60**, cached)" | RF · m |
+| `tropical_cyclone/TC_rcp45_KOR_2040.hdf5` | IBTrACS 합성 바람장 | rcp45 | 43,560 이벤트 (`…_gen1…`) | 0.0417°, 5,708 | CLIMADA Data API (tropical_cyclone, rcp45) | TC · m/s (17.5–70.7) |
+| `wildfire/WFseason_historical_KOR_2020.hdf5` | FIRMS 시즌 최대 밝기온도 | historical | 2001–2020 (20) | 0.0417°, 5,708 | CLIMADA Data API (wildfire, historical) | WFseason · K |
+| `earthquake/EQ_observed_KOR_2020.hdf5` | MMI | observed | 41,710 이벤트 | 0.0417°, 5,708 | CLIMADA Data API (earthquake, observed) | EQ · MMI |
+
+## 11. 해상도 감사 — 세 해상도는 다르다
+
+| 층 | 값 | 근거 |
+|---|---|---|
+| **KMA 원 해상도** | 관측 0.005° (~500 m, 1201×1501) · SSP 0.01° (~1 km, 601×751) | `kma_scenario.GRID_RES_DEG`, `_to_native` 서브샘플링 |
+| **저장 레이어 해상도** | **0.0500°** (~5 km), 4,312 센트로이드 — HDF5 판독으로 재확인 | `load_summer_tmax(coarsen=5)` 블록평균; §10 |
+| **ImpactCalc 계산 해상도** | 해저드 센트로이드 간격 = 0.05°. 노출은 최근접 센트로이드에 배정(`assign_centroids=True`) — 점자산이면 그 점의 값이 5 km 셀 강도를 받고, WorldPop 래스터 노출이면 `res_arcsec=300`(0.083°)로 블록합산 후 배정 | `physical.py:302`, `exposures.build_exposure(res_arcsec=300)`, `_raster_exposure` |
+| Data API 레이어 | 0.0417° (~4.6 km), 5,708 센트로이드 | §10 |
+
+**"남한상세 1 km"는 소스의 이름이고, 계산은 5 km다.** 1 km 원본은 로더 안에서 5×5 블록으로 뭉개진 뒤 저장되며,
+그 이후 어떤 단계도 1 km로 돌아가지 않는다. `coarsen=1`이면 ~10만 셀로 계산은 가능하지만(코드상 허용), 취약성
+파라미터에 1 km 근거가 없는 상태의 의도적 선택이며 **현재 등록된 레이어 10개 중 1 km인 것은 없다.**
+
+## 12. 1 km 적격성 — 19행 재평가
+
+기준: **1km-ready** = 실제 1 km 격자 + 해저드 소비자 + 노출 매칭 + ImpactCalc · **1km-data-only** = 1 km 소스는
+있으나 계산 소비자 없음 · **5km-current** = 현재 계산이 0.05° · **missing** = 한국 레이어·소비자 모두 없음.
+
+| 물리위험 | 판정 | 근거 |
+|---|---|---|
+| 폭염 사망 | **5km-current** | HM 레이어 0.05°; 1 km 소스 있음, 1 km 계산 없음 |
+| 폭염 생산성 | **5km-current** | HW 레이어 0.05° (+§13-2 램프 불일치) |
+| 열 스트레스 | **1km-data-only** | TA·RHM·WS·SI 1 km 소스 존재, 소비자 0 |
+| 극한강수 / 내수침수 | **1km-data-only** | RN 1 km 소스 존재(미다운로드), 소비자 0, 페릴 없음 |
+| 하천홍수 | **missing**(KMA 기준) — Data API 4.6 km 레이어만 | RN 미사용; 홍수위험지도 소비자 0 |
+| 해안침수 | **missing** | KOR 레이어 없음 |
+| 태풍 바람 | **missing**(KMA 기준) — Data API 4.6 km | WS 미사용 |
+| 태풍 강우 | **1km-data-only** | RN 소스 존재; TCRain 인제스터는 합성 R-CLIPER |
+| 태풍 해일 | **missing**(KMA 기준) | DEM+TC 바람, KMA 무관 |
+| 복합 | **missing** | 결합 없음 |
+| 가뭄 | **1km-data-only** | RN+TA로 SPEI 가능, 인제스터 없음 |
+| 산불 | **missing**(KMA 기준) — Data API 4.6 km, 현재만 | `physical.py:589` historical 하드코딩 |
+| 한파 | **1km-data-only** | TA/TAMIN 소스 존재, 페릴 없음 |
+| 대설 | **missing** | 강설 변수 없음, 페릴 없음 |
+| 산사태 · 우박 · 작물 · 저수량 | **missing** | KOR 레이어·소비자 없음 |
+| 지진 · 유럽폭풍 | N/A | KMA 범위 밖 |
+
+**1km-ready: 0행.**
+
+## 13. 제2부에서 추가로 확인된 사실 (수정하지 않음)
+
+1. **HW 레이어 라벨 ≠ 배열 내용.** `heat_korea.py:124`가 `obs.tmax`(일평균 별칭 — `eobs.py:88-89` "The attribute keeps
+   its historical name; the quantity is the daily mean")의 p95를 계산하고 `:134`가 `"season p95 daily Tmax"`로 라벨링.
+   배열 값 18.7–32.6 °C가 일평균임을 독립적으로 뒷받침한다.
+2. **HW 램프가 레이어 지표와 스케일이 다르다.** `_CATALOG_PERILS["heatwave"]` 램프는 30 °C에서 0, 35 °C에서 0.1 —
+   Tmax/열지수 스케일. KOR HW 레이어 최대치는 32.6 °C(일평균 p95)이므로 **KOR 폭염 생산성 손실은 구조적으로 0~0.05
+   구간에 갇힌다.** 라벨 문제가 아니라 지표-곡선 불일치이며, TAMAX 배선 또는 램프 재정의 중 하나가 필요한 **새 해저드
+   정의** 문제다. 이번 작업에서 수정하지 않는다.
+3. **RF 레이어 키 rcp45 / 소스 rcp60의 기제.** `ingest.py:295` `_RF_SCENARIO_MAP.get(scenario, "rcp60")`가 요청
+   시나리오를 Data API가 제공하는 시나리오로 매핑하고, `:351`이 **제공된** 시나리오를 `source`에, 매니페스트 키는
+   **요청된** 시나리오를 유지한다. 설계상 의도지만 키만 읽는 소비자는 오독한다.
+4. **`Fetched ≠ Implemented` 사례 1건**: `~/climada/data/floodmap/` 4.9 GB, `fetch_floodmap_kor.py` 외 참조 0.
+5. **CLIMADA native 오표기 금지 재확인**: 폭염 두 페릴은 CLIMADA `ImpactFunc`/`ImpactCalc` 그릇을 쓰는 custom 페릴이며
+   native heat-mortality 함수는 없다(`heat_mortality.provenance_summary()["model"]`).
+
+## 14. 제2부 상태 요약
+
+| | |
+|---|---|
+| KMA 변수 소비 | 1 / 7 (`TA`) |
+| 변수별 "데이터 있음" | 7 / 7 (포털 제공) — 디스크 보유는 `TA` 3 아카이브만 |
+| 변수별 "위험 모델 있음" | `TA` 2 페릴(둘 다 5 km, 한쪽은 램프 불일치) · 나머지 6변수 **0** |
+| 1km-ready 페릴 | **0** |
+| 5km-current | 2 (폭염 사망 · 폭염 생산성) |
+| 1km-data-only | 5 (열 스트레스 · 극한강수/내수침수 · 태풍 강우 · 가뭄 · 한파) |
+| missing(KMA 기준) | 나머지 |
+| 코드 변경 | **없음** — 문서·가드 테스트만 |
