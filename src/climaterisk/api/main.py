@@ -53,6 +53,17 @@ def create_app() -> FastAPI:
 
         return read_catalog()
 
+    @api.get("/status/korea", tags=["status"])
+    def status_korea() -> dict[str, object]:
+        """현황 체크 — KMA archives on disk, KOR catalog layers, credentials (by name), 1 km grades.
+
+        A reading of local state only: nothing is parsed with CLIMADA and no value is inferred
+        (``climaterisk.data.korea_status``).
+        """
+        from climaterisk.data.korea_status import korea_status
+
+        return korea_status()
+
     api.include_router(session.router)
     api.include_router(run.router)
     api.include_router(transition.router)

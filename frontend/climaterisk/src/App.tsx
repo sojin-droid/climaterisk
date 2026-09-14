@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ensureSession, getLibraries, saveModel } from "./lib/api";
 import { useResults } from "./lib/useResults";
 import type { Libraries, Portfolio } from "./types";
-import { ActivityBar, type ViewId } from "./layout/ActivityBar";
+import { ActivityBar, VIEW_IDS, type ViewId } from "./layout/ActivityBar";
 import { MapView } from "./views/MapView";
 import { ScenariosView } from "./views/ScenariosView";
 import { ResultsView } from "./views/ResultsView";
@@ -17,7 +17,12 @@ import { MethodView } from "./views/MethodView";
 export function App() {
   const [model, setModel] = useState<Portfolio | null>(null);
   const [libraries, setLibraries] = useState<Libraries | null>(null);
-  const [view, setView] = useState<ViewId>("map");
+  // A launcher may land the user on a specific tab (Physical Risk.app → 현황 체크 opens
+  // ?view=data&status=1). Anything not a known ViewId falls back to the map.
+  const [view, setView] = useState<ViewId>(() => {
+    const wanted = new URLSearchParams(window.location.search).get("view");
+    return wanted && VIEW_IDS.includes(wanted as ViewId) ? (wanted as ViewId) : "map";
+  });
   const [sync, setSync] = useState<"idle" | "saving" | "error">("idle");
   const initialLoad = useRef(true);
   const saveTimer = useRef<number | undefined>(undefined);

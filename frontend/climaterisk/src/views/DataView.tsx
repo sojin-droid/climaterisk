@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { fetchOpenData, getHazardCatalog, getRun, submitIngest } from "../lib/api";
+import { fetchOpenData, getHazardCatalog, getKoreaStatus, getRun, submitIngest } from "../lib/api";
 import { formatScenario } from "../lib/format";
 import type {
   DataSource,
   HazardCatalog,
+  KoreaStatus,
   IngestResult,
   Libraries,
   OpenDataFetchResult,
@@ -325,11 +326,39 @@ export function DataView({ model, libraries }: { model: Portfolio; libraries: Li
   };
   useEffect(refreshCatalog, []);
 
+  // 현황 체크 — opened by the button, or on arrival from the launcher (?status=1).
+  const [status, setStatus] = useState<KoreaStatus | null | "loading" | "error">(null);
+  const runStatusCheck = () => {
+    setStatus("loading");
+    getKoreaStatus()
+      .then(setStatus)
+      .catch(() => setStatus("error"));
+  };
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("status") === "1") runStatusCheck();
+  }, []);
+
   const { categories, sources } = libraries.data_sources;
 
   return (
     <div className="panelview">
       <h2>Data sources &amp; catalog</h2>
+
+      <div className="card" id="korea-status">
+        <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+          <h3 style={{ margin: 0 }}>현황 체크 — 한국 1 km 준비 상태</h3>
+          <button className="btn secondary" onClick={runStatusCheck} disabled={status === "loading"}>
+            {status === "loading" ? "확인 중…" : status && status !== "error" ? "다시 확인" : "현황 체크"}
+          </button>
+        </div>
+        <p className="hint">
+          디스크·카탈로그·환경변수를 <b>읽기만</b> 합니다 — CLIMADA 파싱 없음, 값 추정 없음, 키 값 미표시.
+          등급은 <code>docs/KOREA_1KM_IMPLEMENTATION_GAP.md</code>의 정의를 따르며 <code>1km-ready</code>는
+          메타데이터 조건이 충족되기 전까지 나올 수 없습니다.
+        </p>
+        {status === "error" && <div className="status-box">상태를 읽지 못했습니다 — 백엔드가 켜져 있는지 확인하세요.</div>}
+        {status && status !== "loading" && status !== "error" && <KoreaStatusPanel s={status} />}
+      </div>
       <p className="hint">
         Download links for the public datasets each capability needs. Sources marked{" "}
         <span className="pill" style={{ color: "var(--accent)" }}>
@@ -402,6 +431,85 @@ export function DataView({ model, libraries }: { model: Portfolio; libraries: Li
           </table>
         )}
       </div>
+    </div>
+  );
+}
+
+function KoreaStatusPanel({ s }: { s: KoreaStatus }) {
+  const grade = (g: string) =>
+    g === "5km-current" ? "var(--accent)" : g === "1km-data-only" ? "var(--warn, #b7791f)" : "var(--muted, #888)";
+  return (
+    <div>
+      <h4>KMA 남한상세 파일 · {s.kma.dir}</h4>
+      {!s.kma.dir_exists && <p className="hint">폴더가 없습니다.</p>}
+      <p className="hint">
+        제공 변수 {s.kma.variables_offered.join(" · ")} — 코드가 소비: <b>{s.kma.variables_consumed_by_code.join(", ")}</b>
+        {" "}— 디스크에 있음: <b>{s.kma.variables_present.join(", ") || "없음"}</b>
+      </p>
+      {s.kma.files.length > 0 && (
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>파일</th><th>변수</th><th>시나리오</th><th>기간</th><th>형식</th><th>MB</th></tr></thead>
+            <tbody>
+              {s.kma.files.map((f) => (
+                <tr key={f.file}>
+                  <td><code>{f.file}</code></td><td>{f.variable}</td><td>{f.scenario_token}</td>
+                  <td>{f.years[0]}–{f.years[1]}</td><td>{f.format} ({f.kind})</td><td>{f.size_mb}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <h4>KOR 카탈로그 레이어 ({s.catalog.kor_layers.length})</h4>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr><th>페릴</th><th>요청 시나리오</th><th>제공 시나리오</th><th>센트로이드</th><th>등급</th><th>비고</th></tr>
+          </thead>
+          <tbody>
+            {s.catalog.kor_layers.map((l) => (
+              <tr key={l.file}>
+                <td><code>{l.peril}</code></td>
+                <td>{l.requested_scenario}</td>
+                <td style={{ color: l.scenario_mismatch ? "var(--danger, #c0392b)" : undefined }}>
+                  {l.served_scenario ?? "—"}{l.scenario_mismatch ? " ≠ 요청" : ""}
+                </td>
+                <td>{l.n_centroids ?? "—"}</td>
+                <td><span className="pill" style={{ color: grade(l.grade === "not-kma" ? "missing" : l.grade) }}>
+                  {l.grade === "not-kma" ? "not KMA" : l.grade}
+                </span></td>
+                <td className="hint">
+                  {l.stored_resolution_note ?? ""}
+                  {l.label_variable_conflict ? " · 라벨 Tmax / 실제 TA" : ""}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <h4>1 km 등급</h4>
+      <p className="hint">{s.one_km.rule}</p>
+      <p>
+        {Object.entries(s.one_km.grades).map(([peril, g]) => (
+          <span key={peril} className="pill" style={{ color: grade(g), marginRight: 6 }}>
+            {peril}: {g}
+          </span>
+        ))}
+        {s.one_km.ready.length === 0 && <span className="pill"><b>1km-ready: 0</b></span>}
+      </p>
+
+      <h4>자격증명 · 환경</h4>
+      <ul className="hint">
+        {s.credentials.map((c) => (
+          <li key={c.env}>
+            <code>{c.env}</code> — {c.present ? `있음 (${c.length}자)` : "없음"} · {c.purpose}
+          </li>
+        ))}
+        <li>CLIMADA 워커 환경: {s.environment.worker_env_present ? "있음" : "없음"} · git: <code>{s.environment.git_branch ?? "?"}</code></li>
+      </ul>
     </div>
   );
 }

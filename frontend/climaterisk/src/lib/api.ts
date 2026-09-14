@@ -5,6 +5,7 @@ import type {
   FinanceResult,
   HazardCatalog,
   IngestSource,
+  KoreaStatus,
   Libraries,
   MeasureSpec,
   OpenDataFetchResult,
@@ -52,6 +53,10 @@ export async function saveModel(model: Portfolio): Promise<Portfolio> {
 
 export async function getLibraries(): Promise<Libraries> {
   return http<Libraries>("/api/libraries");
+}
+
+export async function getKoreaStatus(): Promise<KoreaStatus> {
+  return http<KoreaStatus>("/api/status/korea");
 }
 
 export async function getHazardCatalog(): Promise<HazardCatalog> {

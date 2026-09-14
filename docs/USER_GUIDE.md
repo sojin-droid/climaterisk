@@ -173,3 +173,12 @@ new country should be read as *relative* until then (`RISK_REGISTER.md` §C).
 `ARCHITECTURE.md` (three-process design, GPL boundary) · `API.md` · `HEATWAVE_EUROPE.md` (heat
 mortality in depth) · `KOREA_ASSET_MANAGER_GUIDE.md` · `RISK_REGISTER.md` (known limits and their
 status) · `poster/` (conference poster).
+
+## Status check (Korea 1 km readiness)
+
+Opening `Physical Risk.app` now offers **"현황 체크" / "실행"**. The first starts the same servers and
+lands on the Data tab's **현황 체크** card (`?view=data&status=1`). The card only *reads* local state:
+KMA 남한상세 files (variable, period, format), KOR catalog layers (requested vs served scenario,
+label/variable conflicts), 1 km grades (`5km-current` / `1km-data-only` / `missing`; `1km-ready` cannot
+appear until the metadata condition is met), credential **presence** (never values) and the CLIMADA
+worker environment. API: `GET /api/status/korea`. Grade rules: `docs/KOREA_1KM_IMPLEMENTATION_GAP.md`.
