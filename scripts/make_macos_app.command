@@ -141,9 +141,18 @@ property launcherPID : ""
 on run
 	set launcher to (POSIX path of (path to me)) & "Contents/Resources/launch.sh"
 	-- Two ways in: the platform itself, or the 현황 체크 card first (same servers).
-	set choice to button returned of (display dialog "__APP_NAME__" & return & return & "무엇을 열까요?" buttons {"현황 체크", "실행"} default button "실행" with title "__APP_NAME__" giving up after 20)
+	-- `activate` is required: without it the applet is not frontmost, the dialog is never
+	-- presented and `display dialog` returns instantly — the app then always ran in plain
+	-- mode and the 현황 체크 choice was unreachable. The whole prompt is also guarded, so a
+	-- machine that cannot present it still starts the platform instead of dying silently.
 	set launchArgs to ""
-	if choice is "현황 체크" then set launchArgs to " --status"
+	try
+		activate
+		set answer to (display dialog "무엇을 열까요?" buttons {"현황 체크", "실행"} default button "실행" with title "__APP_NAME__" giving up after 30)
+		if gave up of answer is false and button returned of answer is "현황 체크" then
+			set launchArgs to " --status"
+		end if
+	end try
 	try
 		set launcherPID to (do shell script quoted form of launcher & launchArgs & " > /dev/null 2>&1 & echo $!")
 	on error errText
