@@ -60,3 +60,12 @@ macOS 때문에 생기는 제약 두 가지가 있습니다.
 | 결과가 0 | 카드의 해석문 확인: footprint 밖 / 임계 미만 / 데이터 없음 |
 | 새로 고침 후 결과 사라짐 | 결과는 브라우저 세션 단위로 복원됩니다. 다른 브라우저·프로필은 새 세션입니다 |
 | 포트 충돌 | `.env`의 `CLIMATERISK_BACKEND_PORT` / `CLIMATERISK_FRONTEND_PORT` |
+
+## 현황 체크 (한국 1 km 준비 상태)
+
+`Physical Risk.app`을 열면 **"현황 체크" / "실행"** 두 버튼이 뜹니다. "현황 체크"는 같은 서버를 띄운 뒤
+Data 탭의 **현황 체크** 카드로 바로 들어갑니다(`?view=data&status=1`). 카드는 디스크·카탈로그·환경변수를
+**읽기만** 합니다 — KMA 남한상세 파일(변수·기간·형식), KOR 카탈로그 레이어(요청/제공 시나리오 불일치,
+라벨-변수 충돌), 1 km 등급(`5km-current` / `1km-data-only` / `missing`; `1km-ready`는 메타데이터 조건 전까지
+나오지 않음), 자격증명 **존재 여부**(값은 표시하지 않음), CLIMADA 워커 환경. 백엔드 API는
+`GET /api/status/korea`. 등급 정의: `docs/KOREA_1KM_IMPLEMENTATION_GAP.md`.

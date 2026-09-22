@@ -290,6 +290,54 @@ export interface HazardCatalog {
   entries: HazardCatalogEntry[];
 }
 
+// 현황 체크 (mirror of src/climaterisk/data/korea_status.py) — a reading of local state.
+export interface KoreaKmaFile {
+  file: string;
+  variable: string;
+  scenario_token: string;
+  model: string | null;
+  years: [number, number];
+  format: string;
+  kind: "archive" | "member";
+  size_mb: number;
+}
+export interface KoreaKorLayer {
+  peril: string;
+  file: string;
+  requested_scenario: string;
+  served_scenario: string | null;
+  scenario_mismatch: boolean;
+  year: number | null;
+  n_events: number | null;
+  n_centroids: number | null;
+  source: string;
+  from_kma: boolean;
+  stored_resolution_note: string | null;
+  label_variable_conflict: boolean;
+  grade: string;
+}
+export interface KoreaStatus {
+  kma: {
+    dir: string;
+    dir_exists: boolean;
+    files: KoreaKmaFile[];
+    variables_present: string[];
+    variables_offered: string[];
+    variables_consumed_by_code: string[];
+    note: string;
+  };
+  catalog: {
+    dir: string;
+    kor_layers: KoreaKorLayer[];
+    perils_with_kor_layer: string[];
+    scenario_mismatches: string[];
+    label_variable_conflicts: string[];
+  };
+  one_km: { ready: string[]; grades: Record<string, string>; rule: string };
+  credentials: { env: string; purpose: string; present: boolean; length: number }[];
+  environment: { worker_env_present: boolean; git_branch: string | null };
+}
+
 // Run results (mirror of src/climaterisk/engines/base.py + runs/store.py).
 export interface AssetImpact {
   id: string;

@@ -10,6 +10,19 @@ export type ViewId =
   | "data"
   | "method";
 
+export const VIEW_IDS: readonly ViewId[] = [
+  "map",
+  "scenarios",
+  "vulnerability",
+  "results",
+  "adaptation",
+  "finance",
+  "supplychain",
+  "forecast",
+  "data",
+  "method",
+];
+
 const ITEMS: { id: ViewId; label: string; ico: string }[] = [
   { id: "map", label: "Map", ico: "🗺️" },
   { id: "scenarios", label: "Scenarios", ico: "🌡️" },

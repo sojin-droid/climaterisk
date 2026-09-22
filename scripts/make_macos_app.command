@@ -58,6 +58,9 @@ cat > "${WORK}/launch.sh" <<'LAUNCHER'
 set -uo pipefail
 REPO="__REPO_ROOT__"
 LOG="${HOME}/Library/Logs/__LOG_BASE__.log"
+# --status: open the app straight on the Data tab's 현황 체크 card (KMA files, KOR layers,
+# credentials, 1 km grades). Same servers, different landing page.
+MODE="${1:-run}"
 mkdir -p "$(dirname "${LOG}")"
 exec >>"${LOG}" 2>&1
 echo "=============== $(date '+%Y-%m-%d %H:%M:%S') launch ==============="
@@ -120,6 +123,7 @@ curl -fsS "http://${BACKEND_HOST}:${BACKEND_PORT}/api/health" >/dev/null 2>&1 \
 
 URL="http://localhost:${FRONTEND_PORT}"
 for _ in $(seq 1 40); do curl -fsS "${URL}" >/dev/null 2>&1 && break; sleep 0.5; done
+if [ "${MODE}" = "--status" ]; then URL="${URL}/?view=data&status=1"; fi
 echo "▶ opening ${URL}"
 open "${URL}"
 
@@ -136,8 +140,21 @@ property launcherPID : ""
 
 on run
 	set launcher to (POSIX path of (path to me)) & "Contents/Resources/launch.sh"
+	-- Two ways in: the platform itself, or the 현황 체크 card first (same servers).
+	-- `activate` is required: without it the applet is not frontmost, the dialog is never
+	-- presented and `display dialog` returns instantly — the app then always ran in plain
+	-- mode and the 현황 체크 choice was unreachable. The whole prompt is also guarded, so a
+	-- machine that cannot present it still starts the platform instead of dying silently.
+	set launchArgs to ""
 	try
-		set launcherPID to (do shell script quoted form of launcher & " > /dev/null 2>&1 & echo $!")
+		activate
+		set answer to (display dialog "무엇을 열까요?" buttons {"현황 체크", "실행"} default button "실행" with title "__APP_NAME__" giving up after 30)
+		if gave up of answer is false and button returned of answer is "현황 체크" then
+			set launchArgs to " --status"
+		end if
+	end try
+	try
+		set launcherPID to (do shell script quoted form of launcher & launchArgs & " > /dev/null 2>&1 & echo $!")
 	on error errText
 		display alert "__APP_NAME__" message "Could not start: " & errText as critical
 		quit
