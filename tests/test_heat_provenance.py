@@ -67,6 +67,16 @@ def test_the_recorded_values_match_the_constants_they_document() -> None:
     assert by_name["beta, under 65"].value == f"{hm.band_by_key('u65').beta:.3f}"
     assert by_name["beta, 65 and over"].value == f"{hm.band_by_key('o65').beta:.3f}"
     assert by_name["share_over65 for Korea"].value == f"{hm.COUNTRY_SHARE_OVER65['KOR']:.3f}"
+    kor = hm.BASELINE_MORTALITY_PER_100K["KOR"]
+    assert by_name["baseline mortality, under 65, Korea"].value == f"{kor['u65']:.1f}"
+    assert by_name["baseline mortality, 65 and over, Korea"].value == f"{kor['o65']:.1f}"
+    legacy = hm.LEGACY_BASELINE_PER_100K
+    assert by_name[
+        "baseline daily mortality, under 65 (legacy fallback outside Korea)"
+    ].value.startswith(f"{legacy['u65']:.1f}")
+    assert by_name[
+        "baseline daily mortality, 65 and over (legacy fallback outside Korea)"
+    ].value.startswith(f"{legacy['o65']:.1f}")
     assert by_name["age-share ceiling"].value == f"{hm.MAX_SHARE_OVER65:.2f}"
     assert by_name["mmt_high (comfort-band upper edge) per reference city"].value.startswith(
         f"{len(hm.REF_CITIES)} values"
@@ -133,3 +143,88 @@ def test_the_ui_shows_the_model_status() -> None:
     assert "parameter_status" in view and "Model status" in view
     types = (REPO / "frontend" / "climaterisk" / "src" / "types.ts").read_text()
     assert "parameter_status" in types
+
+
+# --------------------------------------------------------------------------- #
+# KOSIS-anchored baseline mortality (2026-09-11) — baseline only, nothing else  #
+# --------------------------------------------------------------------------- #
+def test_korean_baseline_mortality_is_the_kosis_2024_value() -> None:
+    assert hm.baseline_mortality_per_100k("KOR", "u65") == 163.2
+    assert hm.baseline_mortality_per_100k("KOR", "o65") == 2928.4
+    bands = {b.key: b for b in hm.age_bands_for("KOR")}
+    # unit: deaths per 100,000 person-years -> per person per day
+    assert bands["u65"].baseline_daily_mortality == pytest.approx(163.2 / 1e5 / 365.0)
+    assert bands["o65"].baseline_daily_mortality == pytest.approx(2928.4 / 1e5 / 365.0)
+    assert hm.baseline_mortality_per_100k("kor", "o65") == 2928.4  # case-insensitive ISO3
+
+
+def test_kosis_provenance_metadata_is_complete_and_names_the_derivation() -> None:
+    by_name = {r.parameter: r for r in hm.PARAMETER_PROVENANCE}
+    cases = (
+        ("baseline mortality, under 65, Korea", "under 65", "true"),
+        ("baseline mortality, 65 and over, Korea", "65 and over (objL3=63)", "false"),
+    )
+    for name, age, derived in cases:
+        r = by_name[name]
+        assert r.provenance == "external" and "DT_1B34E01" in r.citation, name
+        assert r.unit == "deaths per 100,000 person-years"
+        md = dict(r.metadata)
+        for key in ("source", "table", "year", "sex", "cause", "age", "unit", "derivation"):
+            assert md.get(key), f"{name}: metadata {key} missing"
+        assert md["source"] == "KOSIS" and md["table"] == "DT_1B34E01" and md["year"] == "2024"
+        assert md["cause"].startswith("all causes") and md["sex"].startswith("total")
+        assert md["age"] == age
+        assert md["derived_from_published_totals"] == derived
+    # the derivation of the under-65 rate is arithmetic on published figures, stated as such
+    u65 = dict(by_name["baseline mortality, under 65, Korea"].metadata)
+    assert "358,569" in u65["derivation"] and "291,539" in u65["derivation"]
+
+
+def test_countries_without_a_cited_table_keep_the_legacy_baseline() -> None:
+    """Anchoring Korea must not move Spain — or any run with no country."""
+    for country in (None, "", "ESP", "global"):
+        bands = {b.key: b for b in hm.age_bands_for(country)}
+        assert bands["u65"].baseline_daily_mortality == pytest.approx(130.0 / 1e5 / 365.0)
+        assert bands["o65"].baseline_daily_mortality == pytest.approx(4500.0 / 1e5 / 365.0)
+        assert hm.baseline_mortality_version(country) == hm.LEGACY_BASELINE_VERSION
+    assert hm.age_bands_for(None) == hm.AGE_BANDS
+    assert hm.baseline_mortality_version("KOR") == "KOSIS-2024 mortality baseline"
+    # the legacy pair is still inventoried — and still says it has no source
+    legacy = [r for r in hm.PARAMETER_PROVENANCE if "legacy fallback" in r.parameter]
+    assert len(legacy) == 2 and all(r.provenance == "indicative" for r in legacy)
+
+
+def test_anchoring_the_baseline_changed_nothing_else() -> None:
+    """The scope of the change is the two baseline rates. Everything else is pinned here."""
+    assert hm.band_by_key("u65").beta == 0.010 and hm.band_by_key("o65").beta == 0.034
+    assert {b.key: b.beta for b in hm.age_bands_for("KOR")} == {"u65": 0.010, "o65": 0.034}
+    assert hm.COUNTRY_SHARE_OVER65["KOR"] == 0.203  # resident-registration share, not unified
+    assert hm.MMT_ANNUAL_MEAN_SLOPE == 0.8 and hm.MMT_SD_SLOPE == 1.0
+    assert hm.HEAT_ONSET_PERCENTILE["KOR"] == 93.0
+    by_name = {r.parameter: r for r in hm.PARAMETER_PROVENANCE}
+    assert by_name["beta, under 65"].provenance == "indicative"
+    assert by_name["beta, 65 and over"].provenance == "indicative"
+
+
+def test_summary_reports_the_baseline_version_per_country_without_claiming_calibration() -> None:
+    kor, esp, none = (
+        hm.provenance_summary("KOR"),
+        hm.provenance_summary("ESP"),
+        hm.provenance_summary(),
+    )
+    assert kor["baseline_mortality"]["anchored"] is True
+    assert "KOSIS" in kor["baseline_mortality"]["version"]
+    assert kor["baseline_mortality"]["o65_per_100k"] == 2928.4
+    assert (
+        esp["baseline_mortality"]["anchored"] is False
+        and none["baseline_mortality"]["anchored"] is False
+    )
+    assert esp["baseline_mortality"]["o65_per_100k"] == 4500.0
+    # a cited baseline is not a calibration, and the label must keep saying so
+    assert kor["calibrated_on_observed_mortality"] is False
+    assert "not calibrated" in kor["label"].lower()
+    assert "not validated" in kor["detail"]
+    # the pre-existing contract fields are all still there
+    for key in ("model", "counts", "n_parameters", "label", "detail"):
+        assert key in kor and key in none
+    assert kor["counts"] == none["counts"]  # the inventory does not depend on the run's country

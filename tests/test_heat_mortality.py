@@ -115,6 +115,35 @@ def test_elderly_dose_response_dominates() -> None:
     assert risk_o[0] > 10.0 * risk_u[0]
 
 
+def test_korean_impact_functions_differ_from_legacy_by_the_baseline_ratio_only() -> None:
+    """Analytical check of the change: mdd_KOR / mdd_legacy == R_KOR / R_legacy per band.
+
+    The dose curve is shared, so anchoring the baseline may rescale ``mdd`` by exactly the
+    ratio of the two crude death rates and touch nothing else — same intensity grid, same
+    ``paa``, same ids.
+    """
+    pytest.importorskip("climada")
+    legacy, ids = hm.build_impact_functions()
+    kor, kor_ids = hm.build_impact_functions(country="KOR")
+    assert ids == kor_ids
+
+    def one(impf_set, fun_id):  # type: ignore[no-untyped-def]
+        got = impf_set.get_func(haz_type=hm.HAZ_TYPE, fun_id=fun_id)
+        return got[0] if isinstance(got, list) else got
+
+    for key in ("u65", "o65"):
+        a, b = one(legacy, ids[key]), one(kor, ids[key])
+        ratio = hm.baseline_mortality_per_100k("KOR", key) / hm.LEGACY_BASELINE_PER_100K[key]
+        np.testing.assert_array_equal(a.intensity, b.intensity)
+        np.testing.assert_array_equal(a.paa, b.paa)
+        uncapped = (a.mdd > 0.0) & (a.mdd < 1.0) & (b.mdd < 1.0)
+        assert uncapped.sum() >= 50, "the cap must not bind over the realistic range"
+        np.testing.assert_allclose(b.mdd[uncapped], a.mdd[uncapped] * ratio, rtol=1e-12, atol=0.0)
+    # direction of the change, stated once: elderly baseline down, under-65 baseline up
+    assert hm.baseline_mortality_per_100k("KOR", "o65") < hm.LEGACY_BASELINE_PER_100K["o65"]
+    assert hm.baseline_mortality_per_100k("KOR", "u65") > hm.LEGACY_BASELINE_PER_100K["u65"]
+
+
 def test_nearest_city_picks_the_local_reference() -> None:
     assert hm.nearest_city(40.42, -3.70).name == "Madrid"
     assert hm.nearest_city(52.52, 13.40).name == "Berlin"

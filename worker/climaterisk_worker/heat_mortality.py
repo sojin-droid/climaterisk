@@ -39,9 +39,12 @@ windstorm; petals: drought, crop yield, river flood, wildfire). What is CLIMADA 
 implementation**, unlike tropical cyclone (Eberenz presets) or flood (JRC presets) where a
 published curve is bundled.
 
-Its parameters are, with one exception, **indicative platform assumptions or of unknown
-provenance**: no external source is recorded for beta, the baseline mortality rates, the
-reference-city minimum-mortality edges or the band-width coefficients, and none of them has
+Most of its parameters are **indicative platform assumptions or of unknown provenance**.
+What is cited: the exposure metric, the adaptation slope (Tobías et al. 2021), the Korean
+heat-onset percentile (Kim 2020), Korea's 65+ share, and — since 2026-09-11 — Korea's two
+baseline mortality rates (KOSIS 사망원인통계 DT_1B34E01, 2024; :func:`age_bands_for`). What is
+not: beta per age band, the reference-city minimum-mortality edges and the band-width
+coefficients; outside Korea the baseline pair is the uncited legacy one. None of them has
 been calibrated against observed mortality. :data:`PARAMETER_PROVENANCE` records each value,
 its location and its status; :func:`provenance_summary` is what the runner reports and the UI
 displays. Full table and the remaining gaps: ``docs/HEAT_MORTALITY_PROVENANCE.md``.
@@ -392,13 +395,80 @@ class AgeBand:
     baseline_daily_mortality: float
 
 
-# beta: the elderly heat-mortality slope is several times the non-elderly slope.
-# baseline_daily_mortality: crude all-cause rate per band (>=65 ~ 45/1000/yr,
-# <65 ~ 1.3/1000/yr) / 365. Shared across countries (a limitation).
-AGE_BANDS: tuple[AgeBand, ...] = (
-    AgeBand("u65", beta=0.010, baseline_daily_mortality=1.3e-3 / 365.0),
-    AgeBand("o65", beta=0.034, baseline_daily_mortality=45.0e-3 / 365.0),
-)
+#: Crude all-cause death rate, deaths per 100,000 person-years, per age band, by country.
+#: A country's presence here means exactly one thing — its two baseline rates are cited —
+#: and nothing about beta, the comfort band or the dose curve, which are unchanged.
+#: Every other country falls back to :data:`LEGACY_BASELINE_PER_100K`.
+#:
+#: KOR — KOSIS 통계청 사망원인통계 「사망원인(104항목)/성/연령(5세)별 사망자수, 사망률」,
+#: ``orgId=101`` ``tblId=DT_1B34E01``, retrieved 2026-09-11 through
+#: ``https://kosis.kr/openapi/Param/statisticsParameterData.do`` with
+#: ``itmId=T5`` (사망률, 십만명당) and ``T1`` (사망자수, 명) · ``objL1=0`` (사망원인별: 계, all
+#: causes) · ``objL2=0`` (성별: 계, both sexes) · ``objL3=00`` (연령: 계) and ``63`` (65세 이상)
+#: · ``prdSe=Y`` · ``PRD_DE=2024``.
+#: 65+ is the published rate (2,928.4). The table has no under-65 row, so that rate is
+#: derived from published totals only: deaths 358,569 (계) − 291,539 (65+) = 67,030 over the
+#: population implied by deaths/rate for each group (51,034,586 − 9,955,573 = 41,079,013)
+#: → 163.2 per 100,000. No estimate enters; both inputs are the table's own numbers.
+BASELINE_MORTALITY_PER_100K: dict[str, dict[str, float]] = {
+    "KOR": {"u65": 163.2, "o65": 2928.4},
+}
+
+#: The pair every country used before 2026-09-11, kept as the fallback where no cited
+#: table exists. Indicative — no source was ever recorded for it.
+LEGACY_BASELINE_PER_100K: dict[str, float] = {"u65": 130.0, "o65": 4500.0}
+
+#: Human-readable version tag of the baseline in force, reported in ``parameter_status``.
+BASELINE_MORTALITY_VERSION: dict[str, str] = {"KOR": "KOSIS-2024 mortality baseline"}
+LEGACY_BASELINE_VERSION = "legacy/current baseline"
+
+#: Log relative-risk slope per degC above the comfort band, per age band. The elderly
+#: slope is several times the non-elderly slope. Still indicative (no source recorded);
+#: deliberately untouched by the baseline anchoring above.
+_BETA: dict[str, float] = {"u65": 0.010, "o65": 0.034}
+
+_BAND_KEYS: tuple[str, ...] = ("u65", "o65")
+
+
+def baseline_mortality_per_100k(country: str | None, band_key: str) -> float:
+    """Crude all-cause death rate for ``band_key`` (deaths per 100,000 person-years).
+
+    Korea reads :data:`BASELINE_MORTALITY_PER_100K`; any other (or unknown) country reads
+    :data:`LEGACY_BASELINE_PER_100K`.
+    """
+    table = BASELINE_MORTALITY_PER_100K.get((country or "").upper(), LEGACY_BASELINE_PER_100K)
+    return float(table[band_key])
+
+
+def baseline_mortality_version(country: str | None) -> str:
+    """Which baseline pair a run used — ``KOSIS-2024 …`` for Korea, legacy elsewhere."""
+    return BASELINE_MORTALITY_VERSION.get((country or "").upper(), LEGACY_BASELINE_VERSION)
+
+
+def age_bands_for(country: str | None = None) -> tuple[AgeBand, ...]:
+    """The two age bands with the baseline mortality in force for ``country``.
+
+    Algorithm:
+        $$ m_{0,b} = \\frac{R_{b}}{10^{5}\\cdot 365} $$
+        ASCII: baseline_daily_mortality = rate_per_100k / 1e5 / 365
+        where $R_b$ is the crude all-cause death rate of band $b$ in deaths per 100,000
+        person-years and $m_{0,b}$ the per-person daily rate the impact function folds in.
+
+    ``beta`` is identical for every country; only the baseline differs.
+    """
+    return tuple(
+        AgeBand(
+            key,
+            beta=_BETA[key],
+            baseline_daily_mortality=baseline_mortality_per_100k(country, key) / 1e5 / 365.0,
+        )
+        for key in _BAND_KEYS
+    )
+
+
+#: The country-agnostic (legacy) bands. The Europe path (``scripts/heatwave_europe.py``)
+#: and the dose-curve fit read these; the runner asks :func:`age_bands_for` per country.
+AGE_BANDS: tuple[AgeBand, ...] = age_bands_for(None)
 
 
 def band_by_key(key: str) -> AgeBand:
@@ -434,6 +504,9 @@ class ParameterRecord:
         rationale: The justification actually present in the code/docs, verbatim in spirit.
         citation: External source, or ``"source unavailable"``.
         provenance: One of :data:`PROVENANCE_CLASSES`.
+        metadata: Structured source coordinates for an external value — table, year, sex,
+            cause, age group, derivation — as ``(key, value)`` pairs so a record stays
+            hashable. Empty for indicative/unknown values.
     """
 
     parameter: str
@@ -443,6 +516,7 @@ class ParameterRecord:
     rationale: str
     citation: str
     provenance: str
+    metadata: tuple[tuple[str, str], ...] = ()
 
 
 #: Inventory taken from the code on 2026-09-09. Adding a constant to the model without
@@ -467,22 +541,75 @@ PARAMETER_PROVENANCE: tuple[ParameterRecord, ...] = (
         "indicative",
     ),
     ParameterRecord(
-        "baseline daily mortality, under 65",
-        "1.3e-3 / 365",
-        "1/day",
-        "heat_mortality.py::AGE_BANDS",
-        "comment: crude all-cause rate ~1.3/1000/yr, shared across countries (a limitation)",
+        "baseline daily mortality, under 65 (legacy fallback outside Korea)",
+        "130.0 per 100,000 person-years",
+        "deaths per 100,000 person-years (÷1e5÷365 per day)",
+        "heat_mortality.py::LEGACY_BASELINE_PER_100K",
+        "comment: the pre-2026-09-11 shared pair, retained only for countries without a "
+        "cited table",
         "source unavailable",
         "indicative",
     ),
     ParameterRecord(
-        "baseline daily mortality, 65 and over",
-        "45.0e-3 / 365",
-        "1/day",
-        "heat_mortality.py::AGE_BANDS",
-        "comment: crude all-cause rate ~45/1000/yr, shared across countries (a limitation)",
+        "baseline daily mortality, 65 and over (legacy fallback outside Korea)",
+        "4500.0 per 100,000 person-years",
+        "deaths per 100,000 person-years (÷1e5÷365 per day)",
+        "heat_mortality.py::LEGACY_BASELINE_PER_100K",
+        "comment: the pre-2026-09-11 shared pair, retained only for countries without a "
+        "cited table",
         "source unavailable",
         "indicative",
+    ),
+    ParameterRecord(
+        "baseline mortality, under 65, Korea",
+        "163.2",
+        "deaths per 100,000 person-years",
+        "heat_mortality.py::BASELINE_MORTALITY_PER_100K",
+        "the table publishes no under-65 row; derived from its own totals — deaths(계) − "
+        "deaths(65+) over the population implied by deaths/rate for each group",
+        "KOSIS 통계청 사망원인통계, 사망원인(104항목)/성/연령(5세)별 사망자수, 사망률 — "
+        "orgId 101, tblId DT_1B34E01, 기준년도 2024, 전체 사인(계), 남녀 계; "
+        "retrieved 2026-09-11",
+        "external",
+        (
+            ("source", "KOSIS"),
+            ("org_id", "101"),
+            ("table", "DT_1B34E01"),
+            ("year", "2024"),
+            ("cause", "all causes (사망원인별: 계, objL1=0)"),
+            ("sex", "total (성별: 계, objL2=0)"),
+            ("age", "under 65"),
+            ("unit", "deaths per 100,000 person-years"),
+            ("derivation", "(358,569 − 291,539) / (51,034,586 − 9,955,573) × 1e5 = 163.2"),
+            ("derived_from_published_totals", "true"),
+            ("query", "itmId=T1,T5; objL1=0; objL2=0; objL3=00,63; prdSe=Y; PRD_DE=2024"),
+            ("retrieved", "2026-09-11"),
+        ),
+    ),
+    ParameterRecord(
+        "baseline mortality, 65 and over, Korea",
+        "2928.4",
+        "deaths per 100,000 person-years",
+        "heat_mortality.py::BASELINE_MORTALITY_PER_100K",
+        "published crude death rate of the 65세 이상 group, read directly",
+        "KOSIS 통계청 사망원인통계, 사망원인(104항목)/성/연령(5세)별 사망자수, 사망률 — "
+        "orgId 101, tblId DT_1B34E01, 기준년도 2024, 전체 사인(계), 남녀 계; "
+        "retrieved 2026-09-11",
+        "external",
+        (
+            ("source", "KOSIS"),
+            ("org_id", "101"),
+            ("table", "DT_1B34E01"),
+            ("year", "2024"),
+            ("cause", "all causes (사망원인별: 계, objL1=0)"),
+            ("sex", "total (성별: 계, objL2=0)"),
+            ("age", "65 and over (objL3=63)"),
+            ("unit", "deaths per 100,000 person-years"),
+            ("derivation", "published value, itmId=T5"),
+            ("derived_from_published_totals", "false"),
+            ("query", "itmId=T5; objL1=0; objL2=0; objL3=63; prdSe=Y; PRD_DE=2024"),
+            ("retrieved", "2026-09-11"),
+        ),
     ),
     ParameterRecord(
         "mmt_high (comfort-band upper edge) per reference city",
@@ -664,19 +791,44 @@ PARAMETER_PROVENANCE: tuple[ParameterRecord, ...] = (
 )
 
 
-def provenance_summary() -> dict[str, Any]:
+def provenance_summary(country: str | None = None) -> dict[str, Any]:
     """Machine-readable status of the model, for the run payload and the UI.
+
+    Args:
+        country: ISO3 of the run, so the summary can say which baseline pair was in force.
 
     Returns:
         ``model`` (what is CLIMADA and what is custom), ``counts`` per provenance class,
-        ``calibrated_on_observed_mortality`` (always False until a calibration exists) and
-        a short ``label`` for display.
+        ``calibrated_on_observed_mortality`` (always False until a calibration exists),
+        a short ``label`` for display and ``baseline_mortality`` (version, values,
+        ``anchored``). Anchoring a baseline to a published table is **not** a calibration
+        and does not move ``calibrated_on_observed_mortality``.
     """
     counts = dict.fromkeys(PROVENANCE_CLASSES, 0)
     for record in PARAMETER_PROVENANCE:
         counts[record.provenance] += 1
     unsupported = counts["indicative"] + counts["unknown"]
+    iso = (country or "").upper() or None
+    anchored = iso in BASELINE_MORTALITY_PER_100K
+    baseline = {
+        "country": iso,
+        "version": baseline_mortality_version(iso),
+        "anchored": anchored,
+        "u65_per_100k": baseline_mortality_per_100k(iso, "u65"),
+        "o65_per_100k": baseline_mortality_per_100k(iso, "o65"),
+        "source": (
+            "KOSIS 사망원인통계 DT_1B34E01 (2024), all causes, both sexes" if anchored else None
+        ),
+    }
+    baseline_note = (
+        f"; baseline mortality for {iso} is KOSIS-anchored (DT_1B34E01, 2024) — the "
+        "dose-response (beta, comfort band) remains uncited and the overall model is not "
+        "validated"
+        if anchored
+        else ""
+    )
     return {
+        "baseline_mortality": baseline,
         "model": (
             "climaterisk custom heat-mortality dose-response; CLIMADA supplies "
             "ImpactFunc/ImpactFuncSet/ImpactCalc only (it ships no heat-mortality "
@@ -691,7 +843,7 @@ def provenance_summary() -> dict[str, Any]:
         "detail": (
             f"{unsupported} of {len(PARAMETER_PROVENANCE)} parameters are indicative "
             "platform assumptions or of unknown provenance; none is calibrated against "
-            "observed mortality (docs/HEAT_MORTALITY_PROVENANCE.md)"
+            f"observed mortality (docs/HEAT_MORTALITY_PROVENANCE.md){baseline_note}"
         ),
     }
 
@@ -837,12 +989,14 @@ def dose_from_degree_days(degree_days: np.ndarray, band_key: str) -> np.ndarray:
 
 
 def build_impact_functions(
-    haz_type: str = HAZ_TYPE, max_degree_days: float = 900.0
+    haz_type: str = HAZ_TYPE, max_degree_days: float = 900.0, country: str | None = None
 ) -> tuple[Any, dict[str, int]]:
     """CLIMADA ``ImpactFuncSet`` turning degree-days into attributable deaths.
 
     One function per age band in a single set, so one ``ImpactCalc`` pass over an
     exposure that carries one row per (asset, age band) computes both bands at once.
+    ``country`` selects the baseline mortality (:func:`age_bands_for`); it changes the
+    level of ``mdd`` and nothing else — the dose curve is shared.
 
     Algorithm:
         $$ \\text{mdd}_b(D) = \\min\\!\\big(m_{0,b} \\cdot a_b D^{b_b},\\ 1\\big),
@@ -864,7 +1018,7 @@ def build_impact_functions(
     grid = np.linspace(0.0, float(max_degree_days), 61)
     funcs = []
     ids: dict[str, int] = {}
-    for i, band in enumerate(AGE_BANDS, start=1):
+    for i, band in enumerate(age_bands_for(country), start=1):
         mdd = np.clip(
             band.baseline_daily_mortality * dose_from_degree_days(grid, band.key), 0.0, 1.0
         )
