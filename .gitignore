@@ -41,3 +41,7 @@ worker/.climada_cache/
 
 # Env
 .env
+
+# Analysis outputs (tc_capture_kr, …) — derived from observed loss data fetched at run
+# time; regenerate with the script that made them rather than committing the numbers.
+outputs/

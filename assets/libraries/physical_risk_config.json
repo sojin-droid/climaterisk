@@ -1,0 +1,47 @@
+{
+  "_meta": {
+    "purpose": "Physical-risk engine configuration. Thresholds and mappings live here, not buried in code, so they can be changed without touching the calculation (docs/physical-risk-methodology.md).",
+    "version": "1.0.0",
+    "updated": "2026-09-22"
+  },
+  "risk_levels": {
+    "metric": "eal_as_pct_of_assets",
+    "attribution": "climaterisk custom methodology, GRESB-informed framework. NOT an official GRESB threshold.",
+    "bands": [
+      { "level": "Low",    "min_pct": null, "max_pct": 0.10, "criteria": "EAL/Asset < 0.10%" },
+      { "level": "Medium", "min_pct": 0.10, "max_pct": 0.50, "criteria": "0.10% <= EAL/Asset < 0.50%" },
+      { "level": "High",   "min_pct": 0.50, "max_pct": null, "criteria": "EAL/Asset >= 0.50%" }
+    ]
+  },
+  "potential_loss": {
+    "return_period_years": 100,
+    "note": "The representative PML return period. Reported only when the event set can resolve it; CLIMADA's calc_freq_curve saturates at the largest event instead of returning NaN, so an unresolvable request is recorded as null with calculation_status RETURN_PERIOD_NOT_RESOLVABLE."
+  },
+  "property_type_to_jrc_sector": {
+    "_note": "Maps portfolio property_type onto the JRC sectors ImpfRiverFlood exposes. The mapping is a platform choice, not a JRC one — see methodology 5.",
+    "default": "commercial",
+    "map": {
+      "residential": "residential",
+      "apartment": "residential",
+      "office": "commercial",
+      "retail": "commercial",
+      "hotel": "commercial",
+      "commercial": "commercial",
+      "warehouse": "industrial",
+      "logistics": "industrial",
+      "factory": "industrial",
+      "industrial": "industrial",
+      "data_center": "industrial",
+      "infrastructure": "infrastructure",
+      "transport": "transport",
+      "agriculture": "agriculture"
+    }
+  },
+  "definitions": {
+    "probability": "Annual exceedance frequency of the stated return period, taken as 1 / return_period_years. CLIMADA frequency is in 1/year; for rare events this equals annual exceedance probability, for frequent events (freq >= 1/yr) it does not - see methodology 10.",
+    "return_period": "1 / cumulative annual exceedance frequency, as produced by CLIMADA Impact.calc_freq_curve.",
+    "frequency": "CLIMADA Hazard.frequency, events per year (frequency_unit '1/year').",
+    "eal": "Expected Annual Loss = Impact.aai_agg = sum(at_event * frequency). Verified identity, not a re-implementation.",
+    "potential_loss": "Loss at the configured return period, read from Impact.calc_freq_curve."
+  }
+}
