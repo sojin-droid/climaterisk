@@ -90,11 +90,11 @@ def expected_files(variable: str = kma.DEFAULT_VARIABLE) -> list[str]:
     Returns:
         Archive file names, historical window first.
     """
-    names = [f"MKPRISM_MKPRISMv21_skorea_{variable}_gridraw_daily_2000_2019_nc.tar.gz"]
+    names = [f"MKPRISM_MKPRISMv31_{variable}_gridraw_daily_2000_2019_nc.tar.gz"]
     for ssp in ("SSP245", "SSP585"):
         for y0 in range(2021, 2100, 10):
             names.append(
-                f"AR6_{ssp}_5ENSMN_skorea_{variable}_gridraw_daily_{y0}_{y0 + 9}_nc.tar.gz"
+                f"AR6_{ssp}_5ENSMN_skorea_{variable}_gridraw_daily_{y0}_{y0 + 9}_asc.tar.gz"
             )
     return names
 
@@ -102,12 +102,17 @@ def expected_files(variable: str = kma.DEFAULT_VARIABLE) -> list[str]:
 def cmd_files(_: argparse.Namespace) -> int:
     d = kma.kma_dir()
     print(f"drop folder: {d}  (exists: {d.is_dir()})")
-    present = {f.path.name: f for f in kma.list_files(d)} if d.is_dir() else {}
+    files = kma.list_files(d) if d.is_dir() else []
+    present = {f.path.name for f in files}
     for name in expected_files():
-        nc = name.replace("_nc.tar.gz", ".nc")
-        have = nc in present or (d / name).is_file()
+        have = name in present or (d / name).is_file()
         print(f"  [{'x' if have else ' '}] {name}")
-    print(f"present daily {kma.DEFAULT_VARIABLE} files: {len(present)}")
+    seasons = ", ".join(
+        f"{s}:{min(y)}-{max(y)}"
+        for s in sorted({f.platform_scenario for f in files if f.platform_scenario})
+        if (y := [f.year_start for f in files if f.platform_scenario == s])
+    )
+    print(f"present daily {kma.DEFAULT_VARIABLE} seasons: {len(files)}  [{seasons}]")
     return 0
 
 
@@ -156,6 +161,7 @@ def register_window(
     catalog_dir: Path,
     reference_cells: tuple[Any, ...] | None = None,
     band_shift_c: float = 0.0,
+    footprint: tuple[Any, Any] | None = None,
 ) -> tuple[list[dict], tuple[Any, ...]]:  # type: ignore[type-arg]
     """Load one scenario window, build both layers, write + register them.
 
@@ -172,6 +178,10 @@ def register_window(
             (``docs/HEAT_ADAPTATION_KR.md``).
         band_shift_c: Absolute upward shift of the comfort band, degC — the adaptation axis
             of Lee et al. (2019). 0.0 is the no-adaptation reference case.
+        footprint: ``(lat, lon)`` every window is pinned to, from
+            ``kma_scenario.common_footprint``. MK-PRISM and the AR6 ensemble carry
+            different land masks, so without this an observed and an SSP window cover
+            different cells and their difference is not a scenario signal.
 
     Returns:
         ``(catalog entries, cells)``; pass the cells back as ``reference_cells`` for the
@@ -186,7 +196,11 @@ def register_window(
             "register 'historical' first and pass its cells (see docs/HEAT_ADAPTATION_KR.md)"
         )
     obs = kma.load_summer_tmax(
-        scenario=scenario, year_start=year_start, year_end=year_end, coarsen=coarsen
+        scenario=scenario,
+        year_start=year_start,
+        year_end=year_end,
+        coarsen=coarsen,
+        restrict_to=footprint,
     )
     cells, dd, years = hm.grid_from_summer_tmax(
         obs,
@@ -230,6 +244,14 @@ def cmd_register(args: argparse.Namespace) -> int:
     baseline_cells: tuple[Any, ...] | None = None
     # historical first: every future window reuses its comfort band.
     scenarios = sorted(args.scenarios, key=lambda s: 0 if s == "historical" else 1)
+    have = [s for s in scenarios if kma.available(s)]
+    # One footprint for every window: the products' land masks differ, and a scenario
+    # delta computed over two different cell sets is not a scenario delta.
+    footprint: tuple[Any, Any] | None = None
+    if len(have) > 1:
+        lat, lon = kma.common_footprint(have, coarsen=args.coarsen)
+        footprint = (lat, lon)
+        print(f"common footprint across {', '.join(have)}: {lat.size} cells")
     for scen in scenarios:
         if not kma.available(scen):
             print(f"  {scen:>10}: no {kma.DEFAULT_VARIABLE} daily file present — skipped")
@@ -249,6 +271,7 @@ def cmd_register(args: argparse.Namespace) -> int:
                     cdir,
                     reference_cells=None if scen == "historical" else baseline_cells,
                     band_shift_c=0.0 if scen == "historical" else args.band_shift_c,
+                    footprint=footprint,
                 )
                 written += len(entries)
                 if scen == "historical":

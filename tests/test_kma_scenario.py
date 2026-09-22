@@ -8,6 +8,8 @@ catalog → CLIMADA runner.
 
 from __future__ import annotations
 
+import calendar
+import io
 import sys
 import tarfile
 from pathlib import Path
@@ -291,6 +293,211 @@ def test_the_cli_shopping_list_uses_the_variable_the_loader_reads() -> None:
     assert all(token in n for n in names), names[:2]
     # and every listed name must parse back through the loader's own parser
     for n in names:
-        parsed = kma.parse_name(Path(n.replace("_nc.tar.gz", ".nc")))
+        parsed = kma.parse_name(Path(n))
         assert parsed is not None and parsed.variable == kma.DEFAULT_VARIABLE, n
     assert kma.DEFAULT_VARIABLE == "TA", "daily mean is the metric the citable estimates use"
+
+
+def _write_asc_archive(
+    directory: Path,
+    years: tuple[int, ...],
+    shape: tuple[int, int],
+    warm_offset: float = 0.0,
+) -> Path:
+    """Synthetic AR6-style ``_asc.tar.gz``: one member per year, one line per day.
+
+    Mirrors the real product: no header, ``n_lat x n_lon`` values per line in row-major
+    order with latitude ascending, leap years carrying 366 lines, and a sea column of
+    -9990. The first column is sea so the loader's drop rule is exercised.
+    """
+    _, n_lon = shape
+    east = np.linspace(0.0, 3.0, n_lon)[None, :]
+    name = f"AR6_SSP585_5ENSMN_skorea_TA_gridraw_daily_{years[0]}_{years[-1]}_asc.tar.gz"
+    archive = directory / name
+    with tarfile.open(archive, "w:gz") as tf:
+        for y in years:
+            lines = []
+            for doy in range(1, (366 if calendar.isleap(y) else 365) + 1):
+                seasonal = 12.0 + 16.0 * np.sin((doy - 110) / 365.0 * 2 * np.pi)
+                grid = np.full(shape, seasonal + warm_offset) + east
+                grid[:, 0] = kma.MISSING_VALUE
+                lines.append(" ".join(f"{v:.1f}" for v in grid.ravel()))
+            blob = ("\n".join(lines) + "\n").encode("ascii")
+            info = tarfile.TarInfo(f"AR6_SSP585_5ENSMN_skorea_TA_gridraw_daily_{y}.txt")
+            info.size = len(blob)
+            tf.addfile(info, io.BytesIO(blob))
+    return archive
+
+
+def test_the_portal_serves_two_name_spellings_and_two_formats() -> None:
+    """Names exactly as the portal served them on 2026-09-11.
+
+    MK-PRISM omits the ``skorea`` token and ships one member per calendar year; the AR6
+    남한상세 scenarios are only offered as ASCII. Both broke the original parser.
+    """
+    nc = kma.parse_name(Path("MKPRISM_MKPRISMv31_TA_gridraw_daily_2000.nc"))
+    assert nc is not None and nc.model is None and nc.ext == "nc"
+    assert (nc.year_start, nc.year_end, nc.platform_scenario) == (2000, 2000, "historical")
+    txt = kma.parse_name(Path("AR6_SSP245_5ENSMN_skorea_TA_gridraw_daily_2021.txt"))
+    assert txt is not None and txt.model == "5ENSMN" and txt.ext == "txt"
+    arc = kma.parse_name(Path("AR6_SSP245_5ENSMN_skorea_TA_gridraw_daily_2021_2030_asc.tar.gz"))
+    assert arc is not None and (arc.year_start, arc.year_end) == (2021, 2030)
+
+
+def test_asc_archive_expands_to_one_entry_per_year() -> None:
+    entries = kma.asc_entries(
+        Path("/d/AR6_SSP585_5ENSMN_skorea_TA_gridraw_daily_2021_2030_asc.tar.gz")
+    )
+    assert [e.year_start for e in entries] == list(range(2021, 2031))
+    assert entries[0].member == "AR6_SSP585_5ENSMN_skorea_TA_gridraw_daily_2021.txt"
+    assert all(e.ext == "txt" and e.platform_scenario == "rcp85" for e in entries)
+
+
+def test_season_bounds_are_leap_aware() -> None:
+    """Verified against the real files: SSP2-4.5 2024 carries 366 daily rows."""
+    for year, n_days in ((2021, 365), (2024, 366)):
+        i0, i1 = kma._season_bounds(year)
+        assert i1 - i0 == kma.SEASON_DAYS
+        assert i1 <= n_days
+    assert kma._season_bounds(2024)[0] == kma._season_bounds(2021)[0] + 1
+
+
+def test_fine_grid_is_subsampled_onto_the_scenario_nodes() -> None:
+    """MK-PRISM v3.1 is 0.005 deg; its even nodes are exactly the 0.01 deg scenario grid."""
+    arr = np.arange(2 * 9 * 11, dtype=np.float32).reshape(2, 9, 11)
+    out, lat, lon = kma._to_native(arr, 33.0 + 0.005 * np.arange(9), 124.5 + 0.005 * np.arange(11))
+    np.testing.assert_array_equal(out, arr[:, ::2, ::2])
+    np.testing.assert_allclose(lat, 33.0 + 0.01 * np.arange(5), atol=1e-9)
+    np.testing.assert_allclose(lon, 124.5 + 0.01 * np.arange(6), atol=1e-9)
+    # a grid already at 0.01 deg passes through untouched, whatever its extent
+    same = arr[:, :5, :6]
+    out2, _, _ = kma._to_native(same, 37.4 + 0.01 * np.arange(5), 126.8 + 0.01 * np.arange(6))
+    np.testing.assert_array_equal(out2, same)
+
+
+def test_subsampled_coordinates_are_snapped_not_carried_from_float32() -> None:
+    """Float32 coordinates in the file must not leak into cell identity.
+
+    The MK-PRISM NetCDF stores longitude as float32, whose error reaches ~2e-6 deg near
+    132 E. Block means of those numbers and of the computed grid then differ in the 6th
+    decimal, and matching on that rounding dropped 57 % of the cells from the observed x
+    scenario footprint intersection (2007 of 4691) while every cell was in fact shared.
+    """
+    exact = 124.5 + 0.005 * np.arange(11)
+    noisy = exact.astype(np.float32).astype(float)
+    assert np.abs(noisy - exact).max() > 0, "float32 must actually perturb the fixture"
+    _, _, lon = kma._to_native(
+        np.zeros((1, 9, 11), dtype=np.float32), 33.0 + 0.005 * np.arange(9), noisy
+    )
+    np.testing.assert_array_equal(lon, 124.5 + 0.01 * np.arange(6))
+
+
+def test_fine_grid_off_the_scenario_nodes_is_refused() -> None:
+    """A half-cell offset would silently decouple the band-inheritance coordinate check."""
+    with pytest.raises(kma.KmaUnavailable, match="off the"):
+        kma._to_native(
+            np.zeros((1, 9, 11), dtype=np.float32),
+            33.0025 + 0.005 * np.arange(9),
+            124.5 + 0.005 * np.arange(11),
+        )
+
+
+def test_ascii_scenario_streams_without_ever_unpacking(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One real ASCII year is 1.3 GB and a scenario 13 GB, so nothing may hit the disk."""
+    monkeypatch.setenv("CLIMATERISK_KMA_DIR", str(tmp_path))
+    monkeypatch.setattr(kma, "GRID_SHAPE_LAT_LON", (4, 5))
+    _write_asc_archive(tmp_path, (2023, 2024), (4, 5))
+
+    files = kma.list_files(tmp_path, scenario="rcp85")
+    assert [f.year_start for f in files] == [2023, 2024]
+    assert not list(tmp_path.glob("*.txt")), "the ASCII archive must stay packed"
+
+    obs = kma.load_summer_tmax("rcp85", coarsen=1)
+    assert obs.years.tolist() == [2023, 2024]  # 2024 is a leap year
+    assert obs.n_cells == 16  # the sea column of 4 cells is dropped
+    assert obs.tmax.shape == (16, 2, kma.SEASON_DAYS)
+    assert not np.isnan(obs.tmax).any()
+    assert 20.0 < obs.tmax.mean() < 35.0  # degC, Jun-Sep
+    assert not list(tmp_path.glob("*.txt"))
+    lat, lon = kma.native_grid()
+    assert np.isclose(obs.lat.min(), lat[0]) and np.isclose(obs.lon.min(), lon[1])
+
+
+def test_windows_are_pinned_to_one_footprint_across_products(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """MK-PRISM and the AR6 ensemble carry different land masks.
+
+    Over Korea at 0.05 deg the real files give 4691 observed cells against 4326 scenario
+    cells, so windows loaded independently do not describe the same place and their
+    difference is not a scenario signal. ``common_footprint`` is the intersection, and
+    ``restrict_to`` pins every window to it.
+    """
+    monkeypatch.setenv("CLIMATERISK_KMA_DIR", str(tmp_path))
+    monkeypatch.setattr(kma, "GRID_SHAPE_LAT_LON", (N_LAT, N_LON))
+    monkeypatch.setattr(kma, "GRID_ORIGIN_LAT_LON", (LAT0, LON0))
+    _write_kma_file(tmp_path, (2000, 2001))  # two sea columns
+    _write_asc_archive(tmp_path, (2021, 2022), (N_LAT, N_LON), warm_offset=3.0)  # one
+
+    obs_lat, _ = kma.footprint("historical", coarsen=1)
+    fut_lat, _ = kma.footprint("rcp85", coarsen=1)
+    assert obs_lat.size == 80 and fut_lat.size == 90  # the masks genuinely differ
+
+    lat, lon = kma.common_footprint(["historical", "rcp85"], coarsen=1)
+    assert lat.size == 80, "the intersection is the narrower (observed) mask"
+
+    hist = kma.load_summer_tmax("historical", coarsen=1, restrict_to=(lat, lon))
+    fut = kma.load_summer_tmax("rcp85", coarsen=1, restrict_to=(lat, lon))
+    assert hist.n_cells == fut.n_cells == 80
+    np.testing.assert_allclose(hist.lat, fut.lat)
+    np.testing.assert_allclose(hist.lon, fut.lon)
+    # same cells, so the difference is the 3 degC offset the fixture applied and nothing else
+    assert 2.0 < fut.tmax.mean() - hist.tmax.mean() < 4.0
+
+
+def test_a_cell_outside_the_grid_is_refused_rather_than_dropped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CLIMATERISK_KMA_DIR", str(tmp_path))
+    _write_kma_file(tmp_path, (2000, 2001))
+    lat, lon = kma.footprint("historical", coarsen=1)
+    bad = (np.append(lat, 0.0), np.append(lon, 0.0))
+    with pytest.raises(kma.KmaUnavailable, match="outside the historical grid"):
+        kma.load_summer_tmax("historical", coarsen=1, restrict_to=bad)
+
+
+def test_real_kma_files_reproduce_the_ranking_of_korean_summers() -> None:
+    """The payoff of the real 1 km files: 2018 must come out as Korea's worst summer.
+
+    2018 set Korea's all-time record (41.0 degC at Hongcheon on 1 Aug; 48 heatwave days in
+    Seoul) and 2003 was the coolest recent summer. Nothing in the model is tuned to either,
+    so the ranking is an independent check that the loader, the ASCII/NetCDF grids and the
+    comfort band are wired to the right places.
+
+    Skipped unless the MK-PRISM archive is actually present (~5 GB, login-gated).
+    """
+    if not kma.available("historical"):
+        pytest.skip("KMA 남한상세 MK-PRISM archive not downloaded")
+    files = kma.list_files(scenario="historical")
+    if len({f.year_start for f in files}) < 20:
+        pytest.skip("full 2000-2019 observed window not present")
+
+    obs = kma.load_summer_tmax("historical", coarsen=5)
+    cells, dd, years = hm.grid_from_summer_tmax(obs, "KOR", tag="kma", land_mask=False)
+    assert len(cells) > 3000, "the real 0.05 deg Korean grid, not a fixture"
+    assert dd.shape == (len(cells), len(years))
+
+    national = dd.mean(axis=0)
+    order = np.argsort(national)[::-1]
+    hottest = int(years[order[0]])
+    assert hottest == 2018, f"expected 2018 as Korea's most extreme summer, got {hottest}"
+    # 2018 was not merely first, it was in a class of its own.
+    assert national[order[0]] > 2.0 * national[order[1]]
+    coolest = int(years[int(np.argmin(national))])
+    assert coolest in (2003, 2009), f"expected 2003 or 2009 as the mildest, got {coolest}"
+
+    # Observed climatology must be physical, and each cell's band above its own mean.
+    assert all(5.0 < c.tmax_jja_mean < 40.0 for c in cells)
+    assert all(c.mmt_high > c.tmax_jja_mean for c in cells)
