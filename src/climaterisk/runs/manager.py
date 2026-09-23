@@ -245,6 +245,14 @@ class RunManager:
         run.status = "running"
         return run
 
+    def list_runs(self, session_id: str, kind: str, limit: int = 10) -> list[Run]:
+        """Recent runs of one kind (see ``RunStore.list_by_kind``), each polled/finalised."""
+        out = []
+        for run in self._store.list_by_kind(session_id, kind, limit):
+            polled = self.poll(run.id)
+            out.append(polled or run)
+        return out
+
     def latest_runs(self, session_id: str) -> dict[str, Run]:
         """Most recent finished run of each kind for a session (see ``RunStore``)."""
         return self._store.latest_by_kind(session_id)

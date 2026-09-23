@@ -275,9 +275,23 @@ def test_excel_first_sheets_are_plain_and_formatted() -> None:
     ]
     assert matrix.freeze_panes == "A2"
     meth = {r[0]: r[1] for r in wb["Methodology"].iter_rows(min_row=2, values_only=True)}
-    assert meth["risk_level.Low"].startswith("Annual expected loss is below 0.10%")
-    assert "no applicable CLIMADA Impact Function" in meth["status.HAZARD_ONLY"]
-    assert any(k.startswith("limitation.") for k in meth)
+    assert meth["Risk Level — Low"].startswith("Annual expected loss is below 0.10%")
+    assert "no applicable CLIMADA Impact Function" in meth["Calculation status — HAZARD_ONLY"]
+    assert any(k.startswith("Limitations — ") for k in meth)
+    for section in (
+        "What was assessed",
+        "Hazards — Flood",
+        "CLIMADA method",
+        "Impact Functions",
+        "EAL",
+        "Potential Loss",
+        "Climate Change Multiplier",
+    ):
+        assert section in meth, section
+    # first-sheet aggregates the brief asks for
+    assert {"Priced Hazard Count", "Hazard-only Count", "Not Available Count"} <= set(header)
+    assert ws.cell(row=rows["F1"], column=col["Priced Hazard Count"]).value == 2
+    assert ws.cell(row=rows["F1"], column=col["Hazard-only Count"]).value == 1
 
 
 # --------------------------------------------------------------------------- #
@@ -350,3 +364,73 @@ def test_request_selects_a_subset_of_assets_and_refuses_unknown_ids(client) -> N
     assert r.status_code == 404
     r = client.get("/api/libraries/physical-risk-models")
     assert r.status_code == 200 and r.json()["display"]["recommended_models"]["HEAT"] == K
+
+
+def test_run_history_lists_physical_risk_runs_newest_first(client, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
+    """Run history: the store filters by kind and the route 404s an unknown session."""
+    from climaterisk.runs.store import RunStore
+
+    assert client.get("/api/session/nope/runs").status_code == 404
+    store = RunStore(tmp_path / "runs.db")
+    older = store.create("r1", "s1", "rcp85", ["physical_risk_models"])
+    store.create("r2", "s1", "rcp85", ["tropical_cyclone"])  # a legacy physical run — not listed
+    newer = store.create("r3", "s1", "rcp85", ["physical_risk_models"])
+    listed = store.list_by_kind("s1", "physical_risk_models", limit=10)
+    assert [r.id for r in listed] in (
+        [newer.id, older.id],
+        [older.id, newer.id],
+    )  # same-second timestamps
+    assert all(r.perils == ["physical_risk_models"] for r in listed)
+    assert store.list_by_kind("s1", "physical_risk_models", limit=1)[0].id in (newer.id, older.id)
+    assert store.list_by_kind("s2", "physical_risk_models") == []
+
+
+def test_report_filename_uses_asset_count_and_run_date() -> None:
+    """Physical_Risk_Report_<N>_Assets_<YYYYMMDD>.xlsx — derived from the run, not typed."""
+    rows = [{"facility_id": f} for f in ("a", "b", "a", "c")]
+    n_assets = len({r["facility_id"] for r in rows})
+    stamp = "2026-09-24T10:00:00Z"[:10].replace("-", "")
+    assert (
+        f"Physical_Risk_Report_{n_assets}_Assets_{stamp}.xlsx"
+        == "Physical_Risk_Report_3_Assets_20260924.xlsx"
+    )
+
+
+def test_display_bundle_carries_the_final_copy() -> None:
+    b = dc.display_bundle()
+    assert "not an overall portfolio risk score" in b["summary_note"]
+    assert "pipeline-consistency" in b["comparison_purpose"]
+    assert any("Korea asset-value exposure" in line for line in b["limitations"])
+    assert all(
+        "modeled" in dc.HAZARD_COPY[k].lower() or "Modeled" in dc.HAZARD_COPY[k]
+        for k in ("RF", "TC")
+    )
+    for banned in ("safe", "no risk", "guaranteed", "actual flood depth", "actual expected damage"):
+        assert banned not in " ".join(b["limitations"]).lower()
+        assert banned not in " ".join(dc.STATUS_COPY.values()).lower()
+
+
+def test_hazard_results_sheet_carries_the_plain_data_source_column() -> None:
+    rows = _portfolio()
+    frame = rt.hazard_results_frame(rows)
+    assert "data_source" in frame[0] and list(frame[0]).index("data_source") == list(
+        rt.HAZARD_RESULTS_COLUMNS
+    ).index("data_source")
+    assert {r["data_source"] for r in frame} == {"Global", "Country", "Local"}
+    for c in (
+        "facility_id",
+        "facility_name",
+        "hazard_type",
+        "model_id",
+        "data_source",
+        "risk_level",
+        "risk_level_criteria",
+        "probability",
+        "potential_loss_usd",
+        "eal_usd",
+        "eal_as_pct_of_assets",
+        "return_period_years",
+        "climate_change_multiplier",
+        "calculation_status",
+    ):
+        assert c in rt.HAZARD_RESULTS_COLUMNS, c

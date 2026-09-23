@@ -270,7 +270,16 @@ the same runner and rows as everything else — nothing is recomputed in the bro
 | 3 | **Recommended** (default) or Custom: Global reference / Korea country dataset / Korea local, each with per-hazard availability | `recommended_models()` reads the readiness registry: RF → DATA_API_COUNTRY, TC → DATA_API_COUNTRY, HEAT → KOREA_LOCAL (hazard only). An unrunnable cell is never chosen |
 | 4 | one Run Assessment; "n / N calculations complete" | one batch job; the worker rewrites `progress.json` per hazard × model, served at `GET …/run/{id}/progress` |
 | 5 | Physical Risk Summary counts (per asset × risk, **no overall score**), asset risk matrix, asset detail with EAL / EAL ÷ assets / Potential Loss / Data, **Why?** (band copy + method chain + impact function + dataset), Compare data (Global vs Country when both were run, with the "same family, near-zero difference expected" note), collapsed technical table | `results_table.primary_rows` picks one row per facility × hazard (recommended model first, then most local, informative only); `summary_counts`, `asset_risk_matrix_frame`, `portfolio_summary_frame` |
-| 6 | Download Excel (top of results) | the Phase 5 route, unchanged |
+| 6 | Download Excel (top of results) — `Physical_Risk_Report_<N>_Assets_<YYYYMMDD>.xlsx` | the Phase 5 route; the filename is derived from the run |
+| — | Recent assessments: reopen or re-download earlier runs | `GET /api/session/{id}/runs?kind=physical_risk_models` (`RunStore.list_by_kind`) |
+
+Final phase additions: Custom mode disables scopes that cannot run for the selected hazards
+and states the reason per hazard; the matrix shows asset value; the detail shows Return
+period and Impact function, "Why High?" quotes the row's own `risk_level_criteria`, the
+Global vs Country table carries the "pipeline-consistency check" note, Korea Local is stated
+as not implemented (flood/TC) or hazard-available/financial-comparison-unavailable (heat),
+and a climate-change block appears only when a historical baseline was run. Non-expert
+guide: [`PHYSICAL_RISK_USER_GUIDE.md`](PHYSICAL_RISK_USER_GUIDE.md).
 
 "Financial loss: Not available (not $0)" is written wherever a hazard is unpriced;
 "What this tool covers today" lists the limitations (`display_copy.LIMITATIONS`).

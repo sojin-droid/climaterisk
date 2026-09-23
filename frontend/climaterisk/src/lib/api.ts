@@ -214,3 +214,8 @@ export async function getPhysicalRiskTable(sessionId: string, runId: string): Pr
 export async function getRunProgress(sessionId: string, runId: string): Promise<RunProgress> {
   return http<RunProgress>(`/api/session/${sessionId}/run/${runId}/progress`);
 }
+
+/** Recent runs of one kind for the session (run history), newest first, outputs included. */
+export async function listRuns(sessionId: string, kind = "physical_risk_models", limit = 10): Promise<Run[]> {
+  return http<Run[]>(`/api/session/${sessionId}/runs?kind=${kind}&limit=${limit}`);
+}

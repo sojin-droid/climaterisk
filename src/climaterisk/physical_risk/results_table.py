@@ -46,6 +46,7 @@ CANONICAL_COLUMNS: tuple[str, ...] = (
 #: complete provenance and status detail.
 HAZARD_RESULTS_COLUMNS: tuple[str, ...] = (
     *CANONICAL_COLUMNS,
+    "data_source",
     "requested_scenario",
     "served_scenario",
     "hazard_dataset",
@@ -116,8 +117,13 @@ def filter_rows(
 
 
 def hazard_results_frame(rows: Iterable[ResultRow | dict[str, Any]]) -> list[dict[str, Any]]:
-    """The ``hazard_results`` sheet — every row, full provenance."""
-    return [{c: getattr(r, c) for c in HAZARD_RESULTS_COLUMNS} for r in _as_rows(rows)]
+    """The ``hazard_results`` sheet — every row, full provenance, plus the data-scope label."""
+    out = []
+    for r in _as_rows(rows):
+        line = {c: getattr(r, c) for c in HAZARD_RESULTS_COLUMNS if c != "data_source"}
+        line["data_source"] = _scope_short(r.model_id)
+        out.append({c: line.get(c) for c in HAZARD_RESULTS_COLUMNS})
+    return out
 
 
 _LEVEL_ORDER = {"Low": 0, "Medium": 1, "High": 2}
@@ -183,6 +189,11 @@ def comparison_frame(
     for fid, haz in pairs:
         cmp = compare_models(rs, baseline_model, comparison_model, fid, haz)
         if cmp is None:
+            have = {r.model_id: r for r in rs if r.facility_id == fid and r.hazard_type == haz}
+            parts = []
+            for m in (baseline_model, comparison_model):
+                r = have.get(m)
+                parts.append(f"{m}: {r.calculation_status}" if r else f"{m}: not run")
             out.append(
                 {
                     "facility_id": fid,
@@ -190,11 +201,14 @@ def comparison_frame(
                     "hazard_type": haz,
                     "baseline_model_id": baseline_model,
                     f"{label}_model_id": comparison_model,
+                    "baseline_calculation_status": have[baseline_model].calculation_status
+                    if baseline_model in have
+                    else None,
+                    f"{label}_calculation_status": have[comparison_model].calculation_status
+                    if comparison_model in have
+                    else None,
                     "available": False,
-                    "detail": (
-                        f"{comparison_model} produced no row for this facility/hazard — "
-                        "not available"
-                    ),
+                    "detail": "not available — " + "; ".join(parts),
                 }
             )
             continue
@@ -391,8 +405,18 @@ def portfolio_summary_frame(
     for fid, (name, value) in facilities.items():
         line: dict[str, Any] = {"Facility ID": fid, "Facility": name, "Asset Value": value}
         total: float | None = None
+        priced = hazard_only = not_available = 0
         for tag, label in PORTFOLIO_HAZARDS:
             r = prim.get((fid, tag))
+            if r is not None:
+                if r.eal_usd is not None:
+                    priced += 1
+                elif r.calculation_status == "HAZARD_ONLY":
+                    hazard_only += 1
+                elif (
+                    r.calculation_status in _UNAVAILABLE_STATUSES or r.calculation_status == "ERROR"
+                ):
+                    not_available += 1
             if r is None:
                 line[f"{label} Status"] = "Not assessed"
                 if tag != "HW":
@@ -413,7 +437,10 @@ def portfolio_summary_frame(
             else:
                 line["Heatwave Tmax p95 (°C)"] = r.hazard_intensity
             line[f"{label} Data Source"] = _scope_short(r.model_id)
-        line["Overall EAL"] = total
+        line["Priced Hazard Count"] = priced
+        line["Hazard-only Count"] = hazard_only
+        line["Not Available Count"] = not_available
+        line["Overall EAL"] = total  # plain sum of priced hazards — not a composite score
         line["Overall EAL / Assets"] = (
             total / value * 100.0 if (total is not None and value) else None
         )

@@ -86,6 +86,9 @@ _RISK_FILL = {
     "Medium": PatternFill("solid", fgColor="FFE599"),
     "High": PatternFill("solid", fgColor="F4C7C3"),
     "Hazard only": PatternFill("solid", fgColor="D0E0E3"),
+    "Unavailable": PatternFill("solid", fgColor="EEEEEE"),
+    "N/A": PatternFill("solid", fgColor="EEEEEE"),
+    "N/A (scenario)": PatternFill("solid", fgColor="EEEEEE"),
 }
 
 
@@ -117,15 +120,79 @@ def run_info_frame(output: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _plain_methodology(frame: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """The methodology frame plus the plain-language band copy, status copy and limits."""
-    extra: list[dict[str, Any]] = []
+    """The Methodology sheet a general reader can follow, in fixed sections.
+
+    Sections: What was assessed · Hazards · Data sources · CLIMADA method · Impact Functions ·
+    EAL · Potential Loss · Risk Level · Climate Change Multiplier · Limitations · Calculation
+    statuses. The technical key/value lines from ``results_table.methodology_frame`` follow
+    under "Technical definitions" so nothing is lost.
+    """
+    from climaterisk.physical_risk.display_copy import (
+        HAZARD_COPY,
+        HAZARD_LABEL,
+        SCOPE_COPY,
+        SCOPE_LABEL,
+    )
+
+    lines: list[tuple[str, str]] = [
+        (
+            "What was assessed",
+            "Each selected asset (a point with an asset value) against each selected hazard, "
+            "under each data scope that could run. Every result row names the data scope, the "
+            "impact function and its calculation status.",
+        ),
+    ]
+    for key in ("RF", "TC", "HEAT"):
+        lines.append((f"Hazards — {HAZARD_LABEL[key]}", HAZARD_COPY[key]))
+    for model, label in SCOPE_LABEL.items():
+        lines.append((f"Data sources — {label} ({model})", SCOPE_COPY[model]))
+    lines += [
+        (
+            "CLIMADA method",
+            "Hazard intensity at the asset location → published CLIMADA impact function → "
+            "ImpactCalc (event losses × event frequencies) → Expected Annual Loss and "
+            "return-period loss. Nothing is re-implemented; no local calibration.",
+        ),
+        (
+            "Impact Functions",
+            "Flood: ImpfRiverFlood.from_jrc_region_sector (Huizinga et al. 2017), sector from the "
+            "asset's property type. Tropical cyclone: the regional function CLIMADA assigns to the "
+            "country (Eberenz et al. 2021; Korea → North West Pacific). Heatwave: none exists, so "
+            "no financial loss is derived. The same function is used under every data scope.",
+        ),
+        (
+            "EAL",
+            "Expected Annual Loss = sum over events of (event loss × annual frequency); CLIMADA "
+            "Impact.aai_agg. A computed zero is written as 0; an unpriced hazard is blank.",
+        ),
+        (
+            "Potential Loss",
+            "Loss at the configured return period (100 years) from CLIMADA's frequency curve. "
+            "Left blank with status RETURN_PERIOD_NOT_RESOLVABLE when the hazard data does not "
+            "reach that return period — CLIMADA alone would repeat the largest event's loss.",
+        ),
+    ]
     for level, text in risk_level_copy().items():
-        extra.append({"key": f"risk_level.{level}", "value": text})
-    for status, text in STATUS_COPY.items():
-        extra.append({"key": f"status.{status}", "value": text})
+        lines.append((f"Risk Level — {level}", text))
+    lines += [
+        (
+            "Risk Level — attribution",
+            "EAL as a share of asset value, banded by this project's configuration "
+            "(GRESB-informed; NOT an official GRESB threshold). No overall portfolio score.",
+        ),
+        (
+            "Climate Change Multiplier",
+            "future EAL / baseline EAL within one data scope, computed only when a baseline "
+            "scenario was actually run. A Global-vs-Country difference is a data-source "
+            "comparison, never a climate-change multiplier.",
+        ),
+    ]
     for i, line in enumerate(LIMITATIONS, start=1):
-        extra.append({"key": f"limitation.{i}", "value": line})
-    return list(frame) + extra
+        lines.append((f"Limitations — {i}", line))
+    for status, text in STATUS_COPY.items():
+        lines.append((f"Calculation status — {status}", text))
+    lines += [(f"Technical definitions — {m['key']}", str(m["value"])) for m in frame]
+    return [{"key": k, "value": v} for k, v in lines]
 
 
 def frames_from_output(output: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
@@ -186,7 +253,7 @@ def _write_sheet(
                     cell.number_format = fmt
         width = max([len(str(c))] + [len(str(r.get(c, ""))) for r in frame[:200]])
         ws.column_dimensions[get_column_letter(j)].width = min(max(10, width + 2), 60)
-        if n_rows > 1 and (c.endswith(" Risk") or c in _RISK_COLUMNS):
+        if n_rows > 1 and (c.endswith(" Risk") or c.endswith(" Status") or c in _RISK_COLUMNS):
             ref = f"{get_column_letter(j)}2:{get_column_letter(j)}{n_rows}"
             for label, fill in _RISK_FILL.items():
                 rule = CellIsRule(  # type: ignore[no-untyped-call]
