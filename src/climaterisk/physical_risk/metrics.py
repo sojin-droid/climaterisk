@@ -510,6 +510,42 @@ def climate_change_multiplier(baseline: ResultRow, future: ResultRow) -> dict[st
     }
 
 
+def attach_climate_multipliers(
+    future_rows: Iterable[ResultRow], baseline_rows: Iterable[ResultRow]
+) -> list[dict[str, Any]]:
+    """Set ``climate_change_multiplier`` on each future row from its same-model baseline row.
+
+    Rows pair on ``(facility_id, hazard_type, model_id)`` — never across models. A future
+    row without a baseline, or a pair the multiplier refuses (no EAL, zero baseline, same
+    period), keeps ``None``; the returned records carry the reason for every future row.
+    """
+    by_key = {(b.facility_id, b.hazard_type, b.model_id): b for b in baseline_rows}
+    out: list[dict[str, Any]] = []
+    for f in future_rows:
+        base = by_key.get((f.facility_id, f.hazard_type, f.model_id))
+        if base is None:
+            f.climate_change_multiplier = None
+            rec: dict[str, Any] = {
+                "climate_change_multiplier": None,
+                "detail": "no baseline row for this facility/hazard/model",
+                "future_scenario": f.served_scenario or f.scenario,
+                "future_period": f.time_horizon,
+            }
+        else:
+            rec = climate_change_multiplier(base, f)
+            f.climate_change_multiplier = rec["climate_change_multiplier"]
+        out.append(
+            {
+                "facility_id": f.facility_id,
+                "facility_name": f.facility_name,
+                "hazard_type": f.hazard_type,
+                "model_id": f.model_id,
+                **rec,
+            }
+        )
+    return out
+
+
 def jrc_sector_for(property_type: str | None, config: dict[str, Any] | None = None) -> str:
     """JRC sector for a portfolio ``property_type``.
 
