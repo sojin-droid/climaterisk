@@ -14,6 +14,19 @@ The platform is a **framework + UI that orchestrates open-source risk engines** 
 climate science. Physical risk is computed by **CLIMADA** (run as a separate conda worker process);
 transition risk uses bundled **NGFS** scenarios + **EDGAR** emission factors.
 
+## Portfolio physical-risk assessment (Models tab)
+
+**A CLIMADA-based physical-risk assessment tool for portfolios of real-estate assets.** It combines global- and country-level hazards (the CLIMADA Data API global sets and their country cuts — not domestic source data) with asset values to produce probabilistic financial loss (EAL, Potential Loss) for Flood and Tropical Cyclone; Heatwave is reported as hazard exposure only, because no applicable CLIMADA Impact Function exists.
+
+**CLIMADA 기반 다중 부동산 자산 물리적 리스크 평가 도구.** 글로벌·국가 단위 hazard(같은 CLIMADA Data API 계열의 전지구 세트와 그 국가 컷 — 국내 원천자료가 아님)와 자산가치를 결합하여 Flood 및 Tropical Cyclone의 확률적 금융손실(EAL, Potential Loss)을 산정하고, Heatwave는 현재 적용 가능한 CLIMADA Impact Function이 없어 hazard exposure만 제공한다.
+
+Workflow for non-experts — **Select your assets → Select hazards → Run → Download Excel** — see
+[`docs/PHYSICAL_RISK_USER_GUIDE.md`](docs/PHYSICAL_RISK_USER_GUIDE.md); method and provenance in
+[`docs/physical-risk-models.md`](docs/physical-risk-models.md); the asset-level regression baseline
+in [`docs/asset-level-validation.md`](docs/asset-level-validation.md) and
+`tests/fixtures/asset_level_validation/`. Baseline frozen 2026-09-24 as tag
+`v0.1.0-physical-risk-baseline`.
+
 ## Quick start
 
 ```bash
