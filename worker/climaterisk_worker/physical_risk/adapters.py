@@ -280,8 +280,10 @@ class KoreaLocalFloodAdapter(_NotImplementedAdapter):
     hazard_type = "RF"
     source = "환경부 홍수위험지도 (adapter interface only)"
     reason = (
-        "no domestic flood dataset connected: 공공누리 제4유형 licence and access unresolved; "
-        "the map is not downloaded, copied or computed until they are"
+        "no domestic flood dataset connected: the 환경부 홍수위험지도 is 공공누리 제4유형 "
+        "(출처표시 + 상업적 이용금지 + 변경금지; confirmed 2026-09-23), which does not permit "
+        "the grid conversion or commercial use without separate permission — the map is not "
+        "downloaded, copied or computed until it is granted"
     )
 
 
