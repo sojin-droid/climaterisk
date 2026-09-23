@@ -56,8 +56,12 @@ READINESS: dict[str, dict[str, dict[str, str]]] = {
             "status": "NOT_IMPLEMENTED",
             "hazard_source": "환경부 홍수위험지도 (adapter interface only)",
             "detail": (
-                "adapter defined, no dataset connected: licence (공공누리 제4유형) and access "
-                "unresolved; nothing is downloaded or computed until they are"
+                "adapter defined, no dataset connected. Investigated 2026-09-23 "
+                "(docs/KOREA_FLOODMAP_INVESTIGATION.md): access is open, but the licence is "
+                "공공누리 제4유형 (출처표시 + 상업적 이용금지 + 변경금지) — converting the "
+                "polygons to a hazard grid and using them in a commercial assessment are not "
+                "permitted without separate permission; nothing is downloaded or computed "
+                "until it is granted"
             ),
         },
     },

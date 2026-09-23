@@ -344,3 +344,13 @@ def test_readiness_route_and_table_route_exist(client) -> None:  # type: ignore[
     assert r.status_code == 200 and r.json()["summary"]["RF"][K] == "NOT_IMPLEMENTED"
     r = client.get("/api/session/nope/run/nope/physical-risk-table")
     assert r.status_code == 404
+
+
+def test_korea_local_flood_stays_unimplemented_while_the_licence_blocks_it() -> None:
+    """Phase 4 investigation: access is open, the licence is 공공누리 제4유형 — no adapter data."""
+    doc = (REPO / "docs" / "KOREA_FLOODMAP_INVESTIGATION.md").read_text(encoding="utf-8")
+    assert "제4유형" in doc and "상업적 이용금지" in doc and "변경금지" in doc
+    assert "NOT_IMPLEMENTED" in doc and "구현은 하지 않았다" in doc
+    cell = READINESS["RF"][K]
+    assert cell["status"] == "NOT_IMPLEMENTED"
+    assert "제4유형" in cell["detail"] and "KOREA_FLOODMAP_INVESTIGATION" in cell["detail"]

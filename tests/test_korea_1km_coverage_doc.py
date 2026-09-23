@@ -60,8 +60,8 @@ def test_the_seven_kma_variables_are_each_listed() -> None:
         assert re.search(rf"\b{var}\b", doc), f"KMA variable {var} not listed"
 
 
-def test_the_only_consumed_kma_variable_is_still_ta() -> None:
-    """The audit's central claim, re-derived: no code path reads any KMA variable but TA."""
+def test_the_consumed_kma_variables_are_ta_and_tamax_only() -> None:
+    """Re-derived: the code reads TA (mortality) and TAMAX (heatwave, S7 Option C) only."""
     consumed: set[str] = set()
     for path in list((WORKER / "climaterisk_worker").glob("*.py")) + list(
         (REPO / "scripts").glob("*.py")
@@ -75,10 +75,10 @@ def test_the_only_consumed_kma_variable_is_still_ta() -> None:
                     consumed.add(var)
     # "SI" in build_impf_presets.py is the South-Indian TC basin code, not the KMA variable.
     consumed.discard("SI")
-    assert consumed == {"TA"}, (
+    assert consumed == {"TA", "TAMAX"}, (
         f"code now references KMA variables {sorted(consumed)}; update the audit"
     )
-    assert "소비하는 것은 `TA` 하나" in _doc()
+    assert "소비하는 것은 `TA`와 `TAMAX` 둘" in _doc()
 
 
 def test_the_audit_names_its_grades_and_declares_no_korean_validation() -> None:

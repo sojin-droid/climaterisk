@@ -39,15 +39,23 @@ error; the platform names it for what it is.
 
 ### River flood — `KoreaLocalFloodAdapter`, NOT_IMPLEMENTED
 
-Candidate source: **환경부 홍수위험지도** (Ministry of Environment flood-risk map),
-downloadable via `scripts/fetch_floodmap_kor.py`. As of 2026-09-23:
+Candidate source: **환경부 홍수위험지도** (한강홍수통제소 flood-risk map). Investigated on
+2026-09-23 — full findings in [`KOREA_FLOODMAP_INVESTIGATION.md`](KOREA_FLOODMAP_INVESTIGATION.md):
 
-* **not on disk** on the current machine (only the fetch script exists);
-* licence **공공누리 제4유형** (attribution, non-commercial, no derivatives) — whether the
-  intended use is permitted is unresolved. The adapter therefore does not download, copy or
-  compute anything;
-* format and semantics still to be established: per-return-period inundation depth
-  polygons/rasters by river reach, not an event set.
+* **access is open** (no login; list/download API on `data.floodmap.go.kr`), but the
+  licence is **공공누리 제4유형: 출처표시 + 상업적 이용금지 + 변경금지**. Converting the
+  polygons into a CLIMADA hazard grid is a derivative work and a portfolio risk assessment
+  is commercial use, so the adapter stays `NOT_IMPLEMENTED` until 한강홍수통제소 grants
+  separate permission. Nothing is downloaded, copied or computed;
+* format (from two structure samples): shapefile per 중권역 × return period, **EPSG:5186**,
+  five rows per file = five **depth classes** (`SEG_CODE` N330–N334; official classes
+  ≤0.5 / 0.5–1 / 1–2 / 2–5 / ≥5 m, code↔class mapping still to be confirmed), `FLDLV_FREQ`
+  = return period. **No continuous depth value** — using the JRC depth-damage curve would
+  require a documented class→representative-depth decision;
+* return periods: national rivers 100/200/500 (+ 기왕최대, not a return period);
+* the map is a **design-flood scenario under an assumed levee failure**, not a probabilistic
+  hydrological hazard like the Data API's ISIMIP set — a *definition* difference the
+  comparison must label as such.
 
 What the adapter must produce once the licence question is settled:
 
@@ -78,12 +86,16 @@ AR6 SSP 5ENSMN futures) through the local catalog's KOR `heatwave` / `heat_morta
 layers. Rows carry hazard intensity and **no financial field**, because CLIMADA ships no
 heat impact function and this project does not author one.
 
-Open items inherited from `KOREA_1KM_IMPLEMENTATION_GAP.md`:
+Decisions and open items from `KOREA_1KM_IMPLEMENTATION_GAP.md`:
 
-* **S7** — the heatwave ramp's intended input was UTCI (commit `762ad5a`); the layer
-  currently fed is daily-mean TA p95 while its label says "Tmax". TAMAX archives
-  (MK-PRISM 2000–2019, AR6 SSP245/SSP585 2021–2060) are now on disk in `~/Downloads` and
-  would enable Option C, but the decision has not been taken and the files are not wired.
+* **S7 — decided 2026-09-23, Option C.** The `heatwave` layer is built from **TAMAX**
+  (daily maximum; season p95), so its "daily Tmax" label is now true; `heat_mortality`
+  stays on **TA** (daily mean, the metric its exposure-response estimates use). The two
+  layers never share a variable and the heatwave layer is never approximated from TA.
+  What did **not** change: no CLIMADA impact function was created, the indicative ramp
+  was not re-defined, and `KOREA_LOCAL` heat rows remain `HAZARD_ONLY` with null financial
+  fields. TAMAX archives: MK-PRISM 2000–2019 and AR6 SSP245/SSP585 2021–2060, in
+  `~/climada/data/kma/`.
 * Stored resolution is 0.05° (coarsened from 1 km by choice), so a `KOREA_LOCAL` heat row
   is 5 km, not 1 km.
 

@@ -230,7 +230,21 @@ def test_requested_ssp_layer_is_resolved_end_to_end_for_korea(
         stem="AR6_SSP245_5ENSMN_skorea_TA_gridraw_daily_2021_2024",
         warm_offset=3.0,
     )
+    # S7 Option C: the heatwave layer needs TAMAX (daily maximum) files of its own
+    _write_kma_file(
+        tmp_path / "kma",
+        (2000, 2001, 2002, 2003),
+        stem="MKPRISM_MKPRISMv21_skorea_TAMAX_gridraw_daily_2000_2003",
+        warm_offset=5.0,
+    )
+    _write_kma_file(
+        tmp_path / "kma",
+        (2021, 2022, 2023, 2024),
+        stem="AR6_SSP245_5ENSMN_skorea_TAMAX_gridraw_daily_2021_2024",
+        warm_offset=8.0,
+    )
     assert kma.available("historical") and kma.available("rcp45") and not kma.available("rcp85")
+    assert kma.available("historical", variable=kma.HEATWAVE_VARIABLE)
 
     spec = importlib.util.spec_from_file_location("heat_korea", REPO / "scripts" / "heat_korea.py")
     hk = importlib.util.module_from_spec(spec)
@@ -250,6 +264,11 @@ def test_requested_ssp_layer_is_resolved_end_to_end_for_korea(
         ("heatwave", "historical", 2020),
         ("heatwave", "rcp45", 2030),
     } <= keys
+    for e in catalog.load_manifest():
+        if e["peril"] == "heatwave":
+            assert "TAMAX" in e["source"] and "Tmax" in e["source"], e["source"]
+        if e["peril"] == "heat_mortality":
+            assert " TA " in e["source"] and "TAMAX" not in e["source"], e["source"]
 
     site = {
         "id": "seoul",
@@ -289,13 +308,17 @@ def test_the_cli_shopping_list_uses_the_variable_the_loader_reads() -> None:
 
     names = hk.expected_files()
     assert names, "the shopping list must not be empty"
-    token = f"_{kma.DEFAULT_VARIABLE}_gridraw_daily_"
-    assert all(token in n for n in names), names[:2]
-    # and every listed name must parse back through the loader's own parser
+    wanted = {kma.DEFAULT_VARIABLE, kma.HEATWAVE_VARIABLE}
+    seen = set()
+    # every listed name must parse back through the loader's own parser, to a variable
+    # one of the two heat layers actually reads
     for n in names:
         parsed = kma.parse_name(Path(n))
-        assert parsed is not None and parsed.variable == kma.DEFAULT_VARIABLE, n
+        assert parsed is not None and parsed.variable in wanted, n
+        seen.add(parsed.variable)
+    assert seen == wanted, f"shopping list covers {sorted(seen)}, layers read {sorted(wanted)}"
     assert kma.DEFAULT_VARIABLE == "TA", "daily mean is the metric the citable estimates use"
+    assert kma.HEATWAVE_VARIABLE == "TAMAX", "S7 Option C: the heatwave layer is daily maximum"
 
 
 def _write_asc_archive(
@@ -501,3 +524,28 @@ def test_real_kma_files_reproduce_the_ranking_of_korean_summers() -> None:
     # Observed climatology must be physical, and each cell's band above its own mean.
     assert all(5.0 < c.tmax_jja_mean < 40.0 for c in cells)
     assert all(c.mmt_high > c.tmax_jja_mean for c in cells)
+
+
+def test_heatwave_layer_is_skipped_not_approximated_when_tamax_is_absent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """S7 Option C: no TAMAX file -> no heatwave layer. The mortality layer is still written."""
+    pytest.importorskip("climada")
+    import importlib.util
+
+    from climaterisk_worker import catalog
+
+    monkeypatch.setenv("CLIMATERISK_KMA_DIR", str(tmp_path / "kma"))
+    monkeypatch.setenv("CLIMATERISK_HAZARD_DB", str(tmp_path / "db"))
+    (tmp_path / "kma").mkdir()
+    _write_kma_file(tmp_path / "kma", (2000, 2001, 2002, 2003))  # TA only
+    assert not kma.available("historical", variable=kma.HEATWAVE_VARIABLE)
+
+    spec = importlib.util.spec_from_file_location("heat_korea", REPO / "scripts" / "heat_korea.py")
+    hk = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(hk)
+    entries, _ = hk.register_window("historical", 2020, None, None, 2, catalog.catalog_dir())
+    perils = {e["peril"] for e in entries}
+    assert perils == {"heat_mortality"}, perils
+    assert {e["peril"] for e in catalog.load_manifest()} == {"heat_mortality"}
