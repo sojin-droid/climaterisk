@@ -1,0 +1,6 @@
+facility_id,facility_name,lat,lon,asset_value_usd,property_type,case
+VAL-A-GWANGJU,Gwangju office (Yeongsan floodplain),35.16,126.85,80000000,office,A positive flood loss
+VAL-B-SEOUL,Seoul office (Concordian),37.5,127.0,100000000,office,B zero flood loss
+VAL-C-BUSAN,Busan logistics centre,35.18,129.08,60000000,warehouse,C positive TC loss
+VAL-D-CHUNCHEON,Chuncheon residential,37.88,127.73,50000000,residential,D low TC loss (weakest inland winds)
+VAL-E-INCHEON,Incheon apartments,37.46,126.71,80000000,residential,E heatwave hazard-only
