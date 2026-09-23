@@ -214,9 +214,10 @@ def test_asset_summary_and_methodology_and_run_info_sheets() -> None:
     assert "HW:NO_HAZARD_DATA" in summary[("F1", G)]["unpriced_hazards"]
     assert summary[("F2", K)]["eal_usd"] is None
     meth = {r["key"]: r["value"] for r in _sheet_rows(wb["Methodology"])}
-    assert "not a climate multiplier" in meth["climate_change_multiplier"]
-    assert "NOT an official GRESB threshold" in meth["risk_levels"]
-    assert "model" in meth  # the three model definitions are on the sheet
+    assert "never a climate-change multiplier" in meth["Climate Change Multiplier"]
+    assert "NOT an official GRESB threshold" in meth["Risk Level — attribution"]
+    assert "Technical definitions — model" in meth  # the technical lines follow the plain ones
+    assert next(iter(meth)) == "What was assessed"
     info = {r["key"]: r["value"] for r in _sheet_rows(wb["Run Info"])}
     assert info["requested_scenario"] == "rcp60" and info["n_facilities"] == 2
     assert info[f"readiness.RF.{K}"] == "NOT_IMPLEMENTED"

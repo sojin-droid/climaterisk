@@ -647,6 +647,9 @@ export interface PhysicalRiskModelsOutput {
   target_year: number | null;
   country: string | null;
   rows: PhysicalRiskRow[];
+  baseline_scenario?: string | null;
+  baseline_rows?: PhysicalRiskRow[];
+  climate_change_multipliers?: Record<string, unknown>[];
   comparisons: Record<string, Record<string, unknown>[]>;
   readiness: PhysicalRiskReadiness;
   adapters: Record<string, unknown>[];
@@ -665,6 +668,8 @@ export interface PhysicalRiskDisplay {
   risk_level_copy: Record<string, string>;
   method_copy: Record<string, string>;
   limitations: string[];
+  summary_note: string;
+  comparison_purpose: string;
   recommended_models: Record<string, string>;
   scope_availability: Record<string, Record<string, string>>;
   comparison_note: string;

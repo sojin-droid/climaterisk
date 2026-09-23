@@ -131,6 +131,24 @@ def submit_physical_risk_models(
     )
 
 
+@router.get("/{session_id}/runs", response_model=list[Run])
+def list_runs(
+    session_id: str,
+    manager: ManagerDep,
+    store: StoreDep,
+    kind: str = "physical_risk_models",
+    limit: int = 10,
+) -> list[Run]:
+    """Recent runs of one kind for the session, newest first — the run history.
+
+    Outputs are included (the Run model carries them), so a reopened run can be shown and
+    exported again without recomputing.
+    """
+    if store.get(session_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="session not found")
+    return manager.list_runs(session_id, kind, max(1, min(limit, 50)))
+
+
 @router.get("/{session_id}/run/{run_id}/progress")
 def get_run_progress(session_id: str, run_id: str, manager: ManagerDep) -> dict[str, Any]:
     """Coarse progress of a running batch: ``done`` / ``total`` calculations and the step.
@@ -169,10 +187,13 @@ def export_physical_risk_models_xlsx(session_id: str, run_id: str, manager: Mana
         raise HTTPException(
             status.HTTP_409_CONFLICT, detail="run is not a finished physical-risk-models run"
         )
+    n_assets = len({r.get("facility_id") for r in run.output["rows"]})
+    stamp = str(run.created_at or "")[:10].replace("-", "") or "run"
+    filename = f"Physical_Risk_Report_{n_assets}_Assets_{stamp}.xlsx"
     return Response(
         workbook_bytes(run.output),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="physical_risk_{run_id}.xlsx"'},
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

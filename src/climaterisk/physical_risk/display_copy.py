@@ -29,8 +29,8 @@ HAZARD_LABEL: dict[str, str] = {
 
 #: One-line, non-expert descriptions shown under each hazard checkbox.
 HAZARD_COPY: dict[str, str] = {
-    "RF": "River flooding and modeled inundation risk.",
-    "TC": "Wind-related physical damage from tropical cyclones.",
+    "RF": "Modeled river flooding and inundation risk.",
+    "TC": "Modeled wind-related physical damage from tropical cyclones.",
     "HEAT": (
         "Extreme heat exposure. Financial impact is shown only where an applicable "
         "CLIMADA Impact Function is available — today none is, so heat is hazard-only."
@@ -103,13 +103,28 @@ STATUS_SHORT: dict[str, str] = {
 
 #: What the tool does and does not cover today (shown on the results screen and in Excel).
 LIMITATIONS: tuple[str, ...] = (
-    "Flood and tropical cyclone: financial loss is available where the status is FULL.",
-    "Heatwave: hazard-only — no applicable CLIMADA Impact Function, so no financial loss.",
-    "Korea local flood: unavailable (no domestic dataset connected; licence pending).",
-    "Korea local tropical cyclone: unavailable (no domestic dataset connected).",
+    "Flood: Korea-local domestic source not yet implemented; financial loss is available "
+    "where the status is FULL (Data API hazard).",
+    "Tropical cyclone: Korea-local domestic source not yet implemented; financial loss is "
+    "available where the status is FULL (Data API hazard).",
+    "Heatwave: hazard available from KMA TAMAX; financial impact unavailable because no "
+    "applicable CLIMADA Impact Function exists.",
     "Korea-specific Impact Functions: not used — published CLIMADA functions only.",
-    "Heatwave financial Impact Function: not available.",
+    "Korea asset-value exposure: not yet implemented unless supplied through the user portfolio.",
+    "All values are modeled — expected annual loss under the selected CLIMADA hazard and "
+    "impact-function assumptions, not observed damage.",
     "No overall portfolio risk score is computed; risk levels are per hazard.",
+)
+
+#: Under the summary counts, always.
+SUMMARY_NOTE = (
+    "Risk counts summarize individual hazard assessments. They are not an overall portfolio "
+    "risk score."
+)
+
+#: Under the Global vs Country table, always.
+COMPARISON_PURPOSE = (
+    "This comparison is a pipeline-consistency check, not a measure of Korea localization accuracy."
 )
 
 
@@ -199,7 +214,7 @@ def scope_availability(
 def display_bundle() -> dict[str, Any]:
     """Everything the UI needs in one payload (served with the readiness table)."""
     return {
-        "hazard_label": {k: HAZARD_LABEL[k] for k in ("RF", "TC", "HEAT")},
+        "hazard_label": dict(HAZARD_LABEL),  # readiness keys and CLIMADA tags alike
         "hazard_copy": dict(HAZARD_COPY),
         "scope_label": dict(SCOPE_LABEL),
         "scope_short": dict(SCOPE_SHORT),
@@ -209,6 +224,8 @@ def display_bundle() -> dict[str, Any]:
         "risk_level_copy": risk_level_copy(),
         "method_copy": {k: method_copy(k) for k in ("RF", "TC", "HW")},
         "limitations": list(LIMITATIONS),
+        "summary_note": SUMMARY_NOTE,
+        "comparison_purpose": COMPARISON_PURPOSE,
         "recommended_models": recommended_models(),
         "scope_availability": scope_availability(),
         "comparison_note": (

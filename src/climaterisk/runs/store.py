@@ -169,6 +169,22 @@ class RunStore:
             latest.setdefault(run_kind(run.perils), run)
         return latest
 
+    def list_by_kind(self, session_id: str, kind: str, limit: int = 10) -> list[Run]:
+        """Most recent runs of one kind for a session (any status), newest first."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM runs WHERE session_id = ? ORDER BY created_at DESC",
+                (session_id,),
+            ).fetchall()
+        out: list[Run] = []
+        for row in rows:
+            run = self._row_to_run(row)
+            if run_kind(run.perils) == kind:
+                out.append(run)
+                if len(out) >= limit:
+                    break
+        return out
+
     def fail_stale_runs(self, detail: str) -> int:
         """Mark any run still ``queued``/``running`` as ``error`` (called on backend start).
 
