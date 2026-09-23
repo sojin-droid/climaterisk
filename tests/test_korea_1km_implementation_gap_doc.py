@@ -132,13 +132,17 @@ def test_the_heatwave_ramp_origin_is_traced_to_its_commit() -> None:
         assert out.stdout.strip().splitlines()[-1].startswith("762ad5a")
 
 
-def test_the_doc_does_not_prescribe_tamax_as_the_fix() -> None:
-    """Per the review: settle the ramp's intended input first; wiring TAMAX now is arbitrary."""
+def test_the_s7_decision_is_recorded_with_its_date_and_limits() -> None:
+    """S7 was decided on 2026-09-23 (Option C); the doc must record it and its non-claims."""
     doc = _doc()
-    assert "TAMAX" in doc
-    assert not re.search(r"TAMAX(을|를) (연결|배선)한다\.", doc), (
-        "the doc must present TAMAX vs redefinition as an open decision, not a prescription"
-    )
+    sec = doc[
+        doc.index("## Heatwave intensity definition") : doc.index("## Resolution metadata design")
+    ]
+    assert "결정 — Option C" in sec and "2026-09-23" in sec
+    assert "어느 안도 선택하지 않는다" not in sec
+    # the decision changes the hazard variable only: no impact function, no money
+    assert "임팩트 함수를 새로 만들지 않는다" in sec and "financial loss" in sec
+    assert "TA" in sec and "heat_mortality" in sec  # mortality stays on daily mean
 
 
 # --------------------------------------------------------------------------- #
@@ -172,7 +176,7 @@ def _status_table(doc: str) -> dict[str, str]:
     return rows
 
 
-def test_s7_documents_three_options_with_the_same_fields_and_chooses_none() -> None:
+def test_s7_documents_three_options_with_the_same_fields() -> None:
     doc = _doc()
     sec = doc[
         doc.index("## Heatwave intensity definition") : doc.index("## Resolution metadata design")
@@ -190,7 +194,6 @@ def test_s7_documents_three_options_with_the_same_fields_and_chooses_none() -> N
         "다음 결정",
     ):
         assert sec.count(f"| {field} |") == 3, f"{field!r} must appear once per option"
-    assert "어느\n안도 선택하지 않는다" in sec or "어느 안도 선택하지 않는다" in sec
     assert "762ad5a" in sec and "UTCI" in sec
 
 
@@ -215,17 +218,16 @@ def test_requested_vs_served_scenario_is_represented_explicitly() -> None:
             assert f"served_scenario = {served[0]}" in doc, e["file"]
 
 
-def test_heatwave_label_cannot_claim_tmax_when_the_array_is_ta() -> None:
+def test_heatwave_layer_label_and_variable_now_agree() -> None:
+    """After S7 Option C the on-disk heatwave layer is built from TAMAX, as its label says."""
     doc = _doc()
-    assert "18.7–32.6" in doc and "일평균 TA" in doc and "daily Tmax" in doc
+    assert "18.7–32.6" in doc and "일평균 TA" in doc and "daily Tmax" in doc  # the history stays
     for e in _kor_entries():
         if e["peril"] == "heatwave":
             src = str(e.get("source", ""))
-            assert "TA" in src and "Tmax" in src, (
-                "the on-disk label/variable discrepancy vanished — update the doc"
+            assert "TAMAX" in src and "Tmax" in src, (
+                f"heatwave layer {e['file']} is not built from TAMAX: {src!r}"
             )
-    # the doc must never assert the heatwave layer IS daily max
-    assert not re.search(r"heatwave 레이어(는|가) (일최고|daily Tmax)(기온)?(이다|다)\.", doc)
 
 
 def test_one_km_ready_requires_exposure_and_metadata_and_nothing_is_ready() -> None:

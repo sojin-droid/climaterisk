@@ -39,9 +39,10 @@ _KMA_NAME = re.compile(
     r"(?P<y0>\d{4})(?:_(?P<y1>\d{4}))?(?:_(?P<fmt>nc|asc))?\.(?P<ext>nc|txt|tar\.gz)$"
 )
 
-#: The seven 기후요소 the 남한상세 grid offers; only ``TA`` has a consumer in the code.
+#: The seven 기후요소 the 남한상세 grid offers. Consumers in the code: ``TA`` (heat mortality,
+#: daily mean) and ``TAMAX`` (heatwave layer, daily maximum — S7 Option C, 2026-09-23).
 KMA_VARIABLES: tuple[str, ...] = ("TA", "TAMAX", "TAMIN", "RN", "RHM", "WS", "SI")
-CONSUMED_VARIABLES: tuple[str, ...] = ("TA",)
+CONSUMED_VARIABLES: tuple[str, ...] = ("TA", "TAMAX")
 
 #: Credentials the platform can use, checked by presence only.
 CREDENTIAL_ENV: tuple[tuple[str, str], ...] = (

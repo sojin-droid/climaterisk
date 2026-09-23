@@ -104,7 +104,7 @@ def test_status_reads_kma_files_by_name_only(
         member["years"] == [2000, 2000] and member["model"] is None and member["kind"] == "member"
     )
     assert kma["variables_present"] == ["TA"]
-    assert kma["variables_consumed_by_code"] == ["TA"]
+    assert kma["variables_consumed_by_code"] == ["TA", "TAMAX"]
     assert set(kma["variables_offered"]) == {"TA", "TAMAX", "TAMIN", "RN", "RHM", "WS", "SI"}
 
 

@@ -234,7 +234,7 @@ withdrawn. Reproducible figures, by model, with dataset name and version on ever
 | Flood | rcp60 / 2030–2050 | GLOBAL_BASELINE | `river_flood_150arcsec_rcp60_2030_2050` v3 | \$0.00 (real zero) | 0 % | \$0.00 | FULL |
 | Flood | rcp60 / 2030–2050 | DATA_API_COUNTRY | `…rcp60_KOR_2030_2050` v3 | \$0.00 (real zero) | 0 % | \$0.00 | FULL |
 | Flood | rcp45 → served rcp60 | both Data API models | as above | *null* | *null* | *null* | SCENARIO_MISMATCH |
-| Heatwave | rcp45 / 2030 | KOREA_LOCAL (KMA) | `heatwave/HW_rcp45_KOR_2030.hdf5` | *null* | *null* | *null* | HAZARD_ONLY |
+| Heatwave | rcp45 / 2030 | KOREA_LOCAL (KMA TAMAX, S7 Option C) | `heatwave/HW_rcp45_KOR_2030.hdf5` | *null* | *null* | *null* | HAZARD_ONLY |
 
 The Phase 3 runner fetches by dataset name with the coverage token explicit, so the model
 label can no longer drift from the file (`physical-risk-models.md` §4, §12).

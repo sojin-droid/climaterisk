@@ -243,7 +243,7 @@ User portfolio only: `lat`, `lon`, `asset_value_usd`, `asset_value_currency`,
 | RF | **rcp45** → served rcp60 | DATA_API_COUNTRY | `…rcp60_KOR_2030_2050` (v3) | 0.00 m | null | null | null | null | **SCENARIO_MISMATCH** |
 | HEAT (HW) | rcp45 / 2030 | GLOBAL_BASELINE | — | — | null | null | null | null | NO_HAZARD_DATA |
 | HEAT (HW) | rcp45 / 2030 | DATA_API_COUNTRY | — | — | null | null | null | null | NO_HAZARD_DATA |
-| HEAT (HW) | rcp45 / 2030 | KOREA_LOCAL | `heatwave/HW_rcp45_KOR_2030.hdf5` (KMA SSP245 5ENSMN) | 31.85 °C | null | null | null | null | HAZARD_ONLY |
+| HEAT (HW) | rcp45 / 2030 | KOREA_LOCAL | `heatwave/HW_rcp45_KOR_2030.hdf5` (KMA **TAMAX** SSP245 5ENSMN, S7 Option C) | 37.14 °C (31.85 °C before S7, when the layer was TA-based) | null | null | null | null | HAZARD_ONLY |
 
 **Flood at this facility is a real, computed zero.** The nearest ISIMIP 150-arcsec centroid
 to 37.5 N 127.0 E carries no depth in any of the 480 events — in the rcp60 2030–2050 set and,

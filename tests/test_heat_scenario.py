@@ -90,8 +90,13 @@ def test_korean_heatwave_layer_uses_the_runners_hazard_type() -> None:
     hk = _load_heat_korea()
     cells = [SimpleNamespace(lat=37.5, lon=127.0), SimpleNamespace(lat=35.1, lon=129.0)]
     years = np.array([2021, 2022, 2023])
-    obs = SimpleNamespace(tmax=np.full((2, 3, 122), 30.0), source="synthetic test stack")
+    obs = SimpleNamespace(tmax=np.full((2, 3, 122), 30.0), source="synthetic TAMAX test stack")
     grid = hk._heatwave_grid(obs, cells, years, "rcp45", 2030)
+    # S7 Option C: the heatwave layer is daily-maximum based and refuses a TA stack
+    with pytest.raises(AssertionError, match="TAMAX"):
+        hk._heatwave_grid(
+            SimpleNamespace(tmax=obs.tmax, source="KMA TA stack"), cells, years, "rcp45", 2030
+        )
     runner_haz_type = physical._CATALOG_PERILS["heatwave"][0]
     assert grid["haz_type"] == runner_haz_type == HEATWAVE_HAZ_TYPE == "HW"
     assert grid["peril"] == "heatwave" and grid["climate_scenario"] == "rcp45"

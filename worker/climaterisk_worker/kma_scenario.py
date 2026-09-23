@@ -17,9 +17,11 @@ Data (기상청 기후변화 시나리오 활용매뉴얼 v5.1, 2024-12; files v
   one line per day, 751 × 601 values per line in row-major order with latitude ascending,
   366 lines in a leap year. Orientation was confirmed against the MK-PRISM land mask
   (98.2 % agreement; 85.4 % with latitude flipped).
-* Variable: ``TA`` (평균기온, daily mean). Daily **mean** temperature is deliberate — the
-  citable Korean threshold and exposure-response estimates are all in daily mean
-  (Kim 2020, doi:10.3390/ijerph17165720; see ``docs/HEAT_MORTALITY_PROVENANCE.md``).
+* Variables: ``TA`` (평균기온, daily mean) for **heat mortality** — the citable Korean
+  threshold and exposure-response estimates are all in daily mean (Kim 2020,
+  doi:10.3390/ijerph17165720; see ``docs/HEAT_MORTALITY_PROVENANCE.md``) — and ``TAMAX``
+  (일최고기온, daily maximum) for the **heatwave** layer (S7 decision 2026-09-23, Option C:
+  ``docs/KOREA_1KM_IMPLEMENTATION_GAP.md``). The two layers never share a variable.
 * Distribution: 기후변화 상황지도 (climate.go.kr/atlas/ana/cdd), login required, as
   ``*.tar.gz`` archives whose members are **one calendar year each**::
 
@@ -59,11 +61,16 @@ from climaterisk_worker.eobs import SEASON_DAYS, SEASON_END, SEASON_START, Summe
 
 _HOME_KMA = Path.home() / "climada" / "data" / "kma"
 
-#: File-name token of the variable the heat model consumes. ``TA`` is 평균기온 (daily mean):
-#: every citable threshold and exposure-response estimate is expressed in daily mean
-#: temperature (``docs/HEAT_MORTALITY_PROVENANCE.md``). ``TAMAX`` (최고평균기온) is what the
-#: model used before 2026-09-09 and is no longer read by default.
+#: File-name token of the variable the heat-**mortality** model consumes. ``TA`` is 평균기온
+#: (daily mean): every citable threshold and exposure-response estimate is expressed in daily
+#: mean temperature (``docs/HEAT_MORTALITY_PROVENANCE.md``).
 DEFAULT_VARIABLE = "TA"
+
+#: File-name token of the variable the **heatwave** layer consumes: ``TAMAX`` (일최고기온, daily
+#: maximum). Fixed by the S7 decision of 2026-09-23 (Option C): the layer is a season p95 of
+#: daily *maximum* temperature, so its ``"daily Tmax"`` label is true. It is never built from
+#: ``TA``; when no TAMAX file is present the layer is skipped, not approximated.
+HEATWAVE_VARIABLE = "TAMAX"
 
 MISSING_VALUE = -9990.0
 GRID_RES_DEG = 0.01
@@ -252,10 +259,14 @@ def asc_entries(archive: Path) -> list[KmaFile]:
     ]
 
 
-def available(scenario: str = "historical", directory: Path | None = None) -> bool:
-    """True when at least one daily TA (daily mean) file exists for ``scenario``."""
+def available(
+    scenario: str = "historical",
+    directory: Path | None = None,
+    variable: str = DEFAULT_VARIABLE,
+) -> bool:
+    """True when at least one daily file of ``variable`` exists for ``scenario``."""
     try:
-        return bool(list_files(directory, scenario=scenario))
+        return bool(list_files(directory, variable=variable, scenario=scenario))
     except KmaUnavailable:
         return False
 

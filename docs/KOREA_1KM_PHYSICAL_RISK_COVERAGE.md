@@ -26,15 +26,16 @@
 | KMA 변수 | 디스크 | 코드가 읽는가 | 근거 |
 |---|---|---|---|
 | **TA** 평균기온 | ✅ MK-PRISM 2000–2019 + SSP245/585 2021–2030 (`~/climada/data/kma/`) | ✅ | `kma_scenario.py:56` `DEFAULT_VARIABLE = "TA"`; `load_summer_tmax` |
-| TAMAX 최고기온 | ❌ | ❌ | 2026-09-09 이전에 읽었고 지금은 코드 어디에도 없음 (`heat_korea.py:84` 드리프트 기록) |
+| TAMAX 최고기온 | ✅ MK-PRISM 2000–2019 + SSP245/585 2021–2060 (`~/climada/data/kma/`) | ✅ (`heatwave`만) | **2026-09-23 S7 Option C**: `kma_scenario.HEATWAVE_VARIABLE = "TAMAX"`; `heat_korea.register_window`가 TAMAX를 따로 읽어 `heatwave` 레이어만 만든다. 2026-09-09~23 사이에는 코드 어디에도 없었다(`heat_korea.py` 드리프트 기록) |
 | TAMIN 최저기온 | ❌ | ❌ | 참조 없음 |
 | RN 강수량 | ❌ | ❌ | 참조 없음 |
 | RHM 상대습도 | ❌ | ❌ | 참조 없음 |
 | WS 풍속 | ❌ | ❌ | 참조 없음 |
 | SI 일사량 | ❌ | ❌ | 참조 없음 (`build_impf_presets.py:50`의 `"SI"`는 남인도양 분지 코드) |
 
-**결론: KMA 1 km 자료 중 climaterisk가 소비하는 것은 `TA` 하나이고, 그것도 폭염 두 페릴에서만이다.**
-`grep -rn 'TAMAX\|"RN"\|"RHM"\|"WS"\|TAMIN' worker scripts` → `kma_scenario.py`의 문서 주석 외 0건.
+**결론: KMA 1 km 자료 중 climaterisk가 소비하는 것은 `TA`와 `TAMAX` 둘이고, 그것도 폭염 두 페릴에서만이다** —
+`TA` → `heat_mortality`(일평균, Kim 2020 계열 추정치 기준), `TAMAX` → `heatwave`(시즌 p95 일최고, 2026-09-23 S7 Option C).
+2026-09-23 이전에는 `TA` 하나였다. `grep -rn '"RN"\|"RHM"\|"WS"\|TAMIN' worker scripts` → 문서 주석 외 0건.
 
 해상도: 로더는 0.01°(관측은 0.005°를 짝수 노드 서브샘플링)로 정합한 뒤 **`coarsen=5` → 0.05°(≈5 km, 4,312셀)**로
 뭉갠다(`kma_scenario.load_summer_tmax`, `heat_korea.py --coarsen`). 즉 폭염 경로조차 **1 km로 계산하지 않는다** —
@@ -57,7 +58,7 @@ KOR 카탈로그 매니페스트(`data/hazard_db/`, 2026-09-11)에 있는 레이
 | 물리위험 | 한국 해저드 (KMA 1 km?) | Exposure | Vulnerability | 해상도(KOR) | 시나리오 | 한국 검증 | 종합 |
 |---|---|---|---|---|---|---|---|
 | **폭염 사망** `heat_mortality` | **KMA TA ✅** — 초과도일, `kma_scenario`→`heat_mortality.grid_from_summer_tmax`→`hazard_convert` | 인구: 점자산 headcount / WorldPop KOR 1 km(`exposures._raster_exposure`) / `COUNTRY_SHARE_OVER65["KOR"]=0.203` | **Custom** 용량-반응. β·밴드 indicative; 기저사망률 `main`=legacy indicative, **PR #16(미머지)**=KOSIS 2024 anchored | 0.05° (4,312셀) — 1 km 아님 | historical + SSP245/585 **2030 앵커만**(2021–2030 10시즌, 20시즌 창의 절반) | ❌ 사망 대조 없음. 해저드 수준: 2018 1위·2003 최하위 재현(`test_real_kma_files…`, **PR #15 미머지**) | **Custom · Partial · Not validated** |
-| **폭염 생산성** `heatwave` | **KMA TA ✅** — 시즌 p95(`heat_korea._heatwave_grid`) | 점자산 value | Indicative 램프 `wf_max_mdd`(`_CATALOG_PERILS["heatwave"]`, G4) | 0.05° | historical + SSP 2030 | ❌ | **Custom hazard + indicative curve · Not validated** |
+| **폭염 생산성** `heatwave` | **KMA TAMAX ✅** (2026-09-23부터; 이전 TA) — 시즌 p95 일최고(`heat_korea._heatwave_grid`) | 점자산 value | Indicative 램프 `wf_max_mdd`(`_CATALOG_PERILS["heatwave"]`, G4) | 0.05° | historical + SSP 2030 | ❌ | **Custom hazard + indicative curve · Not validated** |
 | **열 스트레스(WBGT/UTCI)** | ❌ KMA `RHM`·`WS`·`SI` 미배선 | — | — | — | — | — | **Missing** (`heatwave` 힌트는 "ERA5-HEAT/UTCI 인제스트"를 요구하나 인제스터 없음) |
 | **극한강수 / 내수침수(pluvial)** | ❌ KMA `RN` 미배선; 페릴 자체 없음 | — | — | — | — | — | **Missing** — G7 구조 공백 |
 | **하천홍수** `river_flood` | ❌ KMA 아님 — CLIMADA Data API ISIMIP 전지구(`physical.py:508-525`). 환경부 홍수위험지도 SHP 4.9 GB **디스크에만 있고 소비자 0건**(`fetch_floodmap_kor.py`만 참조; 공공누리 4유형) | 점자산 value(+`_footprint_points` 폴리곤) | **Native(JRC Asia 주거)** 프리셋 `flood_jrc_asia`(`vulnerability.flood_regional_preset`) — 한국 보정 아님 | 5,708 센트로이드(Data API 국가 격자, 1 km 아님) | KOR 레이어 `rcp45 2050` 1개 — **소스는 `rcp60`**(§5 불일치) | ❌ | **Native · Partial · Not validated** |
@@ -134,9 +135,10 @@ KOR 카탈로그 매니페스트(`data/hazard_db/`, 2026-09-11)에 있는 레이
 
 ## 5. 감사 중 발견한 일관성 문제 (수정하지 않음 — 기록)
 
-1. **`heatwave` 레이어 라벨이 틀렸다.** 매니페스트 `source`가 `"season p95 daily Tmax — KMA 남한상세 TA …"`인데,
-   2026-09-09부터 입력은 **일평균(TA)**이다. `heat_korea._heatwave_grid`가 `obs.tmax`(하위호환 별칭)의 p95를 계산하고
-   레이블 문자열이 갱신되지 않았다. 계산은 맞고 **이름만 틀리다.**
+1. **`heatwave` 레이어 라벨이 틀렸었다 — 2026-09-23 해소(S7 Option C).** 매니페스트 `source`가
+   `"season p95 daily Tmax — KMA 남한상세 TA …"`인데 2026-09-09부터 입력은 **일평균(TA)**이었다. 이제
+   `heat_korea.register_window`가 `TAMAX`를 별도로 읽어 레이어를 만들고 `source`는 `… TAMAX …`가 된다; TAMAX 파일이
+   없으면 레이어를 만들지 않는다(TA로 근사하지 않음). `heat_mortality`는 `TA` 유지.
 2. **KOR `river_flood` 레이어가 `rcp45`로 등록됐는데 소스는 `rcp60`이다**(`CLIMADA Data API (river_flood, rcp60, cached)`).
    시나리오 키와 실제 강제력이 다르다. 매니페스트 `climate_scenario`를 신뢰하면 안 되는 사례.
 3. **홍수위험지도 4.9 GB가 소비자 없이 디스크에 있다.** 다운로드 스크립트만 있고 온램프가 없다.
@@ -149,8 +151,8 @@ KOR 카탈로그 매니페스트(`data/hazard_db/`, 2026-09-11)에 있는 레이
 |---|---|
 | `perils.json` 페릴 | 15 |
 | KOR 카탈로그 레이어가 있는 페릴 | 6 (heat_mortality · heatwave · tropical_cyclone · river_flood · wildfire · earthquake) |
-| **KMA 1 km에서 나온 KOR 레이어** | **2 (heat_mortality · heatwave) — 모두 `TA`** |
-| KMA 변수 7종 중 코드가 소비하는 것 | **1 (`TA`)** |
+| **KMA 1 km에서 나온 KOR 레이어** | **2 (heat_mortality `TA` · heatwave `TAMAX`)** |
+| KMA 변수 7종 중 코드가 소비하는 것 | **2 (`TA`, `TAMAX`)** — 2026-09-23 이전 1 |
 | 실제 계산 해상도(KMA 경로) | 0.05° ≈ 5 km (1 km 아님) |
 | 미래 시나리오가 KOR에서 작동하는 페릴 | 3 (heat_mortality · heatwave 2030 앵커 / tropical_cyclone 2040; river_flood 2050은 키 불일치) |
 | **한국 실측(손실·사망) 검증 완료 페릴** | **0** |
@@ -218,12 +220,12 @@ Fetched ≠ Implemented     디스크에 받아둔 자료(홍수위험지도 4.9
 | KMA 정의 | 일최고기온, °C (포털 라벨 "최고평균기온" — 일최고기온의 기간 평균을 뜻하는 표기로 보이나 매뉴얼 미재확인) |
 | 물리적 의미 | 하루 최고 열 부하 — 폭염특보 기준(일최고 33/35 °C), 열 스트레스 상한 |
 | 원/시간 해상도 | 동일, 일 |
-| 현재 소비자 | ❌ 없음. 2026-09-09 이전 소비했고 `heat_korea.py:84`가 드리프트 사고를 기록. 디스크 파일도 없음 |
-| 기존 KOR 레이어 | 없음 (HW 레이어는 이름과 달리 TA 기반) |
+| 현재 소비자 | ✅ `heatwave` 레이어(시즌 p95 일최고) — 2026-09-23 S7 Option C. 그 전(2026-09-09~23)에는 소비자·파일 모두 없었다 |
+| 기존 KOR 레이어 | HW 3개 (historical · rcp45 2030 · rcp85 2030) — 2026-09-23부터 TAMAX 기반 |
 | 후보 페릴 | 폭염특보형 heatwave(일최고 임계 초과일수) · Tmax 기반 사망 관계 · 열대야는 **TAMIN**의 영역이라 제외 |
 | CLIMADA 표현 | `Hazard("HW", "degC")` 또는 초과일수 — container only |
 | 필요 노출 / 취약성 | 인구·노동인구 / **Tmax 기준으로 추정된 노출-반응** — 현재 모델의 β·MMT는 일평균 기준이라 재사용 불가(지표 혼용 금지) |
-| 현재 구현 | **Missing** (변수 미배선) |
+| 현재 구현 | **Custom hazard (TAMAX p95) · 곡선은 여전히 indicative · 금액 없음** — 해저드 변수만 바뀌었고 임팩트 함수는 새로 만들지 않았다 |
 | 성숙도 | 낮음 |
 | 주요 갭 | 현 `heatwave` 램프(`[0,30,35,40,45] °C`)는 Tmax/열지수 스케일로 설계된 듯하나 TA p95를 먹고 있다(§13-2). TAMAX를 넣으면 램프와 지표가 맞아지지만 그건 **새 해저드 정의**다 |
 
@@ -303,7 +305,7 @@ TA ──┬─ 폭염 사망 (초과도일 → 용량-반응 → 사망)       
      ├─ 폭염 생산성 (시즌 p95 → 램프)                    [구현 · 램프 스케일 불일치 §13-2]
      └─ 한파 (저온 arm)                                   [페릴 없음]
 
-TAMAX ── 폭염특보형 heatwave / Tmax 사망 관계             [변수 미배선 · Tmax 기준 곡선 필요]
+TAMAX ── 폭염 생산성 heatwave (시즌 p95 일최고 → 램프)     [구현 2026-09-23 · 램프 근거는 여전히 없음 · 금액 N/A]
 
 TAMIN ─┬─ 한파 / 냉해                                    [페릴 없음]
        └─ 열대야                                          [보정 인자, 단독 페릴 아님]
@@ -333,7 +335,7 @@ CLIMADA 구분: **CLIMADA native**(엔진 제공 해저드/곡선) · **CLIMADA 
 | TA | heat productivity (`heatwave`) | 시즌 p95 일평균 → indicative 램프 | container only + climaterisk custom | 자산 value | 램프 `[0,30,35,40,45]°C→[0,0,.1,.3,.6]` indicative | **Partial** — 계산되나 램프가 지표와 불일치 | 레이어 최대 32.6 °C < 램프 0.1 지점 35 °C → 손실 구조적 ≈0 | `heat_korea.py:124,134`, `_CATALOG_PERILS["heatwave"]`, HW 레이어 3 |
 | TAMIN | cold wave | 일최저기온 저온 arm → 사망/생산성 (TA는 보조 지표) | not implemented | 인구 | 없음 — 현 폭염 모델은 cold arm을 명시 제외 | **Missing** | 페릴·러너·곡선 전부 부재 | grep cold/snow → 0건; `heat_mortality.py` docstring "cold arm … out of scope" |
 | TAMIN | tropical night | 야간 최저 ≥25 °C → 수면·사망 보정 | not implemented | 인구 | 단독 페릴 아님(폭염 보정 인자) | **Missing** | 변수 미배선 | 소비자 0 |
-| TAMAX | heatwave (일최고 임계) | Tmax → 초과일수/강도 | not implemented | 인구·노동 | Tmax 기준 곡선 필요 | **Missing** | 변수 미배선; 지표 혼용 금지 | `heat_korea.py:84` 드리프트 기록 |
+| TAMAX | heatwave (시즌 p95 일최고) | TAMAX → 시즌 p95 → 램프(indicative) | **5km-current** (2026-09-23) | 점자산 value | Tmax 기준 곡선 근거 없음 — 신규 엔진에서 HAZARD_ONLY | **Custom · Not validated** | 변수 배선됨; 사망 모델(TA)과 지표 분리 유지 | `heat_korea.register_window`, `kma_scenario.HEATWAVE_VARIABLE` |
 | RN | extreme precipitation | 일강수 → 극한지표(RX1day 등) → 피해 | container only 가능 | 자산 | 강수-피해 곡선 없음 | **Missing** | 지표 정의만 명확 | 소비자 0 |
 | RN | pluvial flood | 강수 → 유출 → 침수 수심 | **external model needed** | 자산 | JRC 수심-피해(수심 입력) | **Missing** | G7 구조 공백; 수리 모델 없음 | `GAP_ANALYSIS_KO.md` G7 |
 | RN | river flood | 강수 → 유역 수문 → 하천 수심 | **external model needed**; 현 RF는 **CLIMADA native**(ISIMIP 전지구) | 자산 | **native JRC Asia** 프리셋 | **Partial/External** — KMA RN 미사용 | 홍수위험지도 `Fetched ≠ Implemented`; 키 rcp45/소스 rcp60(§13-3) | `physical.py:508-525`, `ingest.py:295,351`, RF 레이어 1 |
