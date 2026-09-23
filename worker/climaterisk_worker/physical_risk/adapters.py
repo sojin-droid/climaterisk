@@ -356,22 +356,44 @@ class KoreaLocalHeatAdapter:
             )
         return self._entry
 
+    def _scenarios_available(self) -> list[str]:
+        from climaterisk_worker import catalog
+
+        peril = self._PERIL[self.hazard_type]
+        return sorted(
+            {
+                str(e["climate_scenario"])
+                for e in catalog.load_manifest()
+                if e.get("peril") == peril and e.get("region") == self.iso3
+            }
+        )
+
     def describe(self) -> HazardDescription:
         entry = self._lookup()
+        if entry is None:
+            have = self._scenarios_available()
+            why = (
+                f"no KOR {self._PERIL[self.hazard_type]} layer for scenario "
+                f"{self.scenario!r} in the local catalog"
+                + (f" (available: {', '.join(have)})" if have else " (no KOR heat layers at all)")
+                + " — KMA 남한상세 files for that scenario have not been registered"
+            )
+        else:
+            why = "hazard intensity only — no CLIMADA impact function exists for heat"
         return HazardDescription(
             hazard_type=self.hazard_type,
             model_id=self.model_id,
             status=self.status if entry else NO_HAZARD_DATA,
             hazard_source="KMA 남한상세 via local catalog"
             if entry
-            else "none — no KOR heat layer in the catalog",
+            else "none — no KOR heat layer for this scenario in the catalog",
             hazard_dataset=str(entry["file"]) if entry else None,
             hazard_data_version=str(entry.get("source")) if entry else None,
             hazard_country=self.iso3,
             requested_scenario=self.scenario,
             served_scenario=str(entry["climate_scenario"]) if entry else None,
             time_horizon=str(entry.get("year")) if entry else None,
-            detail="hazard intensity only — no CLIMADA impact function exists for heat",
+            detail=why,
         )
 
     def load(self, bbox: tuple[float, float, float, float] | None = None) -> Any:

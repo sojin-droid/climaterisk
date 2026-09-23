@@ -19,6 +19,7 @@ worker and the API cannot disagree on their columns.
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from typing import Any
@@ -156,7 +157,10 @@ def compute_physical_risk_models(request: dict[str, Any]) -> dict[str, Any]:
             "and KOREA_LOCAL need one ISO3; those rows are NO_HAZARD_DATA"
         )
 
-    rows, used = _all_model_rows(facilities, scenario, year, hazards, models, iso3, bbox)
+    progress = _Progress(request.get("out_dir"), len(facilities) * len(hazards) * len(models))
+    rows, used = _all_model_rows(
+        facilities, scenario, year, hazards, models, iso3, bbox, progress=progress
+    )
 
     # Optional same-model baseline run: the only legitimate source of a climate-change
     # multiplier (future_EAL / baseline_EAL within one model_id). Baseline rows are kept
@@ -165,8 +169,9 @@ def compute_physical_risk_models(request: dict[str, Any]) -> dict[str, Any]:
     baseline_rows: list[ResultRow] = []
     multipliers: list[dict[str, Any]] = []
     if baseline_scenario and str(baseline_scenario) != scenario:
+        progress.extend(len(facilities) * len(hazards) * len(models))
         baseline_rows, used_base = _all_model_rows(
-            facilities, str(baseline_scenario), year, hazards, models, iso3, bbox
+            facilities, str(baseline_scenario), year, hazards, models, iso3, bbox, progress=progress
         )
         used.extend({**d, "role": "baseline"} for d in used_base)
         multipliers = attach_climate_multipliers(rows, baseline_rows)
@@ -204,6 +209,7 @@ def _all_model_rows(
     models: list[str],
     iso3: str | None,
     bbox: tuple[float, float, float, float] | None,
+    progress: _Progress | None = None,
 ) -> tuple[list[ResultRow], list[dict[str, Any]]]:
     """Every (hazard x model) adapter once, every facility priced against it."""
     rows: list[ResultRow] = []
@@ -211,6 +217,8 @@ def _all_model_rows(
     for key in hazards:
         tag = HAZARD_TAGS[key]
         for model in models:
+            if progress is not None:
+                progress.step(f"{key} / {model}", len(facilities))
             if iso3 is None and model != ModelId.GLOBAL_BASELINE.value:
                 for f in facilities:
                     rows.append(
@@ -230,6 +238,44 @@ def _all_model_rows(
             rows.extend(model_rows)
             used.append(desc)
     return rows, used
+
+
+class _Progress:
+    """Coarse progress for the UI: rewrites ``<out_dir>/progress.json`` per hazard x model.
+
+    Counts *calculations* (facility x hazard x model). Silent when no ``out_dir`` is given
+    (CLI, tests) or when the file cannot be written — progress is a convenience, never a
+    reason to fail a run.
+    """
+
+    def __init__(self, out_dir: str | None, total: int) -> None:
+        self.path = Path(out_dir) / "progress.json" if out_dir else None
+        self.total = total
+        self.done = 0
+        self.current: str | None = None
+        self._write()
+
+    def extend(self, more: int) -> None:
+        self.total += more
+        self._write()
+
+    def step(self, label: str, n: int) -> None:
+        """Batch ``label`` (``n`` calculations) starts; the previous batch counts as done."""
+        self.current = label
+        self._write()
+        self.done += n
+        self._write()
+
+    def _write(self) -> None:
+        if self.path is None:
+            return
+        try:
+            self.path.write_text(
+                json.dumps({"done": self.done, "total": self.total, "current": self.current}),
+                encoding="utf-8",
+            )
+        except OSError:
+            return
 
 
 def _same_impact_function_per_hazard(rows: list[ResultRow]) -> dict[str, bool]:

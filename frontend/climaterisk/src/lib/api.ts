@@ -11,6 +11,8 @@ import type {
   OpenDataFetchResult,
   PhysicalRiskModelsBody,
   PhysicalRiskReadiness,
+  PhysicalRiskTable,
+  RunProgress,
   Portfolio,
   Run,
   TransitionResult,
@@ -201,4 +203,14 @@ export async function submitPhysicalRiskModels(
 /** The three models, their definitions and the per-hazard readiness table (static). */
 export async function getPhysicalRiskReadiness(): Promise<PhysicalRiskReadiness> {
   return http<PhysicalRiskReadiness>(`/api/libraries/physical-risk-models`);
+}
+
+/** Canonical batch table + export frames + summary counts of a finished three-model run. */
+export async function getPhysicalRiskTable(sessionId: string, runId: string): Promise<PhysicalRiskTable> {
+  return http<PhysicalRiskTable>(`/api/session/${sessionId}/run/${runId}/physical-risk-table`);
+}
+
+/** Coarse progress (done / total calculations) of a running batch. */
+export async function getRunProgress(sessionId: string, runId: string): Promise<RunProgress> {
+  return http<RunProgress>(`/api/session/${sessionId}/run/${runId}/progress`);
 }

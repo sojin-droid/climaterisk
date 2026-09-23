@@ -263,9 +263,14 @@ def methodology_frame(config: dict[str, Any] | None = None) -> list[dict[str, An
 def export_frames(
     rows: Iterable[ResultRow | dict[str, Any]], config: dict[str, Any] | None = None
 ) -> dict[str, list[dict[str, Any]]]:
-    """All five export sheets, keyed by sheet name."""
+    """Every export frame, keyed by frame name (the two non-expert views first)."""
     rs = _as_rows(rows)
+    from climaterisk.physical_risk.display_copy import recommended_models
+
+    preferred = recommended_models()
     return {
+        "portfolio_summary": portfolio_summary_frame(rs, preferred),
+        "asset_risk_matrix": asset_risk_matrix_frame(rs, preferred),
         "hazard_results": hazard_results_frame(rs),
         "asset_summary": asset_summary_frame(rs),
         "global_vs_country": comparison_frame(
@@ -276,3 +281,198 @@ def export_frames(
         ),
         "methodology": methodology_frame(config),
     }
+
+
+# --------------------------------------------------------------------------- #
+# Non-expert views — one primary row per (facility x hazard)                   #
+# --------------------------------------------------------------------------- #
+#: Hazard tags the portfolio views show, in column order, with their display names.
+PORTFOLIO_HAZARDS: tuple[tuple[str, str], ...] = (
+    ("RF", "Flood"),
+    ("TC", "Typhoon"),
+    ("HW", "Heatwave"),
+)
+
+#: Preference when several models priced the same facility x hazard: most local first.
+_MODEL_PREFERENCE: tuple[str, ...] = (
+    ModelId.KOREA_LOCAL.value,
+    ModelId.DATA_API_COUNTRY.value,
+    ModelId.GLOBAL_BASELINE.value,
+)
+
+_UNAVAILABLE_STATUSES = frozenset(
+    {
+        "NOT_IMPLEMENTED",
+        "NO_HAZARD_DATA",
+        "NO_IMPACT_FUNCTION",
+        "NO_EXPOSURE_DATA",
+        "SCENARIO_MISMATCH",
+    }
+)
+
+
+def primary_row(
+    candidates: list[ResultRow], preferred_model: str | None = None
+) -> ResultRow | None:
+    """The row that represents a facility x hazard when several models produced one.
+
+    The recommended model wins when it produced a row with numbers or hazard intensity;
+    otherwise the most local model that did; otherwise the most local row of any status —
+    so an unavailable model never hides a priced one.
+    """
+    if not candidates:
+        return None
+    by_model = {r.model_id: r for r in candidates}
+
+    def informative(r: ResultRow) -> bool:
+        return r.eal_usd is not None or r.calculation_status == "HAZARD_ONLY"
+
+    order = ([preferred_model] if preferred_model else []) + list(_MODEL_PREFERENCE)
+    for model in order:
+        r = by_model.get(model)
+        if r is not None and informative(r):
+            return r
+    for model in order:
+        if model in by_model:
+            return by_model[model]
+    return candidates[0]
+
+
+def primary_rows(
+    rows: Iterable[ResultRow | dict[str, Any]], preferred: dict[str, str] | None = None
+) -> dict[tuple[str, str], ResultRow]:
+    """``{(facility_id, hazard_type): primary row}`` (see :func:`primary_row`).
+
+    ``preferred`` maps a hazard tag (``RF`` / ``TC`` / ``HW``) or readiness key (``HEAT``)
+    to the model id to prefer — normally ``display_copy.recommended_models()``.
+    """
+    pref = dict(preferred or {})
+    if "HEAT" in pref:
+        pref.setdefault("HW", pref["HEAT"])
+        pref.setdefault("HM", pref["HEAT"])
+    groups: dict[tuple[str, str], list[ResultRow]] = {}
+    for r in _as_rows(rows):
+        groups.setdefault((r.facility_id, r.hazard_type), []).append(r)
+    out: dict[tuple[str, str], ResultRow] = {}
+    for key, cands in groups.items():
+        chosen = primary_row(cands, pref.get(key[1]))
+        if chosen is not None:
+            out[key] = chosen
+    return out
+
+
+def _scope_short(model_id: str | None) -> str | None:
+    from climaterisk.physical_risk.display_copy import SCOPE_SHORT
+
+    return SCOPE_SHORT.get(model_id or "", model_id)
+
+
+def _status_short(status: str) -> str:
+    from climaterisk.physical_risk.display_copy import STATUS_SHORT
+
+    return STATUS_SHORT.get(status, status)
+
+
+def portfolio_summary_frame(
+    rows: Iterable[ResultRow | dict[str, Any]], preferred: dict[str, str] | None = None
+) -> list[dict[str, Any]]:
+    """The non-expert first sheet: one line per facility, one primary row per hazard.
+
+    Money and ratios are the engine's numbers, untouched; an unpriced hazard leaves its
+    money cells ``None`` and says why in its ``Status`` column. ``Overall EAL`` is the plain
+    sum of the priced hazards' EAL (an aggregation, not a risk score) and is ``None`` when
+    nothing was priced. No overall risk level is produced (methodology decision pending).
+    """
+    prim = primary_rows(rows, preferred)
+    facilities: dict[str, tuple[str, float | None]] = {}
+    for row in _as_rows(rows):
+        facilities.setdefault(row.facility_id, (row.facility_name, row.asset_value_usd))
+    out = []
+    for fid, (name, value) in facilities.items():
+        line: dict[str, Any] = {"Facility ID": fid, "Facility": name, "Asset Value": value}
+        total: float | None = None
+        for tag, label in PORTFOLIO_HAZARDS:
+            r = prim.get((fid, tag))
+            if r is None:
+                line[f"{label} Status"] = "Not assessed"
+                if tag != "HW":
+                    line[f"{label} Risk"] = None
+                    line[f"{label} EAL"] = None
+                    line[f"{label} EAL / Assets"] = None
+                else:
+                    line["Heatwave Tmax p95 (°C)"] = None
+                line[f"{label} Data Source"] = None
+                continue
+            line[f"{label} Status"] = _status_short(r.calculation_status)
+            if tag != "HW":
+                line[f"{label} Risk"] = r.risk_level
+                line[f"{label} EAL"] = r.eal_usd
+                line[f"{label} EAL / Assets"] = r.eal_as_pct_of_assets
+                if r.eal_usd is not None:
+                    total = (total or 0.0) + float(r.eal_usd)
+            else:
+                line["Heatwave Tmax p95 (°C)"] = r.hazard_intensity
+            line[f"{label} Data Source"] = _scope_short(r.model_id)
+        line["Overall EAL"] = total
+        line["Overall EAL / Assets"] = (
+            total / value * 100.0 if (total is not None and value) else None
+        )
+        out.append(line)
+    return out
+
+
+def asset_risk_matrix_frame(
+    rows: Iterable[ResultRow | dict[str, Any]], preferred: dict[str, str] | None = None
+) -> list[dict[str, Any]]:
+    """Facility x hazard cells: the risk level where priced, else a short status label.
+
+    ``Overall`` counts calculated hazards ("2 of 3 calculated") — it is not a risk score.
+    """
+    prim = primary_rows(rows, preferred)
+    names = {r.facility_id: r.facility_name for r in _as_rows(rows)}
+    out = []
+    for fid, name in names.items():
+        line: dict[str, Any] = {"Facility ID": fid, "Facility": name}
+        priced = 0
+        for tag, label in PORTFOLIO_HAZARDS:
+            r = prim.get((fid, tag))
+            if r is None:
+                line[label] = "Not assessed"
+            elif r.risk_level is not None:
+                line[label] = r.risk_level
+                priced += 1
+            else:
+                line[label] = _status_short(r.calculation_status)
+        line["Overall"] = f"{priced} of {len(PORTFOLIO_HAZARDS)} calculated"
+        out.append(line)
+    return out
+
+
+def summary_counts(
+    rows: Iterable[ResultRow | dict[str, Any]], preferred: dict[str, str] | None = None
+) -> dict[str, int]:
+    """Counts for the results header, over primary rows only — no score, no ranking."""
+    prim = primary_rows(rows, preferred)
+    counts = {
+        "assets_analyzed": len({fid for fid, _ in prim}),
+        "high_risk": 0,
+        "medium_risk": 0,
+        "low_risk": 0,
+        "hazard_only": 0,
+        "not_available": 0,
+        "errors": 0,
+    }
+    for r in prim.values():
+        if r.risk_level == "High":
+            counts["high_risk"] += 1
+        elif r.risk_level == "Medium":
+            counts["medium_risk"] += 1
+        elif r.risk_level == "Low":
+            counts["low_risk"] += 1
+        elif r.calculation_status == "HAZARD_ONLY":
+            counts["hazard_only"] += 1
+        elif r.calculation_status == "ERROR":
+            counts["errors"] += 1
+        elif r.calculation_status in _UNAVAILABLE_STATUSES:
+            counts["not_available"] += 1
+    return counts

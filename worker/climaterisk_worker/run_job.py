@@ -74,6 +74,7 @@ def run(run_dir: Path) -> dict[str, Any]:
             elif mode == "physical_risk_models":
                 from climaterisk_worker.physical_risk.runner import compute_physical_risk_models
 
+                request["out_dir"] = str(run_dir)  # the runner writes progress.json here
                 output = compute_physical_risk_models(request)
             else:
                 output = compute_physical_risk(request)

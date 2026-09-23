@@ -321,3 +321,61 @@ def test_baseline_scenario_yields_separate_rows_and_same_model_multipliers_only(
     assert all(r["climate_change_multiplier"] is None for r in out["rows"])
     # comparisons still see one row per model — baseline rows did not leak in
     assert all(c["available"] is False for c in out["comparisons"]["global_vs_korea_local"])
+
+
+def test_ten_assets_times_three_hazards_batch_under_korea_local(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Batch shape: 10 x 3 x 1 = 30 rows, each with model_id and a status; progress file written."""
+    facilities = [
+        {
+            **FACILITY,
+            "facility_id": f"KR-{i:02d}",
+            "facility_name": f"Site {i}",
+            "latitude": 35.0 + i * 0.2,
+        }
+        for i in range(10)
+    ]
+    out = runner.compute_physical_risk_models(
+        {
+            "facilities": facilities,
+            "climate_scenario": "rcp45",
+            "target_year": 2030,
+            "hazards": ["RF", "TC", "HEAT"],
+            "models": [K],
+            "country": "KOR",
+            "out_dir": str(tmp_path),
+        }
+    )
+    assert len(out["rows"]) == 30
+    assert all(r["model_id"] == K and r["calculation_status"] for r in out["rows"])
+    statuses = {r["hazard_type"]: r["calculation_status"] for r in out["rows"]}
+    assert statuses["RF"] == statuses["TC"] == "NOT_IMPLEMENTED"
+    assert statuses["HW"] in ("HAZARD_ONLY", "NO_HAZARD_DATA")
+    import json
+
+    prog = json.loads((tmp_path / "progress.json").read_text())
+    assert prog["total"] == 30 and prog["done"] == 30
+
+
+def test_heat_adapter_names_the_missing_scenario_and_the_ones_it_has() -> None:
+    """A scenario with no KOR heat layer is NO_HAZARD_DATA with a reason that lists what exists."""
+    from climaterisk_worker import catalog
+
+    have = sorted(
+        {
+            str(e["climate_scenario"])
+            for e in catalog.load_manifest()
+            if e.get("peril") == "heatwave" and e.get("region") == "KOR"
+        }
+    )
+    if not have:
+        pytest.skip("local catalog has no KOR heatwave layers")
+    missing = next((s for s in ("rcp60", "rcp26", "rcp85", "rcp45") if s not in have), None)
+    if missing is None:
+        pytest.skip("every scenario has a KOR heatwave layer")
+    d = adapters.KoreaLocalHeatAdapter("HW", missing, 2050).describe()
+    assert d.status == adapters.NO_HAZARD_DATA and d.hazard_dataset is None
+    assert missing in (d.detail or "") and "available:" in (d.detail or "")
+    assert all(s in (d.detail or "") for s in have)
+    ok = adapters.KoreaLocalHeatAdapter("HW", have[0], 2030).describe()
+    assert ok.status == adapters.HAZARD_ONLY
+    assert "no CLIMADA impact function" in (ok.detail or "")

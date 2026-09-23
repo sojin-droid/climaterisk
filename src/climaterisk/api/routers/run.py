@@ -94,6 +94,7 @@ class PhysicalRiskModelsBody(BaseModel):
     target_year: int | None = None
     country: str | None = None  # ISO3; resolved from the assets when omitted
     baseline_scenario: str | None = None  # e.g. "historical": enables climate_change_multiplier
+    facility_ids: list[str] | None = None  # subset of the session's assets; all when omitted
 
 
 @router.post("/{session_id}/physical-risk-models", response_model=Run)
@@ -110,6 +111,15 @@ def submit_physical_risk_models(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="session not found")
     if body.country is not None and len(body.country) != 3:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="country must be an ISO3 code")
+    if body.facility_ids is not None:
+        known = {a.id for a in portfolio.assets}
+        unknown = sorted(set(body.facility_ids) - known)
+        if unknown:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, detail=f"unknown facility ids: {unknown}"
+            )
+        if not body.facility_ids:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="select at least one asset")
     return manager.submit_physical_risk_models(
         portfolio,
         hazards=body.hazards,
@@ -117,7 +127,29 @@ def submit_physical_risk_models(
         target_year=body.target_year,
         country=body.country.upper() if body.country else None,
         baseline_scenario=body.baseline_scenario,
+        facility_ids=body.facility_ids,
     )
+
+
+@router.get("/{session_id}/run/{run_id}/progress")
+def get_run_progress(session_id: str, run_id: str, manager: ManagerDep) -> dict[str, Any]:
+    """Coarse progress of a running batch: ``done`` / ``total`` calculations and the step.
+
+    Read from ``progress.json`` that the worker rewrites after each hazard x model batch;
+    an empty dict while nothing has been written yet.
+    """
+    run = manager.poll(run_id)
+    if run is None or run.session_id != session_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="run not found")
+    path = get_settings().runs_path / run_id / "progress.json"
+    if not path.is_file():
+        return {"status": run.status}
+    try:
+        data: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"status": run.status}
+    data["status"] = run.status
+    return data
 
 
 @router.get("/{session_id}/run/{run_id}/physical-risk-export.xlsx")
@@ -172,6 +204,9 @@ def get_physical_risk_table(
         raise HTTPException(
             status.HTTP_409_CONFLICT, detail="run is not a finished physical-risk-models run"
         )
+    from climaterisk.physical_risk.display_copy import recommended_models
+    from climaterisk.physical_risk.results_table import summary_counts
+
     rows = filter_rows(
         run.output["rows"], hazard=hazard, model=model, risk_level=risk_level, scenario=scenario
     )
@@ -180,6 +215,7 @@ def get_physical_risk_table(
         "rows": table_rows(rows),
         "n_total": len(run.output["rows"]),
         "frames": export_frames(run.output["rows"]),
+        "summary_counts": summary_counts(run.output["rows"], recommended_models()),
     }
 
 

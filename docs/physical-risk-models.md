@@ -228,11 +228,19 @@ User portfolio only: `lat`, `lon`, `asset_value_usd`, `asset_value_currency`,
 * Export frames ([`results_table.py`](../src/climaterisk/physical_risk/results_table.py)):
   `hazard_results`, `asset_summary`, `global_vs_country`, `global_vs_korea_local`,
   `methodology` — lists of dicts.
-* **Excel (Phase 5)** — [`excel_export.py`](../src/climaterisk/physical_risk/excel_export.py)
-  renders the frames with openpyxl: sheets `run_info`, `hazard_results`, `asset_summary`,
-  `global_vs_country`, `global_vs_korea_local`, `climate_change` (only when a baseline
-  scenario was run), `methodology`. A `None` is an **empty cell, never 0**; every result
-  row carries `model_id` and `calculation_status`.
+* **Excel (Phase 5 → 6)** — [`excel_export.py`](../src/climaterisk/physical_risk/excel_export.py)
+  renders the frames with openpyxl. Sheets, in order: **Portfolio Summary** (non-expert:
+  one line per facility — Asset Value, per-hazard Status / Risk / EAL / EAL ÷ Assets / Data
+  Source, Heatwave Tmax p95, Overall EAL as a plain sum), **Asset Risk Matrix** (facility ×
+  hazard risk level or status label; "Overall" counts calculated hazards — no score),
+  **Hazard Results** (canonical 13 columns + full provenance), **Global vs Country**,
+  **Global vs Korea Local**, **Climate Change** (only when a baseline scenario was run),
+  **Methodology** (definitions, formulas, band copy quoting the configured thresholds,
+  status copy, limitations), **Run Info**. Currency `$#,##0`, ratios `0.000%`, risk cells
+  colour-coded by conditional formatting (a visual aid, not a rule). A `None` is an **empty
+  cell, never 0** and a computed zero is `0`; every result row carries `model_id` and
+  `calculation_status`. Technical fields (`impact_function_id`, hazard tags…) never appear
+  on the first two sheets.
   `GET /api/session/{id}/run/{run_id}/physical-risk-export.xlsx` and the **Download Excel**
   button on the Models tab serve it.
 * **Batch CLI (Phase 5)** — `scripts/physical_risk_batch.py` (worker env): facilities CSV
@@ -246,6 +254,37 @@ User portfolio only: `lat`, `lon`, `asset_value_usd`, `asset_value_currency`,
       --out results.xlsx --json results.json --scenario rcp45 --year 2040 --country KOR \
       --baseline-scenario historical
   ```
+
+### Non-expert workflow (Phase 6)
+
+The **Models** tab is the portfolio tool: *select assets → select risks → analysis data →
+Run Assessment → results → Download Excel*. The user never sees an impact-function id,
+a hazard adapter or a model id; the words come from
+[`display_copy.py`](../src/climaterisk/physical_risk/display_copy.py) and the numbers from
+the same runner and rows as everything else — nothing is recomputed in the browser.
+
+| step | what the user sees | what runs |
+|---|---|---|
+| 1 | asset table with checkboxes, search, select all / clear, "n of m selected", 25 per page | `facility_ids` on the request → `PhysicalRiskModelsRequest.from_portfolio` filters the portfolio |
+| 2 | Flood · Tropical Cyclone · Heatwave with one-line copy | `hazards` |
+| 3 | **Recommended** (default) or Custom: Global reference / Korea country dataset / Korea local, each with per-hazard availability | `recommended_models()` reads the readiness registry: RF → DATA_API_COUNTRY, TC → DATA_API_COUNTRY, HEAT → KOREA_LOCAL (hazard only). An unrunnable cell is never chosen |
+| 4 | one Run Assessment; "n / N calculations complete" | one batch job; the worker rewrites `progress.json` per hazard × model, served at `GET …/run/{id}/progress` |
+| 5 | Physical Risk Summary counts (per asset × risk, **no overall score**), asset risk matrix, asset detail with EAL / EAL ÷ assets / Potential Loss / Data, **Why?** (band copy + method chain + impact function + dataset), Compare data (Global vs Country when both were run, with the "same family, near-zero difference expected" note), collapsed technical table | `results_table.primary_rows` picks one row per facility × hazard (recommended model first, then most local, informative only); `summary_counts`, `asset_risk_matrix_frame`, `portfolio_summary_frame` |
+| 6 | Download Excel (top of results) | the Phase 5 route, unchanged |
+
+"Financial loss: Not available (not $0)" is written wherever a hazard is unpriced;
+"What this tool covers today" lists the limitations (`display_copy.LIMITATIONS`).
+
+CLI equivalent (worker env):
+
+```bash
+./.climada-env/bin/python scripts/physical_risk_batch.py assets.csv \
+    --hazards flood,typhoon,heatwave --models recommended --output risk_report.xlsx
+```
+
+CSV validation speaks plainly: missing `facility_id` / `lat` / `lon` / `asset_value_usd`
+column, non-numeric coordinates or value, coordinates out of range, negative value and
+duplicate `facility_id` are each a one-line error naming the line.
 
 ## 12. Measured (this repository, 2026-09-23, 100 M USD office at 37.5 N 127.0 E)
 

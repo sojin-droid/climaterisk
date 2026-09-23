@@ -3,9 +3,15 @@
 
 Runs in the CLIMADA worker environment (it prices with CLIMADA and needs the Data API)::
 
-    ./.climada-env/bin/python scripts/physical_risk_batch.py \\
-        --facilities facilities.csv --out results.xlsx --json results.json \\
-        --scenario rcp60 --year 2050 --country KOR [--baseline-scenario historical]
+    ./.climada-env/bin/python scripts/physical_risk_batch.py assets.csv \\
+        --hazards flood,typhoon,heatwave --models recommended --output risk_report.xlsx \\
+        [--scenario rcp60 --year 2050 --country KOR --baseline-scenario historical --json raw.json]
+
+``--models recommended`` (the default) reads the readiness registry and picks, per hazard,
+the most local data scope that can actually run (Korea today: country dataset for flood and
+typhoon, KMA local data for heatwave — hazard only). ``all`` runs the three scopes; ``global``,
+``country``, ``local`` name them directly. The older ``--facilities`` / ``--out`` spellings and
+RF/TC/HEAT hazard keys keep working.
 
 The CSV needs ``facility_id, facility_name, lat, lon, asset_value_usd`` (``latitude`` /
 ``longitude`` are accepted aliases); ``property_type`` and ``asset_value_currency`` are
@@ -86,7 +92,93 @@ def read_facilities(path: str | Path) -> list[dict[str, Any]]:
                 raise ValueError(f"line {i}: {exc}") from exc
             if not fac["facility_id"]:
                 raise ValueError(f"line {i}: empty facility_id")
+            if not (-90.0 <= fac["latitude"] <= 90.0 and -180.0 <= fac["longitude"] <= 180.0):
+                raise ValueError(
+                    f"line {i}: latitude/longitude out of range "
+                    f"({fac['latitude']}, {fac['longitude']}) — expected decimal degrees"
+                )
+            if fac["asset_value_usd"] is not None and fac["asset_value_usd"] < 0:
+                raise ValueError(
+                    f"line {i}: asset_value_usd is negative ({fac['asset_value_usd']})"
+                )
             out.append(fac)
+    dupes = sorted(
+        {
+            f["facility_id"]
+            for f in out
+            if [g["facility_id"] for g in out].count(f["facility_id"]) > 1
+        }
+    )
+    if dupes:
+        raise ValueError(f"duplicate facility_id(s) {dupes}: each row must have a unique id")
+    return out
+
+
+_HAZARD_ALIASES = {
+    "flood": "RF",
+    "rf": "RF",
+    "river_flood": "RF",
+    "typhoon": "TC",
+    "tc": "TC",
+    "tropical_cyclone": "TC",
+    "cyclone": "TC",
+    "heatwave": "HEAT",
+    "heat": "HEAT",
+    "hw": "HEAT",
+}
+_MODEL_ALIASES = {
+    "global": "GLOBAL_BASELINE",
+    "global_baseline": "GLOBAL_BASELINE",
+    "country": "DATA_API_COUNTRY",
+    "data_api_country": "DATA_API_COUNTRY",
+    "local": "KOREA_LOCAL",
+    "korea_local": "KOREA_LOCAL",
+}
+ALL_MODELS = ["GLOBAL_BASELINE", "DATA_API_COUNTRY", "KOREA_LOCAL"]
+
+
+def _split(tokens: list[str]) -> list[str]:
+    """``["a,b", "c"]`` -> ``["a", "b", "c"]`` — commas and spaces both separate."""
+    out: list[str] = []
+    for t in tokens:
+        out += [x.strip() for x in t.split(",") if x.strip()]
+    return out
+
+
+def parse_hazards(tokens: list[str]) -> list[str]:
+    """Hazard keys from user words (``flood``, ``typhoon``, ``heatwave`` or RF/TC/HEAT)."""
+    out: list[str] = []
+    for t in _split(tokens):
+        key = _HAZARD_ALIASES.get(t.lower(), t.upper())
+        if key not in ("RF", "TC", "HEAT"):
+            raise ValueError(f"unknown hazard {t!r}; use flood, typhoon or heatwave")
+        if key not in out:
+            out.append(key)
+    return out
+
+
+def parse_models(tokens: list[str], hazards: list[str]) -> list[str]:
+    """Model ids from ``recommended`` / ``all`` / user words (``global``, ``country``, ``local``).
+
+    ``recommended`` reads the readiness registry and returns the union of the models it
+    picks for the requested hazards (the runner prices every hazard under every model; a
+    model that cannot run a hazard yields a status row, never a number).
+    """
+    words = [t.lower() for t in _split(tokens)]
+    if words in (["recommended"], []):
+        from climaterisk.physical_risk.display_copy import recommended_models
+
+        picks = recommended_models(hazards)
+        return [m for m in ALL_MODELS if m in set(picks.values())]
+    if words == ["all"]:
+        return list(ALL_MODELS)
+    out: list[str] = []
+    for w in words:
+        mid = _MODEL_ALIASES.get(w, w.upper())
+        if mid not in ALL_MODELS:
+            raise ValueError(f"unknown model {w!r}; use recommended, all, global, country or local")
+        if mid not in out:
+            out.append(mid)
     return out
 
 
@@ -94,14 +186,23 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    ap.add_argument("--facilities", required=True, help="CSV of facilities")
-    ap.add_argument("--out", required=True, help="Excel workbook to write (.xlsx)")
+    ap.add_argument("csv", nargs="?", default=None, help="CSV of facilities (or --facilities)")
+    ap.add_argument("--facilities", default=None, help="CSV of facilities")
+    ap.add_argument("--out", "--output", dest="out", default=None, help="Excel workbook to write")
     ap.add_argument("--json", default=None, help="also write the raw worker output here")
     ap.add_argument("--scenario", default="rcp45", help="requested climate scenario key")
     ap.add_argument("--year", type=int, default=2050, help="target year")
-    ap.add_argument("--hazards", nargs="+", default=["RF", "TC", "HEAT"])
     ap.add_argument(
-        "--models", nargs="+", default=["GLOBAL_BASELINE", "DATA_API_COUNTRY", "KOREA_LOCAL"]
+        "--hazards",
+        nargs="+",
+        default=["flood", "typhoon", "heatwave"],
+        help="flood typhoon heatwave (comma or space separated; RF/TC/HEAT also accepted)",
+    )
+    ap.add_argument(
+        "--models",
+        nargs="+",
+        default=["recommended"],
+        help="recommended | all | global country local (comma or space separated)",
     )
     ap.add_argument("--country", default=None, help="ISO3; resolved from the points if omitted")
     ap.add_argument(
@@ -110,9 +211,22 @@ def main(argv: list[str] | None = None) -> int:
         help="run the same models for this scenario too and fill climate_change_multiplier",
     )
     args = ap.parse_args(argv)
+    src = args.facilities or args.csv
+    if not src:
+        ap.error("give the facilities CSV as the first argument or with --facilities")
+    if not args.out:
+        ap.error("--out/--output is required (the .xlsx to write)")
 
-    facilities = read_facilities(args.facilities)
-    print(f"{len(facilities)} facilities from {args.facilities}")
+    try:
+        facilities = read_facilities(src)
+        hazards = parse_hazards(args.hazards)
+        models = parse_models(args.models, hazards)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(f"{len(facilities)} facilities from {src}")
+    n_calc = len(facilities) * len(hazards) * len(models)
+    print(f"hazards {hazards} x models {models} -> {n_calc} calculations")
 
     from climaterisk_worker.physical_risk.runner import compute_physical_risk_models
 
@@ -123,8 +237,8 @@ def main(argv: list[str] | None = None) -> int:
             "facilities": facilities,
             "climate_scenario": args.scenario,
             "target_year": args.year,
-            "hazards": args.hazards,
-            "models": args.models,
+            "hazards": hazards,
+            "models": models,
             "country": args.country,
             "baseline_scenario": args.baseline_scenario,
         }

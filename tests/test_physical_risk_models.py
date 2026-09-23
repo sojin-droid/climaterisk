@@ -276,13 +276,15 @@ def test_batch_table_has_the_canonical_columns_in_order_and_filters() -> None:
 
 def test_export_frames_have_the_five_sheets_and_say_what_was_not_priced() -> None:
     frames = rt.export_frames(_portfolio_rows())
-    assert set(frames) == {
+    assert {
         "hazard_results",
         "asset_summary",
         "global_vs_country",
         "global_vs_korea_local",
         "methodology",
-    }
+        "portfolio_summary",
+        "asset_risk_matrix",
+    } <= set(frames)
     hr = frames["hazard_results"]
     assert list(hr[0]) == list(rt.HAZARD_RESULTS_COLUMNS)
     assert {"requested_scenario", "served_scenario", "hazard_dataset", "exposure_version"} <= set(
