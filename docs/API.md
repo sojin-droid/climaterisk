@@ -29,6 +29,6 @@ variants selected by `mode`) and the CLIMADA worker writes `data/runs/<id>/resul
 
 > The table above is **incomplete** (2026-09-07 audit): cost-benefit, uncertainty, litpop,
 > hazard-preview, forecast, calibration, supplychain, ingest, finance, latest-runs,
-> physical-risk-models (+ `run/{id}/physical-risk-table`, `run/{id}/physical-risk-export.xlsx`, `libraries/physical-risk-models`; see `physical-risk-models.md` §11), run
+> physical-risk-models (+ `run/{id}/physical-risk-table`, `run/{id}/physical-risk-export.xlsx`, `run/{id}/progress`, `libraries/physical-risk-models`; see `physical-risk-models.md` §11), run
 > detail/preview/export, transition, report, method-figure, data-fetch and hazard-catalog routes
 > exist under `src/climaterisk/api/routers/`. Use the live OpenAPI page for the authoritative list.

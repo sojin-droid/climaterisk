@@ -59,9 +59,10 @@ def get_physical_risk_models() -> dict[str, Any]:
     ``climaterisk.physical_risk.models`` (shared with the CLIMADA worker, which asserts
     its adapters agree with it).
     """
+    from climaterisk.physical_risk.display_copy import display_bundle
     from climaterisk.physical_risk.models import readiness
 
-    return readiness()
+    return {**readiness(), "display": display_bundle()}
 
 
 @router.get("/{name}")

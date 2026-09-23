@@ -670,9 +670,11 @@ class PhysicalRiskModelsRequest(BaseModel):
         target_year: int | None = None,
         country: str | None = None,
         baseline_scenario: str | None = None,
+        facility_ids: list[str] | None = None,
     ) -> PhysicalRiskModelsRequest:
         """Map portfolio assets onto facilities; ``property_type`` comes from the asset
         properties when present, else its sector label (the config maps it to a JRC sector)."""
+        wanted = set(facility_ids) if facility_ids is not None else None
         facilities = [
             FacilitySpec(
                 facility_id=a.id,
@@ -684,6 +686,7 @@ class PhysicalRiskModelsRequest(BaseModel):
                 property_type=str(a.properties.get("property_type") or a.sector.value),
             )
             for a in portfolio.assets
+            if wanted is None or a.id in wanted
         ]
         years = portfolio.scenario.anchor_years or [2050]
         return cls(

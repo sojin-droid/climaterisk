@@ -143,10 +143,12 @@ def _sheet_rows(ws) -> list[dict]:  # type: ignore[no-untyped-def,type-arg]
 def test_workbook_has_the_required_sheets_in_order_and_the_full_result_columns() -> None:
     wb = _book(_output())
     names = wb.sheetnames
-    assert [n for n in names if n in xl.REQUIRED_SHEETS] == list(xl.REQUIRED_SHEETS)
-    assert names == [n for n in xl.SHEET_ORDER if n in names]
-    assert "climate_change" not in names  # no baseline scenario was run
-    header = [c.value for c in wb["hazard_results"][1]]
+    titles = [xl.SHEET_TITLES[k] for k in xl.SHEET_ORDER]
+    assert [n for n in names if n in titles] == names  # only known sheets
+    assert names == [t for t in titles if t in names]  # in the canonical order
+    assert {xl.SHEET_TITLES[k] for k in xl.REQUIRED_SHEETS} <= set(names)
+    assert "Climate Change" not in names  # no baseline scenario was run
+    header = [c.value for c in wb["Hazard Results"][1]]
     assert header == list(HAZARD_RESULTS_COLUMNS)
     assert set(SPEC_ROW_FIELDS) <= set(header)
     assert {"model_id", "calculation_status"} <= set(header)
@@ -154,7 +156,7 @@ def test_workbook_has_the_required_sheets_in_order_and_the_full_result_columns()
 
 def test_every_result_row_keeps_model_id_and_status_and_unpriced_cells_are_empty() -> None:
     out = _output()
-    rows = _sheet_rows(_book(out)["hazard_results"])
+    rows = _sheet_rows(_book(out)["Hazard Results"])
     assert len(rows) == len(out["rows"]) == 18
     for r in rows:
         assert r["model_id"] in {G, C, K} and r["calculation_status"]
@@ -181,7 +183,7 @@ def test_every_result_row_keeps_model_id_and_status_and_unpriced_cells_are_empty
 
 def test_global_vs_country_sheet_carries_every_change_form_the_brief_lists() -> None:
     wb = _book(_output())
-    cmp = _sheet_rows(wb["global_vs_country"])
+    cmp = _sheet_rows(wb["Global vs Country"])
     header = set(cmp[0])
     assert set(SPEC_COMPARISON_FIELDS) <= header
     assert {"baseline_model_id", "country_model_id", "same_impact_function", "available"} <= header
@@ -198,22 +200,24 @@ def test_global_vs_country_sheet_carries_every_change_form_the_brief_lists() -> 
     assert tc["eal_change_pct"] == pytest.approx(0.0) and tc[
         "hazard_intensity_change_pct"
     ] == pytest.approx(0.0)
-    gvk = _sheet_rows(wb["global_vs_korea_local"])
+    gvk = _sheet_rows(wb["Global vs Korea Local"])
     assert all(r["available"] is False for r in gvk)
 
 
 def test_asset_summary_and_methodology_and_run_info_sheets() -> None:
     wb = _book(_output())
-    summary = {(r["facility_id"], r["model_id"]): r for r in _sheet_rows(wb["asset_summary"])}
+    from climaterisk.physical_risk.results_table import asset_summary_frame
+
+    summary = {(r["facility_id"], r["model_id"]): r for r in asset_summary_frame(_output()["rows"])}
     assert summary[("F1", G)]["eal_usd"] == pytest.approx(75_000.0 + 3_576.18)
     assert summary[("F1", G)]["priced_hazards"] == "RF,TC"
     assert "HW:NO_HAZARD_DATA" in summary[("F1", G)]["unpriced_hazards"]
     assert summary[("F2", K)]["eal_usd"] is None
-    meth = {r["key"]: r["value"] for r in _sheet_rows(wb["methodology"])}
+    meth = {r["key"]: r["value"] for r in _sheet_rows(wb["Methodology"])}
     assert "not a climate multiplier" in meth["climate_change_multiplier"]
     assert "NOT an official GRESB threshold" in meth["risk_levels"]
     assert "model" in meth  # the three model definitions are on the sheet
-    info = {r["key"]: r["value"] for r in _sheet_rows(wb["run_info"])}
+    info = {r["key"]: r["value"] for r in _sheet_rows(wb["Run Info"])}
     assert info["requested_scenario"] == "rcp60" and info["n_facilities"] == 2
     assert info[f"readiness.RF.{K}"] == "NOT_IMPLEMENTED"
     assert "not treated as Korea-local" in info[f"definition.{C}"]
@@ -261,8 +265,8 @@ def test_attach_climate_multipliers_pairs_within_a_model_only() -> None:
     out["baseline_scenario"] = "historical"
     out["climate_change_multipliers"] = recs
     wb = _book(out)
-    assert "climate_change" in wb.sheetnames
-    cc = _sheet_rows(wb["climate_change"])
+    assert "Climate Change" in wb.sheetnames
+    cc = _sheet_rows(wb["Climate Change"])
     assert {"model_id", "climate_change_multiplier", "detail"} <= set(cc[0])
 
 

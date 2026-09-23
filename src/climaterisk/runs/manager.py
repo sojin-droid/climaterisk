@@ -192,6 +192,7 @@ class RunManager:
         target_year: int | None = None,
         country: str | None = None,
         baseline_scenario: str | None = None,
+        facility_ids: list[str] | None = None,
     ) -> Run:
         """Create a three-model physical-risk run (global / country / Korea-local hazard)."""
         run_id = uuid.uuid4().hex
@@ -205,6 +206,7 @@ class RunManager:
             target_year=target_year,
             country=country,
             baseline_scenario=baseline_scenario,
+            facility_ids=facility_ids,
         )
         self._spawn(run_id, self._settings.runs_path / run_id, request.model_dump_json(indent=2))
         run.status = "running"

@@ -654,12 +654,29 @@ export interface PhysicalRiskModelsOutput {
   detail: string | null;
 }
 
+export interface PhysicalRiskDisplay {
+  hazard_label: Record<string, string>;
+  hazard_copy: Record<string, string>;
+  scope_label: Record<string, string>;
+  scope_short: Record<string, string>;
+  scope_copy: Record<string, string>;
+  status_copy: Record<string, string>;
+  status_short: Record<string, string>;
+  risk_level_copy: Record<string, string>;
+  method_copy: Record<string, string>;
+  limitations: string[];
+  recommended_models: Record<string, string>;
+  scope_availability: Record<string, Record<string, string>>;
+  comparison_note: string;
+}
+
 export interface PhysicalRiskReadiness {
   models: string[];
   definitions: Record<string, string>;
   hazards: Record<string, Record<string, { status: string; hazard_source: string; detail: string }>>;
   summary: Record<string, Record<string, string>>;
   rule: string;
+  display: PhysicalRiskDisplay;
 }
 
 export interface PhysicalRiskModelsBody {
@@ -667,4 +684,21 @@ export interface PhysicalRiskModelsBody {
   models?: string[];
   target_year?: number;
   country?: string;
+  baseline_scenario?: string;
+  facility_ids?: string[];
+}
+
+export interface PhysicalRiskTable {
+  columns: string[];
+  rows: Record<string, unknown>[];
+  n_total: number;
+  frames: Record<string, Record<string, unknown>[]>;
+  summary_counts: Record<string, number>;
+}
+
+export interface RunProgress {
+  status: string;
+  done?: number;
+  total?: number;
+  current?: string | null;
 }
