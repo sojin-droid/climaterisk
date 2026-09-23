@@ -1,5 +1,7 @@
 # Asset-level physical-risk validation (Phase 7)
 
+> **Frozen regression baseline** — tag `v0.1.0-physical-risk-baseline` (2026-09-24). Any later change (domestic datasets, new impact functions) must keep `tests/test_asset_level_validation.py` and `tests/test_asset_level_validation_evidence.py` green against `tests/fixtures/asset_level_validation/`, or update the evidence as a deliberate, reviewed decision.
+
 **Purpose.** Prove that the existing chain — Data API hazard → published CLIMADA impact
 function → `ImpactCalc` → EAL / PML → risk level — produces correct, distinguishable results
 at asset level for real Korean sites: a positive loss, a true zero, a low loss, and a

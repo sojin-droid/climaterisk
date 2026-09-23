@@ -1,5 +1,9 @@
 # Physical-risk models — global / country / Korea-local hazard replacement
 
+> **A CLIMADA-based physical-risk assessment tool for portfolios of real-estate assets.** It combines global- and country-level hazards (the CLIMADA Data API global sets and their country cuts — not domestic source data) with asset values to produce probabilistic financial loss (EAL, Potential Loss) for Flood and Tropical Cyclone; Heatwave is reported as hazard exposure only, because no applicable CLIMADA Impact Function exists.
+>
+> **CLIMADA 기반 다중 부동산 자산 물리적 리스크 평가 도구.** 글로벌·국가 단위 hazard(같은 CLIMADA Data API 계열의 전지구 세트와 그 국가 컷 — 국내 원천자료가 아님)와 자산가치를 결합하여 Flood 및 Tropical Cyclone의 확률적 금융손실(EAL, Potential Loss)을 산정하고, Heatwave는 현재 적용 가능한 CLIMADA Impact Function이 없어 hazard exposure만 제공한다.
+
 Phase 3 of the CLIMADA-based real-estate physical-risk engine. One facility, one hazard,
 **one published impact function**, three hazard sources. Everything in this document is
 read off the code in `src/climaterisk/physical_risk/` and

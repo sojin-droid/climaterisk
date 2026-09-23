@@ -1,5 +1,7 @@
 # Physical Risk Assessment — user guide (no CLIMADA knowledge needed)
 
+**A CLIMADA-based physical-risk assessment tool for portfolios of real-estate assets.** It combines global- and country-level hazards (the CLIMADA Data API global sets and their country cuts — not domestic source data) with asset values to produce probabilistic financial loss (EAL, Potential Loss) for Flood and Tropical Cyclone; Heatwave is reported as hazard exposure only, because no applicable CLIMADA Impact Function exists.
+
 **Select your assets → Select hazards → Run → Download Excel.** That is the whole workflow.
 Everything below explains what you will see; nothing here changes how the numbers are made.
 
