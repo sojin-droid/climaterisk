@@ -191,6 +191,7 @@ class RunManager:
         models: list[str] | None = None,
         target_year: int | None = None,
         country: str | None = None,
+        baseline_scenario: str | None = None,
     ) -> Run:
         """Create a three-model physical-risk run (global / country / Korea-local hazard)."""
         run_id = uuid.uuid4().hex
@@ -198,7 +199,12 @@ class RunManager:
             run_id, portfolio.id, portfolio.scenario.climate, ["physical_risk_models"]
         )
         request = PhysicalRiskModelsRequest.from_portfolio(
-            portfolio, hazards=hazards, models=models, target_year=target_year, country=country
+            portfolio,
+            hazards=hazards,
+            models=models,
+            target_year=target_year,
+            country=country,
+            baseline_scenario=baseline_scenario,
         )
         self._spawn(run_id, self._settings.runs_path / run_id, request.model_dump_json(indent=2))
         run.status = "running"

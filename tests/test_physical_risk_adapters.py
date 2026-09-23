@@ -295,3 +295,29 @@ def test_l_legacy_runner_module_does_not_import_the_new_engine() -> None:
     src = (REPO / "worker" / "climaterisk_worker" / "physical.py").read_text(encoding="utf-8")
     assert "physical_risk.engine" not in src and "physical_risk.adapters" not in src
     assert "_flood_impf_set" in src  # the 8-point legacy path still exists, unchanged in role
+
+
+def test_baseline_scenario_yields_separate_rows_and_same_model_multipliers_only() -> None:
+    """A baseline run is kept apart from the model rows; KOREA_LOCAL (unpriced) gets no ratio."""
+    out = runner.compute_physical_risk_models(
+        {
+            "facilities": [FACILITY],
+            "climate_scenario": "rcp45",
+            "target_year": 2050,
+            "hazards": ["RF", "TC"],
+            "models": [K],
+            "country": "KOR",
+            "baseline_scenario": "historical",
+        }
+    )
+    assert out["baseline_scenario"] == "historical"
+    assert len(out["rows"]) == 2 and len(out["baseline_rows"]) == 2
+    assert {r["requested_scenario"] for r in out["rows"]} == {"rcp45"}
+    assert {r["requested_scenario"] for r in out["baseline_rows"]} == {"historical"}
+    assert len(out["climate_change_multipliers"]) == 2
+    for rec in out["climate_change_multipliers"]:
+        assert rec["model_id"] == K and rec["climate_change_multiplier"] is None
+        assert "no EAL" in rec["detail"]
+    assert all(r["climate_change_multiplier"] is None for r in out["rows"])
+    # comparisons still see one row per model — baseline rows did not leak in
+    assert all(c["available"] is False for c in out["comparisons"]["global_vs_korea_local"])

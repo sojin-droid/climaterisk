@@ -36,6 +36,7 @@ export function ModelsView({ model }: { model: Portfolio }) {
   const [status, setStatus] = useState<"idle" | "running" | "done" | "error">("idle");
   const [msg, setMsg] = useState<string | null>(null);
   const [out, setOut] = useState<PhysicalRiskModelsOutput | null>(null);
+  const [runId, setRunId] = useState<string | null>(null);
   const [fHazard, setFHazard] = useState("");
   const [fModel, setFModel] = useState("");
   const [fRisk, setFRisk] = useState("");
@@ -57,6 +58,7 @@ export function ModelsView({ model }: { model: Portfolio }) {
       const o = r.output as PhysicalRiskModelsOutput | null;
       if (r.status === "done" && o && o.rows) {
         setOut(o);
+        setRunId(r.id);
         setStatus("done");
         setMsg(o.detail);
       } else {
@@ -107,6 +109,16 @@ export function ModelsView({ model }: { model: Portfolio }) {
           <button className="btn" onClick={run} disabled={status === "running" || model.assets.length === 0}>
             {status === "running" ? "Running…" : "Run three models"}
           </button>
+          {runId && status === "done" && (
+            <a
+              className="btn secondary"
+              href={`/api/session/${model.id}/run/${runId}/physical-risk-export.xlsx`}
+              download={`physical_risk_${runId}.xlsx`}
+              title="hazard_results · asset_summary · global_vs_country · global_vs_korea_local · methodology"
+            >
+              Download Excel
+            </a>
+          )}
           <span className="hint">
             scenario {model.scenario.climate} · {model.assets.length} asset{model.assets.length === 1 ? "" : "s"}
             {model.assets.length === 0 ? " — add assets on the Map tab first" : ""}

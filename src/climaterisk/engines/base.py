@@ -656,6 +656,9 @@ class PhysicalRiskModelsRequest(BaseModel):
         default_factory=lambda: ["GLOBAL_BASELINE", "DATA_API_COUNTRY", "KOREA_LOCAL"]
     )
     country: str | None = None  # ISO3; resolved from the points by the worker when omitted
+    # Optional same-model baseline run (e.g. "historical"); the only source of a
+    # climate_change_multiplier. Baseline rows are returned separately.
+    baseline_scenario: str | None = None
 
     @classmethod
     def from_portfolio(
@@ -666,6 +669,7 @@ class PhysicalRiskModelsRequest(BaseModel):
         models: list[str] | None = None,
         target_year: int | None = None,
         country: str | None = None,
+        baseline_scenario: str | None = None,
     ) -> PhysicalRiskModelsRequest:
         """Map portfolio assets onto facilities; ``property_type`` comes from the asset
         properties when present, else its sector label (the config maps it to a JRC sector)."""
@@ -690,6 +694,7 @@ class PhysicalRiskModelsRequest(BaseModel):
             hazards=hazards or ["RF", "TC", "HEAT"],
             models=models or ["GLOBAL_BASELINE", "DATA_API_COUNTRY", "KOREA_LOCAL"],
             country=country,
+            baseline_scenario=baseline_scenario,
         )
 
 
@@ -700,7 +705,10 @@ class PhysicalRiskModelsOutput(BaseModel):
     climate_scenario: str = ""
     target_year: int | None = None
     country: str | None = None
+    baseline_scenario: str | None = None
     rows: list[dict[str, Any]] = Field(default_factory=list)
+    baseline_rows: list[dict[str, Any]] = Field(default_factory=list)
+    climate_change_multipliers: list[dict[str, Any]] = Field(default_factory=list)
     comparisons: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
     readiness: dict[str, Any] = Field(default_factory=dict)
     adapters: list[dict[str, Any]] = Field(default_factory=list)

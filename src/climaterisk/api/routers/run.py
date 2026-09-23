@@ -93,6 +93,7 @@ class PhysicalRiskModelsBody(BaseModel):
     models: list[str] | None = None  # subset of GLOBAL_BASELINE / DATA_API_COUNTRY / KOREA_LOCAL
     target_year: int | None = None
     country: str | None = None  # ISO3; resolved from the assets when omitted
+    baseline_scenario: str | None = None  # e.g. "historical": enables climate_change_multiplier
 
 
 @router.post("/{session_id}/physical-risk-models", response_model=Run)
@@ -115,6 +116,31 @@ def submit_physical_risk_models(
         models=body.models,
         target_year=body.target_year,
         country=body.country.upper() if body.country else None,
+        baseline_scenario=body.baseline_scenario,
+    )
+
+
+@router.get("/{session_id}/run/{run_id}/physical-risk-export.xlsx")
+def export_physical_risk_models_xlsx(session_id: str, run_id: str, manager: ManagerDep) -> Response:
+    """The finished three-model run as an Excel workbook (openpyxl).
+
+    Sheets: run_info, hazard_results, asset_summary, global_vs_country,
+    global_vs_korea_local, climate_change (when a baseline scenario was run), methodology.
+    Empty cells are unpriced fields — never zeros.
+    """
+    from climaterisk.physical_risk.excel_export import workbook_bytes
+
+    run = manager.poll(run_id)
+    if run is None or run.session_id != session_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="run not found")
+    if run.status != "done" or not run.output or "rows" not in run.output:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail="run is not a finished physical-risk-models run"
+        )
+    return Response(
+        workbook_bytes(run.output),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="physical_risk_{run_id}.xlsx"'},
     )
 
 

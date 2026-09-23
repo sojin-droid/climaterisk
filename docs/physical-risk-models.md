@@ -227,7 +227,25 @@ User portfolio only: `lat`, `lon`, `asset_value_usd`, `asset_value_currency`,
   and the filterable batch table. A model without numbers shows **Not available**.
 * Export frames ([`results_table.py`](../src/climaterisk/physical_risk/results_table.py)):
   `hazard_results`, `asset_summary`, `global_vs_country`, `global_vs_korea_local`,
-  `methodology` — lists of dicts, ready for `openpyxl` in Phase 7/8.
+  `methodology` — lists of dicts.
+* **Excel (Phase 5)** — [`excel_export.py`](../src/climaterisk/physical_risk/excel_export.py)
+  renders the frames with openpyxl: sheets `run_info`, `hazard_results`, `asset_summary`,
+  `global_vs_country`, `global_vs_korea_local`, `climate_change` (only when a baseline
+  scenario was run), `methodology`. A `None` is an **empty cell, never 0**; every result
+  row carries `model_id` and `calculation_status`.
+  `GET /api/session/{id}/run/{run_id}/physical-risk-export.xlsx` and the **Download Excel**
+  button on the Models tab serve it.
+* **Batch CLI (Phase 5)** — `scripts/physical_risk_batch.py` (worker env): facilities CSV
+  (`facility_id, facility_name, lat, lon, asset_value_usd[, property_type]`) → all hazards ×
+  all models → workbook + raw JSON. `--baseline-scenario historical` runs the same models a
+  second time and fills `climate_change_multiplier = future_EAL / baseline_EAL` **within each
+  model** — the only form that ratio takes; without it the column is empty.
+
+  ```bash
+  ./.climada-env/bin/python scripts/physical_risk_batch.py --facilities facilities.csv \
+      --out results.xlsx --json results.json --scenario rcp45 --year 2040 --country KOR \
+      --baseline-scenario historical
+  ```
 
 ## 12. Measured (this repository, 2026-09-23, 100 M USD office at 37.5 N 127.0 E)
 

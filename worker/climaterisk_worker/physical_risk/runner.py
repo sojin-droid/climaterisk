@@ -29,7 +29,12 @@ _SRC = Path(__file__).resolve().parents[3] / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
-from climaterisk.physical_risk.metrics import CalculationStatus, ModelId, ResultRow  # noqa: E402
+from climaterisk.physical_risk.metrics import (  # noqa: E402
+    CalculationStatus,
+    ModelId,
+    ResultRow,
+    attach_climate_multipliers,
+)
 from climaterisk.physical_risk.models import readiness  # noqa: E402
 from climaterisk.physical_risk.results_table import comparison_frame  # noqa: E402
 
@@ -126,7 +131,9 @@ def compute_physical_risk_models(request: dict[str, Any]) -> dict[str, Any]:
     Request fields: ``facilities`` (``facility_id``, ``facility_name``, ``latitude``,
     ``longitude``, ``asset_value_usd``, ``asset_value_currency``, ``property_type``),
     ``climate_scenario``, ``target_year``, optional ``hazards`` (subset of RF/TC/HEAT),
-    ``models`` (subset of the three ids) and ``country`` (ISO3).
+    ``models`` (subset of the three ids), ``country`` (ISO3) and ``baseline_scenario``
+    (a second scenario run under the same models, the only source of a
+    ``climate_change_multiplier``; its rows are returned separately as ``baseline_rows``).
     """
     facilities: list[dict[str, Any]] = list(request.get("facilities") or [])
     scenario = str(request.get("climate_scenario") or "rcp45")
@@ -140,8 +147,6 @@ def compute_physical_risk_models(request: dict[str, Any]) -> dict[str, Any]:
     iso3 = _iso3_for(facilities, request.get("country"))
     bbox = _bbox(facilities)
 
-    rows: list[ResultRow] = []
-    used: list[dict[str, Any]] = []
     notes: list[str] = []
     if not facilities:
         notes.append("portfolio has no facilities")
@@ -151,6 +156,58 @@ def compute_physical_risk_models(request: dict[str, Any]) -> dict[str, Any]:
             "and KOREA_LOCAL need one ISO3; those rows are NO_HAZARD_DATA"
         )
 
+    rows, used = _all_model_rows(facilities, scenario, year, hazards, models, iso3, bbox)
+
+    # Optional same-model baseline run: the only legitimate source of a climate-change
+    # multiplier (future_EAL / baseline_EAL within one model_id). Baseline rows are kept
+    # apart from ``rows`` so the model comparisons stay one-row-per-model.
+    baseline_scenario = request.get("baseline_scenario")
+    baseline_rows: list[ResultRow] = []
+    multipliers: list[dict[str, Any]] = []
+    if baseline_scenario and str(baseline_scenario) != scenario:
+        baseline_rows, used_base = _all_model_rows(
+            facilities, str(baseline_scenario), year, hazards, models, iso3, bbox
+        )
+        used.extend({**d, "role": "baseline"} for d in used_base)
+        multipliers = attach_climate_multipliers(rows, baseline_rows)
+
+    g, c, k = (
+        ModelId.GLOBAL_BASELINE.value,
+        ModelId.DATA_API_COUNTRY.value,
+        ModelId.KOREA_LOCAL.value,
+    )
+    return {
+        "status": "ok",
+        "climate_scenario": scenario,
+        "target_year": year,
+        "baseline_scenario": str(baseline_scenario) if baseline_rows else None,
+        "country": iso3,
+        "rows": [r.to_dict() for r in rows],
+        "baseline_rows": [r.to_dict() for r in baseline_rows],
+        "climate_change_multipliers": multipliers,
+        "comparisons": {
+            "global_vs_country": comparison_frame(rows, g, c, "country"),
+            "global_vs_korea_local": comparison_frame(rows, g, k, "korea_local"),
+        },
+        "readiness": readiness(),
+        "adapters": used,
+        "impact_function_fixed": _same_impact_function_per_hazard(rows),
+        "detail": "; ".join(notes) or None,
+    }
+
+
+def _all_model_rows(
+    facilities: list[dict[str, Any]],
+    scenario: str,
+    year: int,
+    hazards: list[str],
+    models: list[str],
+    iso3: str | None,
+    bbox: tuple[float, float, float, float] | None,
+) -> tuple[list[ResultRow], list[dict[str, Any]]]:
+    """Every (hazard x model) adapter once, every facility priced against it."""
+    rows: list[ResultRow] = []
+    used: list[dict[str, Any]] = []
     for key in hazards:
         tag = HAZARD_TAGS[key]
         for model in models:
@@ -172,37 +229,21 @@ def compute_physical_risk_models(request: dict[str, Any]) -> dict[str, Any]:
             model_rows, desc = _rows_for(adapter, tag, facilities, iso3, bbox)
             rows.extend(model_rows)
             used.append(desc)
-
-    g, c, k = (
-        ModelId.GLOBAL_BASELINE.value,
-        ModelId.DATA_API_COUNTRY.value,
-        ModelId.KOREA_LOCAL.value,
-    )
-    return {
-        "status": "ok",
-        "climate_scenario": scenario,
-        "target_year": year,
-        "country": iso3,
-        "rows": [r.to_dict() for r in rows],
-        "comparisons": {
-            "global_vs_country": comparison_frame(rows, g, c, "country"),
-            "global_vs_korea_local": comparison_frame(rows, g, k, "korea_local"),
-        },
-        "readiness": readiness(),
-        "adapters": used,
-        "impact_function_fixed": _same_impact_function_per_hazard(rows),
-        "detail": "; ".join(notes) or None,
-    }
+    return rows, used
 
 
 def _same_impact_function_per_hazard(rows: list[ResultRow]) -> dict[str, bool]:
-    """Per hazard tag: did every priced model use one and the same impact function id?"""
+    """Per hazard tag: did every priced model use the same impact function **per facility**?
+
+    The invariant is fixed-across-models, not fixed-across-facilities: two facilities with
+    different property types legitimately get different JRC sector curves, but one facility
+    must see one function id under every model that priced it.
+    """
     out: dict[str, bool] = {}
     for tag in {r.hazard_type for r in rows}:
-        ids = {
-            r.impact_function_id
-            for r in rows
-            if r.hazard_type == tag and r.impact_function_id is not None
-        }
-        out[tag] = len(ids) <= 1
+        per_facility: dict[str, set[int]] = {}
+        for r in rows:
+            if r.hazard_type == tag and r.impact_function_id is not None:
+                per_facility.setdefault(r.facility_id, set()).add(int(r.impact_function_id))
+        out[tag] = all(len(ids) <= 1 for ids in per_facility.values())
     return out

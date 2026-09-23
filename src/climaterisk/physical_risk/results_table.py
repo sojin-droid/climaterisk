@@ -63,6 +63,7 @@ HAZARD_RESULTS_COLUMNS: tuple[str, ...] = (
     "asset_value_usd",
     "asset_value_currency",
     "risk_level_criteria",
+    "climate_change_multiplier",
     "status_detail",
     "confidence",
     "property_type",
