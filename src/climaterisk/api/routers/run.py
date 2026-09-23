@@ -86,6 +86,77 @@ def submit_litpop(
     return manager.submit_litpop(portfolio, country.upper(), source, peril)
 
 
+class PhysicalRiskModelsBody(BaseModel):
+    """Options for a three-model run; every field has the platform default."""
+
+    hazards: list[str] | None = None  # subset of RF / TC / HEAT
+    models: list[str] | None = None  # subset of GLOBAL_BASELINE / DATA_API_COUNTRY / KOREA_LOCAL
+    target_year: int | None = None
+    country: str | None = None  # ISO3; resolved from the assets when omitted
+
+
+@router.post("/{session_id}/physical-risk-models", response_model=Run)
+def submit_physical_risk_models(
+    session_id: str, body: PhysicalRiskModelsBody, store: StoreDep, manager: ManagerDep
+) -> Run:
+    """Submit a global / country / Korea-local hazard-replacement run; polled via run-status.
+
+    The same exposure and the same published CLIMADA impact function are applied under
+    each model — only the hazard source changes (``docs/physical-risk-models.md``).
+    """
+    portfolio = store.get(session_id)
+    if portfolio is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="session not found")
+    if body.country is not None and len(body.country) != 3:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="country must be an ISO3 code")
+    return manager.submit_physical_risk_models(
+        portfolio,
+        hazards=body.hazards,
+        models=body.models,
+        target_year=body.target_year,
+        country=body.country.upper() if body.country else None,
+    )
+
+
+@router.get("/{session_id}/run/{run_id}/physical-risk-table")
+def get_physical_risk_table(
+    session_id: str,
+    run_id: str,
+    manager: ManagerDep,
+    hazard: str | None = None,
+    model: str | None = None,
+    risk_level: str | None = None,
+    scenario: str | None = None,
+) -> dict[str, Any]:
+    """The batch table of a finished three-model run, filtered, in the canonical columns.
+
+    Also returns the five export-compatible frames so the Excel step is a pure write.
+    """
+    from climaterisk.physical_risk.results_table import (
+        CANONICAL_COLUMNS,
+        export_frames,
+        filter_rows,
+        table_rows,
+    )
+
+    run = manager.poll(run_id)
+    if run is None or run.session_id != session_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="run not found")
+    if run.status != "done" or not run.output or "rows" not in run.output:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail="run is not a finished physical-risk-models run"
+        )
+    rows = filter_rows(
+        run.output["rows"], hazard=hazard, model=model, risk_level=risk_level, scenario=scenario
+    )
+    return {
+        "columns": list(CANONICAL_COLUMNS),
+        "rows": table_rows(rows),
+        "n_total": len(run.output["rows"]),
+        "frames": export_frames(run.output["rows"]),
+    }
+
+
 @router.post("/{session_id}/hazard-preview", response_model=Run)
 def submit_hazard_preview(
     session_id: str,

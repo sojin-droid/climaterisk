@@ -28,6 +28,7 @@ variants selected by `mode`) and the CLIMADA worker writes `data/runs/<id>/resul
 (`PhysicalRunOutput` etc.). All are defined in `src/climaterisk/engines/base.py`.
 
 > The table above is **incomplete** (2026-09-07 audit): cost-benefit, uncertainty, litpop,
-> hazard-preview, forecast, calibration, supplychain, ingest, finance, latest-runs, run
+> hazard-preview, forecast, calibration, supplychain, ingest, finance, latest-runs,
+> physical-risk-models (+ `run/{id}/physical-risk-table`, `libraries/physical-risk-models`; see `physical-risk-models.md` §11), run
 > detail/preview/export, transition, report, method-figure, data-fetch and hazard-catalog routes
 > exist under `src/climaterisk/api/routers/`. Use the live OpenAPI page for the authoritative list.

@@ -51,6 +51,19 @@ def get_method_figure(peril: str) -> FileResponse:
     return FileResponse(png, media_type="image/png")
 
 
+@router.get("/physical-risk-models")
+def get_physical_risk_models() -> dict[str, Any]:
+    """The three hazard models, their definitions and the per-hazard readiness table.
+
+    Static: it describes what the platform can compute, read from
+    ``climaterisk.physical_risk.models`` (shared with the CLIMADA worker, which asserts
+    its adapters agree with it).
+    """
+    from climaterisk.physical_risk.models import readiness
+
+    return readiness()
+
+
 @router.get("/{name}")
 def get_library(name: str) -> dict[str, Any]:
     """Return a single named library, or 404 if it does not exist."""

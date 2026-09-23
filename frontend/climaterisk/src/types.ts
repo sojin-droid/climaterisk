@@ -570,6 +570,7 @@ export interface Run {
     | UncertaintyResult
     | LitPopResult
     | IngestResult
+    | PhysicalRiskModelsOutput
     | SupplyChainResult
     | CalibrationResult
     | ForecastResult
@@ -598,4 +599,72 @@ export interface TransitionResult {
   per_asset: AssetCarbon[];
   method: string;
   detail: string | null;
+}
+
+// Physical-risk models — Phase 3 hazard replacement (mirror of
+// src/climaterisk/physical_risk/metrics.py ResultRow and engines/base.py PhysicalRiskModelsOutput).
+export type PhysicalRiskModelId = "GLOBAL_BASELINE" | "DATA_API_COUNTRY" | "KOREA_LOCAL";
+
+export interface PhysicalRiskRow {
+  facility_id: string;
+  facility_name: string;
+  hazard_type: string;
+  model_id: PhysicalRiskModelId | string;
+  hazard_source: string | null;
+  hazard_dataset: string | null;
+  hazard_data_version: string | null;
+  hazard_country: string | null;
+  impact_function_id: number | null;
+  impact_function_name: string | null;
+  impact_function_source: string | null;
+  exposure_source: string | null;
+  exposure_version: string | null;
+  requested_scenario: string | null;
+  served_scenario: string | null;
+  scenario: string | null;
+  time_horizon: string | null;
+  hazard_intensity: number | null;
+  hazard_intensity_unit: string | null;
+  probability: number | null;
+  return_period_years: number | null;
+  asset_value_usd: number | null;
+  asset_value_currency: string | null;
+  potential_loss_usd: number | null;
+  potential_loss_return_period_years: number | null;
+  eal_usd: number | null;
+  eal_as_pct_of_assets: number | null;
+  risk_level: string | null;
+  risk_level_criteria: string | null;
+  calculation_status: string;
+  status_detail: string | null;
+  confidence: string | null;
+  property_type: string | null;
+}
+
+export interface PhysicalRiskModelsOutput {
+  status: string;
+  climate_scenario: string;
+  target_year: number | null;
+  country: string | null;
+  rows: PhysicalRiskRow[];
+  comparisons: Record<string, Record<string, unknown>[]>;
+  readiness: PhysicalRiskReadiness;
+  adapters: Record<string, unknown>[];
+  impact_function_fixed: Record<string, boolean>;
+  detail: string | null;
+}
+
+export interface PhysicalRiskReadiness {
+  models: string[];
+  definitions: Record<string, string>;
+  hazards: Record<string, Record<string, { status: string; hazard_source: string; detail: string }>>;
+  summary: Record<string, Record<string, string>>;
+  rule: string;
+}
+
+export interface PhysicalRiskModelsBody {
+  hazards?: string[];
+  models?: string[];
+  target_year?: number;
+  country?: string;
 }

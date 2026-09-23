@@ -31,6 +31,7 @@ _KIND_SENTINELS = frozenset(
         "supplychain",
         "calibration",
         "forecast",
+        "physical_risk_models",
     }
 )
 

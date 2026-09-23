@@ -174,7 +174,7 @@ def test_comparison_row_computes_both_change_forms_and_refuses_mismatched_rows()
         calculation_status="FULL",
     ).finalise()
     local = _row(
-        model_id=ModelId.KOREA_HAZARD.value,
+        model_id=ModelId.DATA_API_COUNTRY.value,
         eal_usd=770_000.0,
         potential_loss_usd=8_600_000.0,
         hazard_intensity=1.32,
@@ -185,7 +185,8 @@ def test_comparison_row_computes_both_change_forms_and_refuses_mismatched_rows()
     assert cmp["eal_change_pct"] == pytest.approx(26.229508, rel=1e-6)
     assert cmp["potential_loss_change_pct"] == pytest.approx(19.444444, rel=1e-6)
     assert cmp["hazard_intensity_change_pct"] == pytest.approx(25.714286, rel=1e-6)
-    assert cmp["baseline_model_id"] == "GLOBAL_BASELINE" and cmp["local_model_id"] == "KOREA_HAZARD"
+    assert cmp["baseline_model_id"] == "GLOBAL_BASELINE"
+    assert cmp["comparison_model_id"] == "DATA_API_COUNTRY"
     with pytest.raises(ValueError, match="cannot compare"):
         comparison_row(base, _row(hazard_type="TC"))
 

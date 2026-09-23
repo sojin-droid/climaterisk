@@ -178,7 +178,7 @@ def test_tc_without_a_country_falls_back_to_climadas_rest_of_the_world() -> None
 @pytest.mark.parametrize("haz_type", ["HM", "HW"])
 def test_heat_is_hazard_only_with_null_financials_never_zero(haz_type: str) -> None:
     hazard = synth(haz_type, "degC-days", [10.0, 40.0, 90.0], [0.5, 0.2, 0.05])
-    row = calculate(FACILITY, hazard, haz_type, model_id=ModelId.KOREA_HAZARD.value, iso3="KOR")
+    row = calculate(FACILITY, hazard, haz_type, model_id=ModelId.KOREA_LOCAL.value, iso3="KOR")
     assert row.calculation_status == CalculationStatus.HAZARD_ONLY.value
     for field in (
         "eal_usd",

@@ -622,3 +622,87 @@ class ForecastResult(BaseModel):
     total_impact: float = 0.0  # ensemble-mean forecast impact over the portfolio
     per_asset: list[AssetImpact] = Field(default_factory=list)
     detail: str | None = None
+
+
+# --- Physical-risk models (Phase 3: global / country / Korea-local hazard replacement) ---
+
+
+class FacilitySpec(BaseModel):
+    """One portfolio asset as the physical-risk engine sees it (an exposure point)."""
+
+    facility_id: str
+    facility_name: str
+    latitude: float
+    longitude: float
+    asset_value_usd: float | None = None
+    asset_value_currency: str = "USD"
+    property_type: str | None = None
+
+
+class PhysicalRiskModelsRequest(BaseModel):
+    """Inputs for a three-model physical-risk run (``mode = physical_risk_models``).
+
+    The same exposure and the same published CLIMADA impact function are applied under
+    every model; only the hazard source differs (``docs/physical-risk-models.md``).
+    """
+
+    mode: str = "physical_risk_models"
+    session_id: str
+    facilities: list[FacilitySpec]
+    climate_scenario: str
+    target_year: int
+    hazards: list[str] = Field(default_factory=lambda: ["RF", "TC", "HEAT"])
+    models: list[str] = Field(
+        default_factory=lambda: ["GLOBAL_BASELINE", "DATA_API_COUNTRY", "KOREA_LOCAL"]
+    )
+    country: str | None = None  # ISO3; resolved from the points by the worker when omitted
+
+    @classmethod
+    def from_portfolio(
+        cls,
+        portfolio: Portfolio,
+        *,
+        hazards: list[str] | None = None,
+        models: list[str] | None = None,
+        target_year: int | None = None,
+        country: str | None = None,
+    ) -> PhysicalRiskModelsRequest:
+        """Map portfolio assets onto facilities; ``property_type`` comes from the asset
+        properties when present, else its sector label (the config maps it to a JRC sector)."""
+        facilities = [
+            FacilitySpec(
+                facility_id=a.id,
+                facility_name=a.name,
+                latitude=a.lat,
+                longitude=a.lon,
+                asset_value_usd=a.value if a.value > 0 else None,
+                asset_value_currency=a.currency,
+                property_type=str(a.properties.get("property_type") or a.sector.value),
+            )
+            for a in portfolio.assets
+        ]
+        years = portfolio.scenario.anchor_years or [2050]
+        return cls(
+            session_id=portfolio.id,
+            facilities=facilities,
+            climate_scenario=portfolio.scenario.climate,
+            target_year=int(target_year or max(years)),
+            hazards=hazards or ["RF", "TC", "HEAT"],
+            models=models or ["GLOBAL_BASELINE", "DATA_API_COUNTRY", "KOREA_LOCAL"],
+            country=country,
+        )
+
+
+class PhysicalRiskModelsOutput(BaseModel):
+    """Worker output of a three-model run: canonical rows plus the comparison frames."""
+
+    status: str
+    climate_scenario: str = ""
+    target_year: int | None = None
+    country: str | None = None
+    rows: list[dict[str, Any]] = Field(default_factory=list)
+    comparisons: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
+    readiness: dict[str, Any] = Field(default_factory=dict)
+    adapters: list[dict[str, Any]] = Field(default_factory=list)
+    impact_function_fixed: dict[str, bool] = Field(default_factory=dict)
+    detail: str | None = None

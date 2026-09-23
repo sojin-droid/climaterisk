@@ -25,6 +25,7 @@ from climaterisk.engines.base import (
     IngestRequest,
     LitPopRequest,
     MeasureSpec,
+    PhysicalRiskModelsRequest,
     PhysicalRunRequest,
     SupplyChainRequest,
     UncertaintyRequest,
@@ -178,6 +179,27 @@ class RunManager:
         run_id = uuid.uuid4().hex
         run = self._store.create(run_id, portfolio.id, scenario, [f"ingest:{source}"])
         request = IngestRequest.from_portfolio(portfolio, source, peril, scenario, year)
+        self._spawn(run_id, self._settings.runs_path / run_id, request.model_dump_json(indent=2))
+        run.status = "running"
+        return run
+
+    def submit_physical_risk_models(
+        self,
+        portfolio: Portfolio,
+        *,
+        hazards: list[str] | None = None,
+        models: list[str] | None = None,
+        target_year: int | None = None,
+        country: str | None = None,
+    ) -> Run:
+        """Create a three-model physical-risk run (global / country / Korea-local hazard)."""
+        run_id = uuid.uuid4().hex
+        run = self._store.create(
+            run_id, portfolio.id, portfolio.scenario.climate, ["physical_risk_models"]
+        )
+        request = PhysicalRiskModelsRequest.from_portfolio(
+            portfolio, hazards=hazards, models=models, target_year=target_year, country=country
+        )
         self._spawn(run_id, self._settings.runs_path / run_id, request.model_dump_json(indent=2))
         run.status = "running"
         return run
