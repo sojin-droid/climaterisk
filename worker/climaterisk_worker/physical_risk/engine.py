@@ -1,11 +1,13 @@
 """The physical-risk calculation: exposure + published impact function + hazard -> CLIMADA.
 
-One facility, one hazard, one model substitution produces one
+One facility, one hazard, one model produces one
 :class:`~climaterisk.physical_risk.metrics.ResultRow`. The arithmetic is CLIMADA's:
 ``ImpactCalc(exposures, impfset, hazard).impact()`` gives ``aai_agg`` and
 ``calc_freq_curve`` gives the return-period loss. Nothing is re-implemented here, and no
 damage curve is authored — the functions come from
-:mod:`climaterisk_worker.physical_risk.registry`.
+:mod:`climaterisk_worker.physical_risk.registry` and are the **same for every model**:
+the model only decides where the hazard came from
+(:mod:`climaterisk_worker.physical_risk.adapters`).
 
 Deliberate refusals, each of which would otherwise produce a plausible-looking number:
 
@@ -15,8 +17,12 @@ Deliberate refusals, each of which would otherwise produce a plausible-looking n
   rather than returning NaN, so a 100-year request against a set whose rarest event is a
   10-year event silently yields the 10-year loss. The engine checks
   ``1 / min(frequency)`` first and reports ``RETURN_PERIOD_NOT_RESOLVABLE`` instead.
+* **Scenario mismatch.** A dataset that serves a different scenario than requested is
+  recorded as ``requested_scenario`` / ``served_scenario`` and the row becomes
+  ``SCENARIO_MISMATCH`` in :meth:`ResultRow.finalise` — the number is not filed under the
+  requested key.
 * **Climate-change multiplier.** Computed only as ``future_eal / baseline_eal`` from two
-  real runs; otherwise null.
+  real runs of the same model; otherwise null (``metrics.climate_change_multiplier``).
 
 This module is separate from ``physical.py``: the legacy runners keep their behaviour and
 their results, and the two are expected to differ — most visibly for flood, where the
@@ -39,10 +45,15 @@ if str(_SRC) not in sys.path:  # the metrics half lives in the backend package
 from climaterisk.physical_risk.metrics import (  # noqa: E402
     CalculationStatus,
     ResultRow,
+    climate_change_multiplier,
+    eal_as_pct_of_assets,
     jrc_sector_for,
     load_config,
     max_resolvable_return_period,
+    risk_level,
 )
+
+__all__ = ["HAZARD_ONLY_HAZARDS", "PRICEABLE_HAZARDS", "calculate", "climate_change_multiplier"]
 
 #: Hazard tags this engine can price, and the registry call that supplies the curve.
 PRICEABLE_HAZARDS: tuple[str, ...] = ("RF", "TC")
@@ -64,7 +75,7 @@ def _facility_exposure(facility: dict[str, Any], impf_col: str, impf_id: int) ->
             impf_col: [int(impf_id)],
         }
     )
-    return Exposures(frame, value_unit="USD")
+    return Exposures(frame, value_unit=str(facility.get("asset_value_currency") or "USD"))
 
 
 def _hazard_intensity_at(hazard: Any, lat: float, lon: float) -> float | None:
@@ -108,25 +119,40 @@ def calculate(
     model_id: str,
     iso3: str | None = None,
     hazard_source: str | None = None,
+    hazard_dataset: str | None = None,
+    hazard_data_version: str | None = None,
+    hazard_country: str | None = None,
+    requested_scenario: str | None = None,
+    served_scenario: str | None = None,
     scenario: str | None = None,
     time_horizon: str | None = None,
-    data_version: str | None = None,
     exposure_source: str = "portfolio facility (lat/lon + asset_value_usd)",
+    exposure_version: str | None = None,
     flood_region: str = "Asia",
+    status_override: str | None = None,
+    status_detail: str | None = None,
     config: dict[str, Any] | None = None,
 ) -> ResultRow:
     """Price one facility against one hazard set, or say why it cannot be priced.
 
     Args:
         facility: ``facility_id``, ``facility_name``, ``latitude``, ``longitude``,
-            ``asset_value_usd``, and optionally ``property_type`` and other metadata.
-        hazard: A CLIMADA ``Hazard``.
+            ``asset_value_usd``, and optionally ``asset_value_currency``, ``property_type``
+            and other metadata.
+        hazard: A CLIMADA ``Hazard``, or None when the model has none for this facility.
         hazard_type: Its tag — ``RF`` / ``TC`` are priced, ``HM`` / ``HW`` are hazard-only.
-        model_id: Which substitution this row belongs to (:class:`ModelId`).
+        model_id: Which hazard source this row belongs to (:class:`ModelId`).
         iso3: Country, used to pick the TC regional function from CLIMADA's own table.
+        requested_scenario: The platform scenario key the run asked for.
+        served_scenario: The scenario the dataset actually carries; a difference is
+            recorded and turns a priced row into ``SCENARIO_MISMATCH``.
+        status_override: A non-financial status the adapter already decided
+            (``NOT_IMPLEMENTED``, ``NO_HAZARD_DATA``) — the row is returned with it and
+            no calculation is attempted.
 
     Returns:
-        A finalised :class:`ResultRow`; financial fields are null unless the status is FULL.
+        A finalised :class:`ResultRow`; financial fields are null unless the status is
+        FULL (or RETURN_PERIOD_NOT_RESOLVABLE, which keeps EAL only).
     """
     cfg = config or load_config()
     row = ResultRow(
@@ -135,15 +161,21 @@ def calculate(
         hazard_type=hazard_type,
         model_id=model_id,
         hazard_source=hazard_source,
+        hazard_dataset=hazard_dataset,
+        hazard_data_version=hazard_data_version,
+        hazard_country=hazard_country,
         exposure_source=exposure_source,
+        exposure_version=exposure_version,
+        requested_scenario=requested_scenario,
+        served_scenario=served_scenario,
         scenario=scenario,
         time_horizon=time_horizon,
-        data_version=data_version,
         asset_value_usd=(
             float(facility["asset_value_usd"])
             if facility.get("asset_value_usd") is not None
             else None
         ),
+        asset_value_currency=facility.get("asset_value_currency"),
         property_type=facility.get("property_type"),
         floor_area_m2=facility.get("floor_area_m2"),
         year_built=facility.get("year_built"),
@@ -152,9 +184,14 @@ def calculate(
     )
     lat, lon = float(facility["latitude"]), float(facility["longitude"])
 
+    if status_override is not None:
+        row.calculation_status = status_override
+        row.status_detail = status_detail
+        return row.finalise(cfg)
+
     if hazard is None:
         row.calculation_status = CalculationStatus.NO_HAZARD_DATA.value
-        row.status_detail = f"no {hazard_type} hazard available for this facility"
+        row.status_detail = status_detail or f"no {hazard_type} hazard available for this facility"
         return row.finalise(cfg)
 
     row.hazard_intensity = _hazard_intensity_at(hazard, lat, lon)
@@ -173,7 +210,7 @@ def calculate(
         row.status_detail = f"no published CLIMADA impact function registered for {hazard_type}"
         return row.finalise(cfg)
 
-    # --- the published impact function, unmodified ---------------------------------
+    # --- the published impact function, unmodified and model-independent -------------
     if hazard_type == "RF":
         sector = jrc_sector_for(row.property_type, cfg)
         func = registry.flood_impact_function(flood_region, sector)
@@ -226,18 +263,16 @@ def calculate(
         row.calculation_status = CalculationStatus.RETURN_PERIOD_NOT_RESOLVABLE.value
         row.status_detail = refusal
         row.potential_loss_return_period_years = target_rp
-        # EAL survives: it uses every event's frequency and needs no extrapolation.
-        row.eal_as_pct_of_assets = None
         finalised = row.finalise(cfg)
-        finalised.eal_usd = float(impact.aai_agg)
-        from climaterisk.physical_risk.metrics import eal_as_pct_of_assets, risk_level
-
-        finalised.eal_as_pct_of_assets = eal_as_pct_of_assets(
-            finalised.eal_usd, finalised.asset_value_usd
-        )
-        finalised.risk_level, finalised.risk_level_criteria = risk_level(
-            finalised.eal_as_pct_of_assets, cfg
-        )
+        if finalised.calculation_status == CalculationStatus.RETURN_PERIOD_NOT_RESOLVABLE.value:
+            # EAL survives: it uses every event's frequency and needs no extrapolation.
+            finalised.eal_usd = float(impact.aai_agg)
+            finalised.eal_as_pct_of_assets = eal_as_pct_of_assets(
+                finalised.eal_usd, finalised.asset_value_usd
+            )
+            finalised.risk_level, finalised.risk_level_criteria = risk_level(
+                finalised.eal_as_pct_of_assets, cfg
+            )
         return finalised
 
     row.potential_loss_usd = loss
@@ -246,30 +281,3 @@ def calculate(
     row.calculation_status = CalculationStatus.FULL.value
     row.confidence = "published impact function, no local calibration"
     return row.finalise(cfg)
-
-
-def climate_change_multiplier(baseline: ResultRow, future: ResultRow) -> dict[str, Any]:
-    """``future_eal / baseline_eal`` from two real runs, or null with the reason.
-
-    Never a configured constant: if either run has no EAL, or the baseline is zero, the
-    multiplier is None and the metadata says which run was missing.
-    """
-    value = None
-    detail = None
-    if baseline.eal_usd is None or future.eal_usd is None:
-        detail = "one of the two runs produced no EAL"
-    elif baseline.eal_usd == 0:
-        detail = "baseline EAL is zero — ratio undefined"
-    else:
-        value = float(future.eal_usd) / float(baseline.eal_usd)
-    return {
-        "climate_change_multiplier": value,
-        "multiplier_definition": "future_EAL / baseline_EAL, both from CLIMADA ImpactCalc",
-        "baseline_period": baseline.time_horizon,
-        "future_period": future.time_horizon,
-        "baseline_scenario": baseline.scenario,
-        "future_scenario": future.scenario,
-        "baseline_eal_usd": baseline.eal_usd,
-        "future_eal_usd": future.eal_usd,
-        "detail": detail,
-    }

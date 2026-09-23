@@ -2,11 +2,11 @@
 
 This is the half of the physical-risk engine that does not need CLIMADA: the risk-level
 bands, the EAL-over-asset-value ratio, the probability/return-period relation, the
-global-vs-Korea change arithmetic, and the row every calculation emits. It lives in the
+model-vs-model change arithmetic, and the row every calculation emits. It lives in the
 backend package so the API, the batch table and the Excel export can use it without the
 worker environment (the GPL boundary — ``docs/ARCHITECTURE.md``).
 
-Two rules are enforced here rather than left to callers:
+Rules enforced here rather than left to callers:
 
 * **A missing number is never zero.** Where a quantity cannot be computed the field is
   ``None`` and :attr:`ResultRow.calculation_status` says why. ``0.0`` means a real,
@@ -14,12 +14,20 @@ Two rules are enforced here rather than left to callers:
 * **Thresholds are configuration.** The bands come from
   ``assets/libraries/physical_risk_config.json``; nothing here hard-codes 0.10 / 0.50.
   They are this project's own methodology, GRESB-informed — not an official GRESB rule.
+* **Requested and served scenario are two fields.** A dataset that answers ``rcp45`` with
+  ``rcp60`` is recorded as exactly that and the row is ``SCENARIO_MISMATCH``, never filed
+  under the requested key (``docs/physical-risk-models.md`` 6).
+* **Percent and percentage points are different units.** ``change_pct`` is relative,
+  ``change_pp`` is the difference of two percentages. They are never interchanged.
+* **A model comparison is not a climate-change multiplier.** The multiplier is defined
+  only between two runs of the *same* model over different periods/scenarios.
 """
 
 from __future__ import annotations
 
 import json
 import os
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from functools import lru_cache
@@ -33,7 +41,9 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 class CalculationStatus(StrEnum):
     """Why a row does or does not carry financial numbers.
 
-    ``FULL`` is the only status under which ``eal_usd`` and ``risk_level`` may be non-null.
+    ``FULL`` is the only status under which ``eal_usd`` and ``risk_level`` may be non-null,
+    with one deliberate exception: ``RETURN_PERIOD_NOT_RESOLVABLE`` keeps EAL (which needs
+    no extrapolation) and nulls only the return-period loss.
     """
 
     FULL = "FULL"
@@ -42,6 +52,8 @@ class CalculationStatus(StrEnum):
     NO_HAZARD_DATA = "NO_HAZARD_DATA"
     NO_EXPOSURE_DATA = "NO_EXPOSURE_DATA"
     RETURN_PERIOD_NOT_RESOLVABLE = "RETURN_PERIOD_NOT_RESOLVABLE"
+    SCENARIO_MISMATCH = "SCENARIO_MISMATCH"
+    NOT_IMPLEMENTED = "NOT_IMPLEMENTED"
     ERROR = "ERROR"
 
 
@@ -52,17 +64,48 @@ NON_FINANCIAL_STATUSES = frozenset(
         CalculationStatus.NO_IMPACT_FUNCTION,
         CalculationStatus.NO_HAZARD_DATA,
         CalculationStatus.NO_EXPOSURE_DATA,
+        CalculationStatus.SCENARIO_MISMATCH,
+        CalculationStatus.NOT_IMPLEMENTED,
         CalculationStatus.ERROR,
     }
 )
 
 
 class ModelId(StrEnum):
-    """Which data substitution a row belongs to, so baselines are never mixed with locals."""
+    """Which hazard source a row was priced against. The impact function is the same for all.
 
+    The three models differ **only** in where the hazard comes from; exposure and the
+    published CLIMADA impact function are held fixed so a difference between two rows is
+    attributable to the hazard data alone.
+    """
+
+    #: CLIMADA Data API hazard with ``spatial_coverage = global`` — the reference.
     GLOBAL_BASELINE = "GLOBAL_BASELINE"
-    KOREA_HAZARD = "KOREA_HAZARD"
-    KOREA_HAZARD_EXPOSURE = "KOREA_HAZARD_EXPOSURE"
+    #: CLIMADA Data API hazard with ``spatial_coverage = country`` (``country_iso3alpha``).
+    #: A country-specific cut of the same Data API product — **not** Korea-local source data.
+    DATA_API_COUNTRY = "DATA_API_COUNTRY"
+    #: A domestic-source hazard (환경부 홍수위험지도, KMA, 국내 공식 태풍 자료) through its
+    #: own adapter. Reported only when such a dataset and adapter actually exist.
+    KOREA_LOCAL = "KOREA_LOCAL"
+
+
+#: One-line definitions, repeated in the exports so a sheet is self-describing.
+MODEL_DEFINITIONS: dict[str, str] = {
+    ModelId.GLOBAL_BASELINE.value: (
+        "global reference calculation — CLIMADA Data API hazard, spatial_coverage=global, "
+        "user exposure, published CLIMADA impact function"
+    ),
+    ModelId.DATA_API_COUNTRY.value: (
+        "country-specific Data API calculation — CLIMADA Data API hazard, "
+        "spatial_coverage=country, same exposure, same impact function. "
+        "DATA_API_COUNTRY is not treated as Korea-local source data."
+    ),
+    ModelId.KOREA_LOCAL.value: (
+        "domestic-source calculation — a Korean hazard dataset through a dedicated adapter, "
+        "same exposure, same impact function. Korea-local results are reported only when a "
+        "domestic hazard dataset and compatible adapter are actually available."
+    ),
+}
 
 
 def config_path() -> Path:
@@ -160,23 +203,35 @@ def max_resolvable_return_period(frequencies: list[float]) -> float | None:
 
 
 # --------------------------------------------------------------------------- #
-# Comparison                                                                   #
+# Change arithmetic — three different quantities                               #
 # --------------------------------------------------------------------------- #
-def change_pct(local: float | None, baseline: float | None) -> float | None:
-    """``(local / baseline - 1) * 100``; None when the baseline is zero or missing.
+def change_pct(comparison: float | None, baseline: float | None) -> float | None:
+    """Relative change ``(comparison / baseline - 1) * 100``, in percent.
 
-    A zero denominator is not an error to hide — it is a comparison that cannot be made.
+    None when the baseline is zero or either side is missing: a zero denominator is not
+    an error to hide behind ``inf`` — it is a comparison that cannot be made.
     """
-    if local is None or baseline is None or baseline == 0:
+    if comparison is None or baseline is None or baseline == 0:
         return None
-    return (float(local) / float(baseline) - 1.0) * 100.0
+    return (float(comparison) / float(baseline) - 1.0) * 100.0
 
 
-def change_abs(local: float | None, baseline: float | None) -> float | None:
-    """``local - baseline``, or None when either side is missing."""
-    if local is None or baseline is None:
+def change_abs(comparison: float | None, baseline: float | None) -> float | None:
+    """Absolute difference ``comparison - baseline`` in the quantity's own unit (USD)."""
+    if comparison is None or baseline is None:
         return None
-    return float(local) - float(baseline)
+    return float(comparison) - float(baseline)
+
+
+def change_pp(comparison_pct: float | None, baseline_pct: float | None) -> float | None:
+    """Difference of two percentages, in **percentage points**.
+
+    ``0.61 % → 0.77 %`` is ``+0.16 pp``; the relative change of the same pair is
+    ``+26.2 %`` and comes from :func:`change_pct`. The two are never interchanged.
+    """
+    if comparison_pct is None or baseline_pct is None:
+        return None
+    return float(comparison_pct) - float(baseline_pct)
 
 
 # --------------------------------------------------------------------------- #
@@ -195,15 +250,26 @@ class ResultRow:
     hazard_type: str
     model_id: str
 
-    # provenance
+    # hazard provenance
     hazard_source: str | None = None
-    exposure_source: str | None = None
-    impact_function_source: str | None = None
+    hazard_dataset: str | None = None
+    hazard_data_version: str | None = None
+    hazard_country: str | None = None
+
+    # impact function provenance — the same function for every model, by construction
     impact_function_id: int | None = None
     impact_function_name: str | None = None
-    scenario: str | None = None
+    impact_function_source: str | None = None
+
+    # exposure provenance
+    exposure_source: str | None = None
+    exposure_version: str | None = None
+
+    # scenario — requested by the platform vs actually served by the dataset
+    requested_scenario: str | None = None
+    served_scenario: str | None = None
+    scenario: str | None = None  # == requested_scenario; kept for table/export readability
     time_horizon: str | None = None
-    data_version: str | None = None
 
     # hazard
     hazard_intensity: float | None = None
@@ -215,6 +281,7 @@ class ResultRow:
 
     # financial
     asset_value_usd: float | None = None
+    asset_value_currency: str | None = None
     potential_loss_usd: float | None = None
     potential_loss_return_period_years: float | None = None
     eal_usd: float | None = None
@@ -223,6 +290,7 @@ class ResultRow:
     risk_level: str | None = None
     risk_level_criteria: str | None = None
 
+    # set only by pairing two runs of the same model (climate_change_multiplier); never configured
     climate_change_multiplier: float | None = None
 
     calculation_status: str = CalculationStatus.ERROR.value
@@ -240,11 +308,28 @@ class ResultRow:
     def finalise(self, config: dict[str, Any] | None = None) -> ResultRow:
         """Derive the dependent fields and enforce the null-not-zero invariant.
 
-        ``eal_as_pct_of_assets`` and the risk band are computed from ``eal_usd`` and
-        ``asset_value_usd``; ``probability`` from ``return_period_years``. Under a
-        non-financial status every financial field is cleared, so a caller cannot leave a
-        stale or fabricated number behind.
+        * ``scenario`` mirrors ``requested_scenario`` when not set explicitly.
+        * A served scenario that differs from the requested one turns any priced row into
+          ``SCENARIO_MISMATCH`` — the number would be for a scenario nobody asked for.
+        * Under a non-financial status every financial field is cleared, so a caller cannot
+          leave a stale or fabricated number behind.
+        * ``eal_as_pct_of_assets``, the risk band and ``probability`` are derived, never set.
         """
+        if self.scenario is None:
+            self.scenario = self.requested_scenario
+        if (
+            self.requested_scenario is not None
+            and self.served_scenario is not None
+            and self.requested_scenario != self.served_scenario
+            and self.calculation_status
+            in {CalculationStatus.FULL.value, CalculationStatus.RETURN_PERIOD_NOT_RESOLVABLE.value}
+        ):
+            self.calculation_status = CalculationStatus.SCENARIO_MISMATCH.value
+            self.status_detail = (
+                f"requested_scenario={self.requested_scenario} but the dataset serves "
+                f"served_scenario={self.served_scenario}; the loss is not reported under the "
+                "requested key"
+            )
         if self.calculation_status in {s.value for s in NON_FINANCIAL_STATUSES}:
             self.potential_loss_usd = None
             self.potential_loss_return_period_years = None
@@ -263,43 +348,165 @@ class ResultRow:
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ResultRow:
+        """Rebuild a row from its ``to_dict`` form (worker output crossing the GPL boundary)."""
+        known = set(cls.__dataclass_fields__)
+        return cls(**{k: v for k, v in data.items() if k in known})
 
-def comparison_row(baseline: ResultRow, local: ResultRow) -> dict[str, Any]:
-    """Global-baseline vs local row, with both absolute and percentage change.
 
-    The two rows must describe the same facility and hazard; comparing across hazards or
-    facilities is a caller error, not something to paper over.
+# --------------------------------------------------------------------------- #
+# Model-vs-model comparison — source-independent                               #
+# --------------------------------------------------------------------------- #
+def comparison_row(baseline: ResultRow, comparison: ResultRow) -> dict[str, Any]:
+    """Two rows for the same facility and hazard, with every change form kept distinct.
+
+    ``*_change_usd`` is absolute (USD), ``*_change_pct`` is relative (%), and
+    ``eal_as_pct_assets_change_pp`` is a difference of percentages (percentage points).
+    The rows must describe the same facility and hazard; comparing across them is a caller
+    error, not something to paper over. ``same_impact_function`` is reported so a
+    comparison that accidentally changed the vulnerability assumption is visible.
     """
-    if (baseline.facility_id, baseline.hazard_type) != (local.facility_id, local.hazard_type):
+    if (baseline.facility_id, baseline.hazard_type) != (
+        comparison.facility_id,
+        comparison.hazard_type,
+    ):
         raise ValueError(
             f"cannot compare {baseline.facility_id}/{baseline.hazard_type} with "
-            f"{local.facility_id}/{local.hazard_type}"
+            f"{comparison.facility_id}/{comparison.hazard_type}"
         )
+    same_if = (
+        baseline.impact_function_id is not None
+        and baseline.impact_function_id == comparison.impact_function_id
+    )
     return {
         "facility_id": baseline.facility_id,
         "facility_name": baseline.facility_name,
         "hazard_type": baseline.hazard_type,
         "baseline_model_id": baseline.model_id,
-        "local_model_id": local.model_id,
-        "baseline_eal_usd": baseline.eal_usd,
-        "local_eal_usd": local.eal_usd,
-        "eal_change_usd": change_abs(local.eal_usd, baseline.eal_usd),
-        "eal_change_pct": change_pct(local.eal_usd, baseline.eal_usd),
+        "comparison_model_id": comparison.model_id,
+        "baseline_hazard_source": baseline.hazard_source,
+        "comparison_hazard_source": comparison.hazard_source,
+        "same_impact_function": same_if,
+        "impact_function_id": baseline.impact_function_id if same_if else None,
+        # hazard
+        "baseline_hazard_intensity": baseline.hazard_intensity,
+        "comparison_hazard_intensity": comparison.hazard_intensity,
+        "hazard_intensity_unit": baseline.hazard_intensity_unit,
+        "hazard_intensity_change_pct": change_pct(
+            comparison.hazard_intensity, baseline.hazard_intensity
+        ),
+        # potential loss
         "baseline_potential_loss_usd": baseline.potential_loss_usd,
-        "local_potential_loss_usd": local.potential_loss_usd,
+        "comparison_potential_loss_usd": comparison.potential_loss_usd,
         "potential_loss_change_usd": change_abs(
-            local.potential_loss_usd, baseline.potential_loss_usd
+            comparison.potential_loss_usd, baseline.potential_loss_usd
         ),
         "potential_loss_change_pct": change_pct(
-            local.potential_loss_usd, baseline.potential_loss_usd
+            comparison.potential_loss_usd, baseline.potential_loss_usd
         ),
-        "baseline_hazard_intensity": baseline.hazard_intensity,
-        "local_hazard_intensity": local.hazard_intensity,
-        "hazard_intensity_change_pct": change_pct(
-            local.hazard_intensity, baseline.hazard_intensity
+        # EAL
+        "baseline_eal_usd": baseline.eal_usd,
+        "comparison_eal_usd": comparison.eal_usd,
+        "eal_change_usd": change_abs(comparison.eal_usd, baseline.eal_usd),
+        "eal_change_pct": change_pct(comparison.eal_usd, baseline.eal_usd),
+        # EAL / assets — percentage points, plus the relative change under its own name
+        "baseline_eal_as_pct_of_assets": baseline.eal_as_pct_of_assets,
+        "comparison_eal_as_pct_of_assets": comparison.eal_as_pct_of_assets,
+        "eal_as_pct_assets_change_pp": change_pp(
+            comparison.eal_as_pct_of_assets, baseline.eal_as_pct_of_assets
         ),
+        "eal_as_pct_assets_relative_change_pct": change_pct(
+            comparison.eal_as_pct_of_assets, baseline.eal_as_pct_of_assets
+        ),
+        # bands and statuses
+        "baseline_risk_level": baseline.risk_level,
+        "comparison_risk_level": comparison.risk_level,
         "baseline_calculation_status": baseline.calculation_status,
-        "local_calculation_status": local.calculation_status,
+        "comparison_calculation_status": comparison.calculation_status,
+        "baseline_scenario": baseline.served_scenario or baseline.scenario,
+        "comparison_scenario": comparison.served_scenario or comparison.scenario,
+        "comparison_kind": "hazard source comparison — not a climate-change multiplier",
+    }
+
+
+def compare_models(
+    rows: Iterable[ResultRow],
+    baseline_model: str,
+    comparison_model: str,
+    facility_id: str,
+    hazard_type: str,
+) -> dict[str, Any] | None:
+    """The :func:`comparison_row` of two models for one facility and hazard.
+
+    Source-independent: works for ``GLOBAL_BASELINE`` vs ``DATA_API_COUNTRY`` today and
+    ``DATA_API_COUNTRY`` vs ``KOREA_LOCAL`` once that adapter exists. Returns None when
+    either row is absent — a missing model is reported as "not available", never filled.
+    """
+    by_model = {
+        r.model_id: r for r in rows if r.facility_id == facility_id and r.hazard_type == hazard_type
+    }
+    base, comp = by_model.get(baseline_model), by_model.get(comparison_model)
+    if base is None or comp is None:
+        return None
+    return comparison_row(base, comp)
+
+
+def relabel_comparison(cmp: dict[str, Any], label: str) -> dict[str, Any]:
+    """Rename ``comparison_*`` keys to ``<label>_*`` for a named export sheet.
+
+    ``global_vs_country`` uses ``label="country"``; ``global_vs_korea_local`` uses
+    ``label="korea_local"``. The arithmetic is untouched — only the column names change.
+    """
+    prefix = "comparison_"
+    return {
+        (label + "_" + k[len(prefix) :] if k.startswith(prefix) else k): v for k, v in cmp.items()
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Climate-change multiplier — same model, two periods                          #
+# --------------------------------------------------------------------------- #
+def climate_change_multiplier(baseline: ResultRow, future: ResultRow) -> dict[str, Any]:
+    """``future_eal / baseline_eal`` from two runs of the **same model**, or null with a reason.
+
+    Refused, with the reason recorded, when the two rows come from different models — that
+    ratio is a hazard-source comparison (:func:`comparison_row`), not a climate signal —
+    when either run has no EAL, or when the baseline is zero. Never a configured constant.
+    """
+    value: float | None = None
+    detail: str | None = None
+    if baseline.model_id != future.model_id:
+        detail = (
+            f"rows come from different models ({baseline.model_id} vs {future.model_id}); "
+            "that is a hazard-source comparison, not a climate-change multiplier"
+        )
+    elif (baseline.facility_id, baseline.hazard_type) != (future.facility_id, future.hazard_type):
+        detail = "rows describe different facilities or hazards"
+    elif baseline.eal_usd is None or future.eal_usd is None:
+        detail = "one of the two runs produced no EAL"
+    elif baseline.eal_usd == 0:
+        detail = "baseline EAL is zero — ratio undefined"
+    elif (baseline.served_scenario or baseline.scenario, baseline.time_horizon) == (
+        future.served_scenario or future.scenario,
+        future.time_horizon,
+    ):
+        detail = "baseline and future runs share scenario and period — nothing to multiply"
+    else:
+        value = float(future.eal_usd) / float(baseline.eal_usd)
+    return {
+        "climate_change_multiplier": value,
+        "multiplier_definition": (
+            "future_EAL / baseline_EAL, both from CLIMADA ImpactCalc under the same model_id"
+        ),
+        "model_id": baseline.model_id if baseline.model_id == future.model_id else None,
+        "baseline_period": baseline.time_horizon,
+        "future_period": future.time_horizon,
+        "baseline_scenario": baseline.served_scenario or baseline.scenario,
+        "future_scenario": future.served_scenario or future.scenario,
+        "baseline_eal_usd": baseline.eal_usd,
+        "future_eal_usd": future.eal_usd,
+        "detail": detail,
     }
 
 

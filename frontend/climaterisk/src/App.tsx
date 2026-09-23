@@ -6,6 +6,7 @@ import { ActivityBar, VIEW_IDS, type ViewId } from "./layout/ActivityBar";
 import { MapView } from "./views/MapView";
 import { ScenariosView } from "./views/ScenariosView";
 import { ResultsView } from "./views/ResultsView";
+import { ModelsView } from "./views/ModelsView";
 import { AdaptationView } from "./views/AdaptationView";
 import { FinanceView } from "./views/FinanceView";
 import { SupplyChainView } from "./views/SupplyChainView";
@@ -147,6 +148,7 @@ export function App() {
               calRunId={results.calRun?.id}
             />
           )}
+          {view === "models" && <ModelsView model={model} />}
           {view === "adaptation" && (
             <AdaptationView
               model={model}

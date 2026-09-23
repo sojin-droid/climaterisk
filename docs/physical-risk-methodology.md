@@ -214,35 +214,67 @@ baseline/future pair exists and the multiplier is `null`.
 
 ## 13. Global baseline
 
-`model_id = GLOBAL_BASELINE`: CLIMADA Data API hazard + portfolio exposure + the published
-impact function. Measured 2026-09-22 for a 100 M USD Seoul office:
+`model_id = GLOBAL_BASELINE`: CLIMADA Data API hazard with `spatial_coverage=global` +
+portfolio exposure + the published impact function.
 
-| Hazard | Source | Events | Impf | EAL | EAL/assets | PML100 | Status |
+**Correction (2026-09-23, Phase 3).** The 2026-09-22 table that stood here was measured
+against the Data API files then in the local cache — all of them **KOR country cuts** —
+and its figures could **not be reproduced** by the Phase 3 engine at the documented facility
+(100 M USD office, 37.5 N 127.0 E): the same TC event sets (3,890 observed / 43,560 rcp45
+2040) price at \$2,845.89 and \$3,576.18 rather than \$2,511 and \$3,976, and the nearest
+flood centroid carries zero depth in every cached KOR set rather than the \$75,000 EAL
+reported. The exposure point or set behind the old numbers was not recorded, so they are
+withdrawn. Reproducible figures, by model, with dataset name and version on every row:
+
+| Hazard | Scenario / horizon | Model | Dataset | EAL | EAL/assets | PML100 | Status |
 |---|---|---|---|---|---|---|---|
-| TC present | Data API, `event_type=observed` | 3,890 | 9 NWP | \$2,511 | 0.0025% | *null* | RETURN_PERIOD_NOT_RESOLVABLE (41-yr ceiling) |
-| TC rcp45 2040 | Data API | 43,560 | 9 NWP | \$3,976 | 0.0040% | \$107,975 | FULL |
-| Flood | Data API ISIMIP, `rcp26` 2010–2030 | 480 | 22 Asia commercial | \$75,000 | 0.0750% | \$7,200,000 | FULL |
-| Heatwave | — | — | — | *null* | *null* | *null* | HAZARD_ONLY |
+| TC | rcp45 / 2040 | GLOBAL_BASELINE | `…rcp45_global_2040` v2.1 | \$3,576.18 | 0.00358 % | \$121,636.62 | FULL |
+| TC | rcp45 / 2040 | DATA_API_COUNTRY | `…rcp45_KOR_2040` v2.1 | \$3,576.18 | 0.00358 % | \$121,636.62 | FULL |
+| TC | observed 1980–2020 | DATA_API_COUNTRY | `…historical_KOR_1980_2020` v2 | \$2,845.89 | 0.00285 % | *null* | RETURN_PERIOD_NOT_RESOLVABLE |
+| Flood | rcp60 / 2030–2050 | GLOBAL_BASELINE | `river_flood_150arcsec_rcp60_2030_2050` v3 | \$0.00 (real zero) | 0 % | \$0.00 | FULL |
+| Flood | rcp60 / 2030–2050 | DATA_API_COUNTRY | `…rcp60_KOR_2030_2050` v3 | \$0.00 (real zero) | 0 % | \$0.00 | FULL |
+| Flood | rcp45 → served rcp60 | both Data API models | as above | *null* | *null* | *null* | SCENARIO_MISMATCH |
+| Heatwave | rcp45 / 2030 | KOREA_LOCAL (KMA) | `heatwave/HW_rcp45_KOR_2030.hdf5` | *null* | *null* | *null* | HAZARD_ONLY |
 
-## 14. Korea data replacement
+The Phase 3 runner fetches by dataset name with the coverage token explicit, so the model
+label can no longer drift from the file (`physical-risk-models.md` §4, §12).
 
-`model_id = KOREA_HAZARD` substitutes the hazard and **keeps the same impact function**, so
-a difference between the two rows is attributable to the data and not to the vulnerability
-assumption. `KOREA_HAZARD_EXPOSURE` exists in the schema; it is **not implemented** this
-phase, because no citable Korean building/asset-value dataset is on hand and filling it
-with a population proxy would be inventing exposure.
+## 14. Hazard replacement — three models
+
+Phase 3 replaced the two-way `GLOBAL_BASELINE` / `KOREA_HAZARD` split with three models
+that differ **only** in hazard source and share exposure and impact function:
+
+```text
+GLOBAL_BASELINE   Data API, spatial_coverage=global          — global reference calculation
+DATA_API_COUNTRY  Data API, spatial_coverage=country (KOR)   — country-specific Data API calculation;
+                                                                NOT Korea-local source data
+KOREA_LOCAL       domestic source via its own adapter         — reported only when a domestic dataset
+                                                                and compatible adapter actually exist
+```
+
+Flood and TC `KOREA_LOCAL` adapters are `NOT_IMPLEMENTED` (no dataset connected); heat is
+`HAZARD_ONLY` on KMA data. Full definitions, readiness table, adapter contract and measured
+rows: [`physical-risk-models.md`](physical-risk-models.md),
+[`korea-hazard-replacement.md`](korea-hazard-replacement.md). `KOREA_HAZARD_EXPOSURE` was
+dropped: exposure stays the user portfolio in every model, and no Korean asset-value
+dataset is fabricated.
 
 ## 15. Comparison methodology
 
-`comparison_row(baseline, local)` requires the two rows to describe the same facility and
-hazard, and produces absolute and percentage change for EAL, potential loss and hazard
-intensity:
+`compare_models(rows, baseline_model, comparison_model, facility_id, hazard_type)` is
+source-independent; the two rows must describe the same facility and hazard. Three change
+forms are kept apart:
 
-```
-change_pct = (local / baseline - 1) × 100
+```text
+change_pct = (comparison / baseline − 1) × 100     relative, percent; null when baseline is 0 or missing
+change_usd = comparison − baseline                  absolute, USD
+change_pp  = comparison_pct − baseline_pct          percentage points (0.61 % → 0.77 % is +0.16 pp)
 ```
 
-A zero or missing baseline yields `null`, not a hidden error.
+`requested_scenario` and `served_scenario` are separate fields; a dataset that answers
+`rcp45` with `rcp60` yields `SCENARIO_MISMATCH` with null financials rather than a number
+filed under the requested key. A model-vs-model ratio is a hazard-source comparison and is
+never reported as a climate-change multiplier (§12 requires two runs of the same model).
 
 ## 16. Data provenance
 

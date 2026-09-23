@@ -9,6 +9,8 @@ import type {
   Libraries,
   MeasureSpec,
   OpenDataFetchResult,
+  PhysicalRiskModelsBody,
+  PhysicalRiskReadiness,
   Portfolio,
   Run,
   TransitionResult,
@@ -183,4 +185,20 @@ export async function fetchOpenData(
   const qs = new URLSearchParams({ source_id: sourceId });
   if (country) qs.set("country", country);
   return http<OpenDataFetchResult>(`/api/data/fetch?${qs.toString()}`, { method: "POST" });
+}
+
+/** Submit a global / country / Korea-local hazard-replacement run (same impact function). */
+export async function submitPhysicalRiskModels(
+  sessionId: string,
+  body: PhysicalRiskModelsBody = {},
+): Promise<Run> {
+  return http<Run>(`/api/session/${sessionId}/physical-risk-models`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+/** The three models, their definitions and the per-hazard readiness table (static). */
+export async function getPhysicalRiskReadiness(): Promise<PhysicalRiskReadiness> {
+  return http<PhysicalRiskReadiness>(`/api/libraries/physical-risk-models`);
 }

@@ -3,6 +3,7 @@ export type ViewId =
   | "scenarios"
   | "vulnerability"
   | "results"
+  | "models"
   | "adaptation"
   | "finance"
   | "supplychain"
@@ -15,6 +16,7 @@ export const VIEW_IDS: readonly ViewId[] = [
   "scenarios",
   "vulnerability",
   "results",
+  "models",
   "adaptation",
   "finance",
   "supplychain",
@@ -28,6 +30,7 @@ const ITEMS: { id: ViewId; label: string; ico: string }[] = [
   { id: "scenarios", label: "Scenarios", ico: "🌡️" },
   { id: "vulnerability", label: "Vuln", ico: "📐" },
   { id: "results", label: "Results", ico: "📊" },
+  { id: "models", label: "Models", ico: "🧭" },
   { id: "adaptation", label: "Adapt", ico: "🛡️" },
   { id: "finance", label: "Finance", ico: "💵" },
   { id: "supplychain", label: "Supply", ico: "🏭" },
