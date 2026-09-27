@@ -285,3 +285,61 @@ def test_only_the_paths_module_spells_the_climada_default() -> None:
         if pat.search(p.read_text(encoding="utf-8", errors="ignore"))
     ]
     assert hits == ["src/climaterisk/paths.py"], hits
+
+
+def _load_migrator():  # type: ignore[no-untyped-def]
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "migrate_data_root", REPO / "scripts" / "migrate_data_root.py"
+    )
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = mod  # dataclasses resolve their module through sys.modules
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_migrator_links_and_copies_without_touching_the_legacy_tree(
+    isolated: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv(paths.ENV_DATA_ROOT, str(isolated))
+    old = tmp_path / "old"
+    kma = old / "kma"
+    kma.mkdir(parents=True)
+    (kma / "MKPRISM_MKPRISMv31_TA_gridraw_daily_2000_2019_nc.tar.gz").write_bytes(b"k")
+    sgis = old / "municipality_src"
+    (sgis / "extracted").mkdir(parents=True)
+    (sgis / "extracted" / "bnd_sido_00_2025_2Q.shp").write_bytes(b"s")
+    (sgis / "sgis_admin_2025.zip").write_bytes(b"z")
+    (sgis / "page.html").write_text("debris", encoding="utf-8")
+    flood = old / "floodmap"
+    flood.mkdir()
+    (flood / "RFM.zip").write_bytes(b"f")
+    hz = tmp_path / "repo_data" / "hazard_db"
+    hz.mkdir(parents=True)
+    (hz / "catalog.json").write_text("{}", encoding="utf-8")
+    legacy = {"kma": kma, "municipality_sgis": sgis, "floodmap": flood, "hazard_db": hz}
+    monkeypatch.setattr(paths, "legacy_locations", lambda: legacy)
+    before = sorted(str(p.relative_to(old)) for p in old.rglob("*"))
+
+    mig = _load_migrator()
+    assert mig.main(["--apply", "--method", "symlink", "--only", "kma,municipality_sgis"]) == 0
+    assert mig.main(["--apply", "--method", "copy", "--only", "hazard_db"]) == 0
+
+    canon_kma = isolated / "external" / "kma"
+    assert canon_kma.is_symlink() and canon_kma.resolve() == kma.resolve()
+    canon_sgis = isolated / "external" / "municipality" / "sgis"
+    assert canon_sgis.is_dir() and not canon_sgis.is_symlink()  # a real folder of links
+    assert (canon_sgis / "bnd_sido_00_2025_2Q.shp").is_symlink()
+    assert (canon_sgis / "sgis_admin_2025.zip").is_symlink()
+    assert not (canon_sgis / "page.html").exists()  # debris outside "extracted" is not linked
+    canon_hz = isolated / "derived" / "hazard_db"
+    assert (canon_hz / "catalog.json").is_file() and not canon_hz.is_symlink()
+    assert paths.hazard_db_dir() == canon_hz
+    assert not (isolated / "external" / "other" / "floodmap").exists()  # never migrated
+    # the legacy tree is byte-for-byte unchanged, nothing written into it
+    assert sorted(str(p.relative_to(old)) for p in old.rglob("*")) == before
+    # idempotent: a second run changes nothing
+    assert mig.main(["--apply", "--method", "symlink", "--only", "kma,municipality_sgis"]) == 0
+    assert sorted(str(p.relative_to(old)) for p in old.rglob("*")) == before

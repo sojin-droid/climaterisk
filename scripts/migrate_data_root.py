@@ -98,40 +98,72 @@ def human(n: int) -> str:
     return f"{n} B"
 
 
-def plan(it: Item, method: str) -> list[str]:
+def steps(it: Item, method: str) -> list[tuple[str, Path, Path]]:
+    """``(action, source, destination)`` for one item.
+
+    When several legacy parts share one canonical directory (``municipality_sgis``: the extracted
+    folder *and* the zip), a symlink migration makes the canonical directory a real folder and
+    links each entry into it — linking the folder itself would make the next part land inside
+    the legacy tree.
+    """
     pairs = it.parts or (("", ""),)
-    cmds = []
+    merge = len(pairs) > 1
+    out: list[tuple[str, Path, Path]] = []
     for src_sub, dst_sub in pairs:
         src = it.legacy / src_sub if src_sub else it.legacy
         dst = it.canonical / dst_sub if dst_sub else it.canonical
         if not src.exists():
             continue
-        if method == "symlink":
-            cmds.append(f'ln -s "{src}" "{dst}"')
+        if method == "symlink" and merge and src.is_dir() and not dst_sub:
+            out += [("link", child, dst / child.name) for child in sorted(src.iterdir())]
+        elif method == "symlink":
+            out.append(("link", src, dst))
         elif src.is_dir():
+            out.append(("copytree", src, dst))
+        else:
+            out.append(("copy", src, dst))
+    return out
+
+
+def plan(it: Item, method: str) -> list[str]:
+    cmds = []
+    for action, src, dst in steps(it, method):
+        if action == "link":
+            cmds.append(f'mkdir -p "{dst.parent}" && ln -s "{src}" "{dst}"')
+        elif action == "copytree":
             cmds.append(f'mkdir -p "{dst}" && cp -R "{src}/." "{dst}/"')
         else:
             cmds.append(f'mkdir -p "{dst.parent}" && cp "{src}" "{dst}"')
     return cmds
 
 
+def _inside(path: Path, root: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+        return True
+    except ValueError:
+        return False
+
+
 def apply(it: Item, method: str) -> None:
-    pairs = it.parts or (("", ""),)
-    for src_sub, dst_sub in pairs:
-        src = it.legacy / src_sub if src_sub else it.legacy
-        dst = it.canonical / dst_sub if dst_sub else it.canonical
-        if not src.exists():
+    for action, src, dst in steps(it, method):
+        if dst.parent.exists() and _inside(dst.parent, it.legacy):
+            print(f"  REFUSED {dst} — its parent resolves into the legacy tree {it.legacy}")
+            continue
+        if dst.is_symlink():
+            same = os.readlink(dst) == str(src)
+            print(f"  {'already linked' if same else 'skip (different link)'} {dst}")
             continue
         if dst.exists() and (dst.is_file() or any(dst.iterdir())):
             print(f"  skip {dst} — already exists and is not empty")
             continue
         dst.parent.mkdir(parents=True, exist_ok=True)
-        if method == "symlink":
+        if action == "link":
             if dst.exists():
-                dst.rmdir()  # empty directory only (checked above)
+                dst.rmdir()  # an empty real directory only (checked above)
             os.symlink(src, dst, target_is_directory=src.is_dir())
             print(f"  linked {dst} -> {src}")
-        elif src.is_dir():
+        elif action == "copytree":
             shutil.copytree(src, dst, dirs_exist_ok=True)
             print(f"  copied {src} -> {dst}")
         else:

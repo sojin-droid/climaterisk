@@ -58,18 +58,46 @@ python scripts/migrate_data_root.py --apply --method copy --only hazard_db,munic
 ```
 
 `copy` duplicates, `symlink` points the canonical path at the legacy folder; neither deletes or
-moves the original. The 24 GB KMA set is the obvious symlink (or a manual `mv` by the owner).
+moves the original. An item assembled from several legacy parts (SGIS: the extracted folder and
+the zip) becomes a real canonical folder of per-file links, so nothing is ever written into the
+legacy tree; a step whose parent resolves into the legacy tree is refused. Re-running is a no-op.
 The flood-map archives are never migrated by the tool.
+
+### State on the Mac mini after migration (2026-09-27)
+
+Applied with `--method symlink --only kma,municipality_sgis` and `--method copy --only hazard_db`;
+the local (git-ignored) `.env` sets `CLIMATERISK_DATA_ROOT=~/Data/climaterisk` and
+`CLIMATERISK_CLIMADA_DATA_DIR=~/climada/data`.
+
+| canonical path | link type | resolves to | size | content check |
+|---|---|---|---|---|
+| `external/kma` | symlink (folder) | legacy `kma/` | 23.6 GB | 52 files: TA / TAMAX × MK-PRISM v3.1 (42), SSP245 (5), SSP585 (5) |
+| `external/municipality/sgis` | real folder, 16 file symlinks | legacy `municipality_src/extracted/*` + zip | 0.43 GB | rebuild → 269 rows, byte-identical to `assets/libraries/korea_municipalities.csv` |
+| `derived/hazard_db` | real copy | — | ≈60 MB | `diff -r` identical to the repo catalogue; now the served catalogue |
+| `raw/`, `external/other/`, `cache/`, `evidence/` | empty folders | — | — | — |
+
+Verified from `/tmp` in a clean shell: `.env` loading, both roots, KMA discovery (backend status
+and `heat_korea.py files`), SGIS rebuild, catalogue, Data API cache (no new downloads), backend and
+worker suites (the data root is byte-for-byte unchanged by the tests), both CLIs (asset fixture
+30/30, municipality run 42/42 against the pre-migration run), browser E2E.
+
+Legacy independence was checked with `HOME` pointed at an empty directory and only
+`CLIMATERISK_DATA_ROOT` / `CLIMATERISK_CLIMADA_DATA_DIR` set: the project resolved everything
+from the canonical root and the configured CLIMADA directory, with identical results. CLIMADA the
+library locates its own directory through `climada.conf` (searched in `~/climada/conf`,
+`~/.config` and the working directory), so relocating CLIMADA needs a `climada.conf` with
+`local_data.system` and the `data_api` cache paths — `CLIMATERISK_CLIMADA_DATA_DIR` only tells the
+project where that directory is.
 
 ## Path inventory (measured 2026-09-27 on the Mac mini)
 
 | path | type | current_location | canonical_location | source | required? | size | git-tracked? | migration_status |
 |---|---|---|---|---|---|---|---|---|
-| KMA 남한상세 TA / TAMAX (52 files) | B | `~/climada/data/kma` | `<DATA_ROOT>/external/kma` | 기후변화 상황지도 (login) | heat layer **rebuilds** and the 현황 card; runs use the baked catalogue | 23.6 GB | no | PENDING — legacy detected, not read; symlink recommended |
-| SGIS 2025_2Q boundaries (zip + extracted) | B | `~/climada/data/municipality_src` | `<DATA_ROOT>/external/municipality/sgis` | data.go.kr 15129688 | only to rebuild `korea_municipalities.csv` | 0.42 GB | no | PENDING — rebuild from the canonical layout verified identical |
+| KMA 남한상세 TA / TAMAX (52 files) | B | `~/climada/data/kma` (physical) | `<DATA_ROOT>/external/kma` | 기후변화 상황지도 (login) | heat layer **rebuilds** and the 현황 card; runs use the baked catalogue | 23.6 GB | no | MIGRATED — folder symlink |
+| SGIS 2025_2Q boundaries (zip + extracted) | B | `~/climada/data/municipality_src` (physical) | `<DATA_ROOT>/external/municipality/sgis` | data.go.kr 15129688 | only to rebuild `korea_municipalities.csv` | 0.43 GB | no | MIGRATED — real folder of file symlinks |
 | investigation debris in `municipality_src` (`cj.txt`, `page.html`, `meta.json`, `codego_page.html`, `download.log`) | D | same | — | agent session files | no | < 1 MB | no | not migrated (obsolete) |
-| 환경부 홍수위험지도 SHP 100/200/500-yr (254 zips) | E (restricted) | `~/climada/data/floodmap` | `<DATA_ROOT>/external/other/floodmap` | data.floodmap.go.kr, fetched 2026-09-02 by `fetch_floodmap_kor.py` | **no** — no code path reads it; 공공누리 제4유형 | 4.9 GB | no | OWNER DECISION — keep or delete; never migrated by the tool |
-| local hazard catalogue | B (transitional A) | `<REPO>/data/hazard_db` | `<DATA_ROOT>/derived/hazard_db` | `build_hazard.py`, `heat_korea.py`, Data API cache | yes (KOR heat layers, cached RF/TC) | 52 MB | no (ignored) | TRANSITIONAL — serving from repo until migrated |
+| 환경부 홍수위험지도 SHP 100/200/500-yr (254 zips; file list `docs/evidence/floodmap_legacy_inventory.csv`) | E (restricted) | `~/climada/data/floodmap` | `<DATA_ROOT>/external/other/floodmap` | data.floodmap.go.kr, externally downloaded 2026-09-02 18:37–18:48 by `fetch_floodmap_kor.py` | **no** — no production code reads it (only the fetch script, the path definition and status reporting reference the folder); 공공누리 제4유형 | 4.91 GB | no | PRESERVED IN PLACE — licence-sensitive; owner decides keep/delete; never migrated by the tool |
+| local hazard catalogue | B | `<DATA_ROOT>/derived/hazard_db` (copy) | `<DATA_ROOT>/derived/hazard_db` | `build_hazard.py`, `heat_korea.py`, Data API cache | yes (KOR heat layers, cached RF/TC) | ≈60 MB | no | MIGRATED — copied; the repo-local `data/hazard_db` is kept, no longer served |
 | calibrations | B | `<catalogue>/../calibrations` | `<DATA_ROOT>/derived/calibrations` | calibration runs | optional | 0 | no | follows the catalogue |
 | app runtime state (`app.db`, `runs/`, `downloads/`, `heatwave_europe/`) | A | `<REPO>/data` | unchanged (`CLIMATERISK_DATA_DIR`) | the app | yes | 4 MB | no (ignored) | NONE NEEDED |
 | CLIMADA data directory (Data API cache `hazard/` 5.9 GB, NatEarth centroids, IBTrACS, WorldPop ESP/KOR/JPN, E-OBS, OSM, MRIOT, …) | E | `~/climada/data` (minus the three project folders above) | unchanged — CLIMADA's own | CLIMADA / Data tab | yes | ≈ 8.8 GB | no | NONE — configurable via `CLIMATERISK_CLIMADA_DATA_DIR` |
