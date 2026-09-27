@@ -289,6 +289,32 @@ storing the returned office coordinates in `korea_municipalities.csv` requires t
 prior written consent under 제19조, and commercial use requires consent. A key alone would
 allow the ambiguity/category/repeatability tests, not a stored office layer.
 
+### 9.2 Fourth pass — local-government office datasets (data.go.kr), 2026-09-27
+
+~120 local-government office / agency datasets were located across all 17 시도 (search on
+청사및출장소, 청사 현황, 행정기관 현황, 관공서 현황/위치, 시군구청, plus a per-province sweep),
+and every downloadable one was opened. Most carry office name and address only; coordinate-bearing
+ones are published per 시군구, not per province. Evidence tables:
+[`evidence/v03_office_coverage_matrix.csv`](evidence/v03_office_coverage_matrix.csv) (269 units),
+[`evidence/v03_office_source_mapping.csv`](evidence/v03_office_source_mapping.csv) (audited
+source → SGIS mapping, point-in-polygon check),
+[`evidence/v03_admin_vintage_changes.csv`](evidence/v03_admin_vintage_changes.csv).
+
+| classification | units |
+|---|---|
+| OFFICIAL_COORDINATE_AVAILABLE | 16 (부산 6, 경기 2, 경남 2, 대구 1, 대전 1, 강원 1, 전북 1, 전남 1, 경북 1); all 16 points fall inside their SGIS polygon |
+| SOURCE_NOT_AVAILABLE | 56 — 경기 43 (province-wide 청사및출장소 현황 with WGS84 exists; data.gg.go.kr / openapi.gg.go.kr refuse this machine: "보안 정책에 의해 차단"), 부산 11 and 세종 2 (coordinate APIs exist on apis.data.go.kr; the project key is not activated for them) |
+| ADMINISTRATIVE_UNIT_CHANGED | 5 — 광주광역시, 전라남도 (→ 전남광주통합특별시), 인천 중구 / 동구 / 서구 (→ 제물포구 / 영종구 / 서해구) |
+| OFFICIAL_COORDINATE_NOT_FOUND | 192 — including every unit in 서울, 울산, 광주 구, 인천 (other), 충북, 충남, 제주, and all 17 시도청 |
+| AMBIGUOUS | 0 (양산 has 본청 / 2청사; the row labelled 본청 is used) |
+
+Excluded: 부산광역시_구군 행정기관현황(SHP) (15084225) — despite the title its content is
+공개공지 (public open space) points, not agency locations.
+
+Decision: **C. BLOCKED** at 16 / 269 (5.9 %). Unlocking the three reachable-but-refused sources
+would give at most 72 / 269 (26.8 %), still with no coordinates for seven 시도 and for any
+시도청 row.
+
 Boundary currency: data.go.kr now lists providers such as 전남광주통합특별시 and 인천광역시
 영종구 / 서해구, i.e. administrative reorganisations after the SGIS `2025_2Q` boundaries used
 for the V0.2 points. Office points and representative points must come from the same
