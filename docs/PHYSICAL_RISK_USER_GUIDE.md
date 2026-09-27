@@ -60,6 +60,8 @@ but the word is always there.
 
 ## What the tool does not do (today)
 
+The full list, with reasons, is §15 of [`physical-risk-models.md`](physical-risk-models.md).
+
 - No Korea-local flood or typhoon dataset yet (domestic source adapters not implemented).
 - Heatwave has no financial impact function — hazard only.
 - No Korea-specific impact functions; published CLIMADA functions only.

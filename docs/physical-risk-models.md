@@ -364,7 +364,32 @@ Unchanged: `worker/climaterisk_worker/physical.py` (legacy runners, 8-point floo
 
 Backend: `tests/test_physical_risk_models.py`. Worker: `tests/test_physical_risk_adapters.py`.
 
-## 15. Completion
+## 15. Known limitations — final baseline (`v0.1.0-physical-risk-baseline`)
+
+Stated in the UI ("What this tool covers today"), on the Methodology sheet and here; none of
+them is solved by this baseline and none is hidden by it.
+
+1. **1 km-ready = 0.** The stored KMA resolution is 0.05° (`5km-current`); the platform may
+   not be described as 1 km physical-risk support for Korea.
+2. **Korea-local flood: not implemented** — the 환경부 홍수위험지도 is 공공누리 제4유형
+   (출처표시 · 상업적 이용금지 · 변경금지); no domestic dataset is downloaded, converted or
+   computed until permission is granted (`KOREA_FLOODMAP_INVESTIGATION.md`).
+3. **Korea-local tropical cyclone: not implemented** — no domestic track/wind dataset.
+4. **Heatwave: hazard only.** KMA TAMAX season-p95 hazard is available; financial loss is
+   unavailable because no applicable CLIMADA Impact Function exists, and none is authored.
+5. **KMA future window.** TAMAX 2031–2060 is on disk, but TA covers 2021–2030 only; the
+   heat layers are paired on TA's seasons, so the 2050 heatwave window is not opened.
+6. **KMA SSP126 / SSP370 files are not available**, so rcp26 / rcp60 heat layers do not
+   exist; heat under those scenarios is `NO_HAZARD_DATA`.
+7. **TC scope is wind-related impact only** — no storm surge, no rainfall.
+8. **Korean asset-value exposure** beyond the values supplied in the user portfolio is not
+   implemented; population is never used as a value proxy.
+9. **Korea-specific Impact Functions are not used** — published CLIMADA functions only, no
+   local calibration.
+10. The legacy catalog carries a known scenario-key mismatch (`RF_rcp45_KOR_2050` served as
+    rcp60); this engine records requested and served scenarios separately and is unaffected.
+
+## 16. Completion
 
 ```text
 [x] GLOBAL_BASELINE retained                 [x] requested/served scenario separated

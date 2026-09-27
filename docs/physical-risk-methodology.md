@@ -278,6 +278,11 @@ never reported as a climate-change multiplier (§12 requires two runs of the sam
 
 ## 16. Data provenance
 
+The legacy catalog contains a known scenario-key mismatch (`RF_rcp45_KOR_2050.hdf5` was
+fetched as `rcp60`); the new physical-risk engine records requested and served scenarios
+separately and fetches Data API sets by dataset name, so it is unaffected. The legacy
+catalog is deliberately left as is.
+
 Every row carries `hazard_source`, `exposure_source`, `impact_function_source`,
 `impact_function_id`, `impact_function_name`, `scenario`, `time_horizon`, `data_version`
 and `model_id`. The impact-function source string names the exact constructor call, e.g.
@@ -325,7 +330,8 @@ not migrated, not corrected and not deleted; they live in their own tables.
   that breaks down.
 * Flood has no baseline/future scenario pair in the Data API today, so its
   climate-change multiplier is null.
-* `KOREA_HAZARD_EXPOSURE` is schema-only.
+* Exposure is the user's asset values only; Korean asset-value exposure beyond supplied user
+  values is not implemented (the former `KOREA_HAZARD_EXPOSURE` id was removed in Phase 3).
 * Exposure is a point per facility; sub-facility footprints are not modelled.
 
 ## 20. Future Korea-specific impact-function calibration

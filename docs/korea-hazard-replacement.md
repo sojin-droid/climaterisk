@@ -133,6 +133,9 @@ difference is `change_pp`, and neither is a climate-change multiplier.
 
 ## 5. Not done in this phase, on purpose
 
+Still true at the final baseline (`v0.1.0-physical-risk-baseline`); the consolidated
+limitation list is §15 of [`physical-risk-models.md`](physical-risk-models.md).
+
 * No new damage or vulnerability curve, no Korea-specific impact function, no heatwave
   energy-cost function.
 * No download of the flood-risk map, no TC derivation, no TAMAX wiring.
