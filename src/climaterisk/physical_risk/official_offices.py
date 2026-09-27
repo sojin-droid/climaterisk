@@ -37,6 +37,20 @@ POINT_TYPE_OFFICIAL_OFFICE = "OFFICIAL_OFFICE_POINT"
 OFFICE_FACILITY_SUFFIX = "#OFFICIAL_OFFICE"
 #: The only accepted coordinate method.
 COORDINATE_METHOD = "GOVERNMENT_PUBLISHED"
+#: ``coordinate_crs`` when the source does not state a coordinate reference system. The CRS is
+#: never inferred (not even from a successful polygon check).
+CRS_UNSPECIFIED = "UNSPECIFIED"
+#: Accepted coordinate formats and transformations.
+COORDINATE_FORMATS: tuple[str, ...] = ("DECIMAL_DEGREES",)
+TRANSFORMATION_NONE = "NONE"
+#: UI wording for a source whose CRS is not stated.
+CRS_NOT_SPECIFIED_LABEL = "Source CRS: Not specified"
+#: How the polygon check reads the published numbers — an empirical spatial check only.
+POLYGON_CHECK_BASIS = (
+    "empirical check: the published decimal degrees are placed on the SGIS polygon as "
+    "longitude/latitude (read as EPSG:4326 for the test only); a pass is not evidence of the "
+    "source CRS"
+)
 
 #: Anchors a municipality run can request.
 ANCHOR_REPRESENTATIVE = "REPRESENTATIVE_POINT"
@@ -66,7 +80,7 @@ TARGETS: dict[str, str] = {
 #: Label shown where an office point cannot be selected.
 NOT_AVAILABLE_LABEL = "Not available in V0.3 POC"
 #: Provenance label for an accepted coordinate.
-PROVENANCE_LABEL = "Government-published"
+PROVENANCE_LABEL = "Government-published latitude/longitude"
 #: The sentence every office-point result carries (counterpart of the V0.2 warning).
 OFFICE_POINT_WARNING = (
     "This result represents hazard conditions at the selected municipality's official office "
@@ -83,6 +97,8 @@ COLUMNS: tuple[str, ...] = (
     "longitude",
     "coordinate_method",
     "coordinate_crs",
+    "coordinate_format",
+    "transformation",
     "source_dataset",
     "source_dataset_id",
     "source_provider",
@@ -102,7 +118,7 @@ EARTH_RADIUS_KM = 6371.0088
 
 
 def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    """Great-circle distance between two WGS84 points on a sphere of mean Earth radius.
+    """Great-circle distance between two latitude/longitude points on a sphere of mean radius.
 
     Descriptive only (how far apart the two anchors are); no result depends on it.
 
@@ -143,6 +159,8 @@ class OfficialOffice:
     longitude: float | None
     coordinate_method: str | None
     coordinate_crs: str | None
+    coordinate_format: str | None
+    transformation: str | None
     source_dataset: str | None
     source_dataset_id: str | None
     source_provider: str | None
@@ -233,6 +251,17 @@ def validate(rows: Iterable[dict[str, Any]]) -> list[str]:
         for col in ("source_dataset", "source_url", "source_last_modified", "coordinate_crs"):
             if not _opt(r[col]):
                 problems.append(f"row {i} ({mid}): {col} must be stated")
+        if str(r["coordinate_format"] or "") not in COORDINATE_FORMATS:
+            problems.append(
+                f"row {i} ({mid}): coordinate_format must be one of {COORDINATE_FORMATS}"
+            )
+        transformation = str(r["transformation"] or "")
+        if not transformation:
+            problems.append(f"row {i} ({mid}): transformation must be stated (NONE if none)")
+        elif transformation != TRANSFORMATION_NONE and str(r["coordinate_crs"]) == CRS_UNSPECIFIED:
+            problems.append(
+                f"row {i} ({mid}): a transformation needs a source CRS the source documents"
+            )
         if str(r["polygon_check"] or "") not in POLYGON_CHECKS:
             problems.append(f"row {i} ({mid}): polygon_check must be one of {POLYGON_CHECKS}")
     absent = sorted(set(TARGETS) - seen)
@@ -267,6 +296,8 @@ def read_dataset(path: str | Path | None = None) -> list[OfficialOffice]:
                 longitude=float(lon) if lon else None,
                 coordinate_method=_opt(r["coordinate_method"]),
                 coordinate_crs=_opt(r["coordinate_crs"]),
+                coordinate_format=_opt(r["coordinate_format"]),
+                transformation=_opt(r["transformation"]),
                 source_dataset=_opt(r["source_dataset"]),
                 source_dataset_id=_opt(r["source_dataset_id"]),
                 source_provider=_opt(r["source_provider"]),
@@ -337,6 +368,11 @@ def dataset_summary() -> dict[str, Any]:
         "unsupported": len(offices) - len(available),
         "supported_ids": [o.municipality_id for o in available],
         "coordinate_method": COORDINATE_METHOD,
+        "coordinate_crs": sorted({o.coordinate_crs or "" for o in available}),
+        "coordinate_format": sorted({o.coordinate_format or "" for o in available}),
+        "transformation": sorted({o.transformation or "" for o in available}),
+        "polygon_check_basis": POLYGON_CHECK_BASIS,
+        "crs_not_specified_label": CRS_NOT_SPECIFIED_LABEL,
         "sources": sorted({f"{o.source_dataset} ({o.source_url})" for o in available}),
         "path": str(dataset_path().relative_to(_REPO_ROOT))
         if dataset_path().is_relative_to(_REPO_ROOT)

@@ -9,7 +9,8 @@ target whose status is ``AVAILABLE``, the raw government file it names under
 2. takes the row whose name column equals the registry's ``row_name`` **exactly** (no fuzzy
    match, no second guess) and copies its published latitude / longitude / address;
 3. tests the point against the V0.2 SGIS 시도 polygon (``polygon_check`` INSIDE / OUTSIDE /
-   UNKNOWN) — an OUTSIDE point is kept as published and flagged, never moved;
+   UNKNOWN) — an empirical spatial check, not proof of the source CRS; an OUTSIDE point is kept
+   as published and flagged, never moved;
 4. records the great-circle distance to the V0.2 representative point (descriptive only).
 
 Targets without a published coordinate are written with empty coordinates and their status
@@ -76,6 +77,9 @@ def _polygon_check(sgis_dir: Path, version: str, admin_code: str, lat: float, lo
     poly = sido[sido.SIDO_CD.astype(str) == admin_code]
     if len(poly) != 1 or sido.crs is None:
         return "UNKNOWN"
+    # Empirical spatial check only (POLYGON_CHECK_BASIS): the published degrees are read as
+    # EPSG:4326 *for this test*. The result is not evidence of the source CRS, which stays
+    # UNSPECIFIED in the dataset when the source does not state it.
     pt = gpd.GeoSeries([Point(lon, lat)], crs=4326).to_crs(sido.crs).iloc[0]
     return "INSIDE" if bool(poly.geometry.iloc[0].contains(pt)) else "OUTSIDE"
 
@@ -115,6 +119,8 @@ def build(source_dir: Path, sgis_dir: Path, version: str) -> list[dict[str, obje
                 longitude=pub[s["lon_column"]].strip(),
                 coordinate_method=COORDINATE_METHOD,
                 coordinate_crs=s["coordinate_crs"],
+                coordinate_format=s["coordinate_format"],
+                transformation=s["transformation"],
                 source_dataset=s["dataset"],
                 source_dataset_id=s["dataset_id"],
                 source_provider=s["provider"],

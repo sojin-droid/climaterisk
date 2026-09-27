@@ -31,9 +31,11 @@
         "lat_column": "위도",
         "lon_column": "경도",
         "crs_stated_by_source": null,
-        "coordinate_crs": "not stated by the source; decimal degrees used as WGS84 (EPSG:4326) without transformation"
+        "coordinate_crs": "UNSPECIFIED",
+        "coordinate_format": "DECIMAL_DEGREES",
+        "transformation": "NONE"
       },
-      "note": "Headquarters row: the source row names 부산광역시청 together with 부산광역시의회 (the city council) — one row, one point, one address (중앙대로 1001), which is the city-hall complex; no other row in the source names the city hall. The published point is kept as is."
+      "note": "Headquarters row: the source row names 부산광역시청 together with 부산광역시의회 (the city council) — one row, one point, one address (중앙대로 1001), which is the city-hall complex; no other row in the source names the city hall. The published latitude/longitude is kept exactly as published; the source does not state a CRS and none is assumed."
     },
     {
       "municipality_id": "SGIS-22",

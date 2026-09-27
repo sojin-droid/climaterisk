@@ -405,16 +405,21 @@ OSM, no scraping, no manual map coordinates, no estimates, no representative-poi
 | 울산광역시 | 울산광역시청 | OFFICIAL_COORDINATE_NOT_AVAILABLE | no coordinate-bearing source lists the city hall |
 
 Every dataset checked is listed in `docs/evidence/v03_poc_city_hall_sources.csv`. The Busan
-source states no coordinate reference system for its 위도 / 경도 columns; the values are decimal
-degrees inside the SGIS Busan polygon when read as WGS84 and are used **without transformation**
-(`coordinate_crs` says so). The row names the city hall together with the city council (one
+source publishes 위도 / 경도 but states **no coordinate reference system**, so none is claimed:
+`coordinate_crs = UNSPECIFIED`, `coordinate_format = DECIMAL_DEGREES`, `transformation = NONE`;
+the latitude/longitude text is kept exactly as published. The UI shows "Government-published
+latitude/longitude · Source CRS: Not specified". The polygon check places the published degrees
+on the SGIS polygon as longitude/latitude (read as EPSG:4326 for the test only) — an empirical
+spatial check, **not** evidence of the source CRS. The row names the city hall together with the city council (one
 row, one point, one address); no other row names the city hall, so it is the headquarters row.
 
 ### 10.2 How it is built and used
 
 * Source registry (committed): `assets/libraries/official_office_sources.json` — per target the
   status and, for AVAILABLE, the dataset, URL, date, licence, raw file name, sha256 and the exact
-  row name. Raw file (not committed): `<DATA_ROOT>/external/municipality/source/`.
+  row name, plus `coordinate_crs` / `coordinate_format` / `transformation` exactly as the source
+  supports them (a transformation is refused unless the source documents its CRS). Raw file (not
+  committed): `<DATA_ROOT>/external/municipality/source/`.
 * `scripts/build_official_offices.py` (worker env) verifies the sha256, takes the one row whose
   name equals the registry's `row_name` exactly, runs the polygon check against the SGIS
   `2025_2Q` 시도 polygon (an OUTSIDE point would be kept and flagged

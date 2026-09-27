@@ -94,6 +94,13 @@ def test_busan_row_is_the_published_source_row() -> None:
     assert b.address == "부산광역시 연제구 중앙대로 1001"
     assert b.polygon_check == "INSIDE"
     rep = mu.by_id([BUSAN])[0]
+    # the source states no CRS: none is claimed, no transformation is applied
+    assert (b.coordinate_crs, b.coordinate_format, b.transformation) == (
+        oo.CRS_UNSPECIFIED,
+        "DECIMAL_DEGREES",
+        oo.TRANSFORMATION_NONE,
+    )
+    assert not any(w in " ".join(raw.values()) for w in ("WGS84", "WGS 84", "EPSG:4326"))
     assert b.distance_to_representative_km == pytest.approx(
         oo.haversine_km(rep.latitude, rep.longitude, b.latitude, b.longitude), abs=5e-4
     )
@@ -126,6 +133,12 @@ def test_validate_rejects_geocoded_substituted_or_incomplete_rows() -> None:
     no_source = _rows()
     no_source[1]["source_url"] = ""
     assert any("source_url must be stated" in p for p in oo.validate(no_source))
+    transformed = _rows()  # a transformation needs a CRS the source documents
+    transformed[1]["transformation"] = "EPSG:5186->EPSG:4326"
+    assert any("needs a source CRS" in p for p in oo.validate(transformed))
+    no_format = _rows()
+    no_format[1]["coordinate_format"] = ""
+    assert any("coordinate_format" in p for p in oo.validate(no_format))
     extra = [*_rows(), {**_rows()[1], "municipality_id": "SGIS-29"}]
     assert any("not a V0.3 POC target" in p for p in oo.validate(extra))
 
@@ -277,6 +290,10 @@ def test_comparison_frame_shows_both_anchors_and_not_available() -> None:
     assert (
         busan["coordinate_method"] == "GOVERNMENT_PUBLISHED" and busan["polygon_check"] == "INSIDE"
     )
+    assert (busan["coordinate_crs"], busan["coordinate_format"]) == (
+        "UNSPECIFIED",
+        "DECIMAL_DEGREES",
+    )
     assert busan["flood_representative"] == "No asset value (0 m)"
     assert busan["flood_official_office"] == "No asset value (1.5 m)"
     assert busan["heatwave_official_office"] == "Hazard only (34.06 degC)"
@@ -289,12 +306,12 @@ def test_comparison_frame_shows_both_anchors_and_not_available() -> None:
     for line in frame:  # descriptive only — no ranking words anywhere
         text = " ".join(str(v) for v in line.values()).lower()
         assert not any(w in text for w in ("more accurate", "better", "worse", "preferred"))
-    assert list(busan)[:17] == [
+    assert list(busan)[:19] == [
         "municipality", "office_name", "office_address", "office_lat", "office_lon",
-        "coordinate_method", "coordinate_source", "coordinate_source_date", "polygon_check",
-        "representative_lat", "representative_lon", "flood_representative",
-        "flood_official_office", "tc_representative", "tc_official_office",
-        "heatwave_representative", "heatwave_official_office",
+        "coordinate_method", "coordinate_crs", "coordinate_format", "coordinate_source",
+        "coordinate_source_date", "polygon_check", "representative_lat", "representative_lon",
+        "flood_representative", "flood_official_office", "tc_representative",
+        "tc_official_office", "heatwave_representative", "heatwave_official_office",
     ]  # fmt: skip
 
 
@@ -376,6 +393,9 @@ def test_api_serves_offices_and_refuses_office_only_for_unsupported(client) -> N
     assert (summary["targets"], summary["official_coordinates_found"]) == (7, 1)
     assert summary["supported_ids"] == [BUSAN]
     assert summary["not_available_label"] == "Not available in V0.3 POC"
+    assert summary["coordinate_crs"] == ["UNSPECIFIED"]
+    assert summary["crs_not_specified_label"] == "Source CRS: Not specified"
+    assert summary["provenance_label"] == "Government-published latitude/longitude"
     sid = client.post("/api/session").json()["id"]
     url = f"/api/session/{sid}/physical-risk-models"
     base = {"assessment_target": "MUNICIPALITY", "municipality_ids": [SEOUL]}

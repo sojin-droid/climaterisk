@@ -696,7 +696,9 @@ export interface OfficialOffice {
   latitude: number | null;
   longitude: number | null;
   coordinate_method: string | null;
-  coordinate_crs: string | null;
+  coordinate_crs: string | null; // "UNSPECIFIED" when the source states no CRS — never inferred
+  coordinate_format: string | null;
+  transformation: string | null;
   source_dataset: string | null;
   source_dataset_id: string | null;
   source_provider: string | null;
@@ -719,6 +721,11 @@ export interface OfficialOfficeSummary {
   unsupported: number;
   supported_ids: string[];
   coordinate_method: string;
+  coordinate_crs: string[];
+  coordinate_format: string[];
+  transformation: string[];
+  polygon_check_basis: string;
+  crs_not_specified_label: string;
   sources: string[];
   warning: string;
   definition: string;

@@ -161,7 +161,7 @@ export function MunicipalityMap({
                 <Tooltip>
                   <b>{o.office_name}</b> · official office point
                   <br />
-                  {o.municipality_name} · government-published ({o.source})
+                  {o.municipality_name} · {o.source}
                   <br />
                   {s.label}
                   {(s.lines ?? []).map((l) => (

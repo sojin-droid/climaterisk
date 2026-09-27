@@ -259,6 +259,11 @@ export function ModelsView({ model }: { model: Portfolio }) {
     else next.add(a);
     setAnchors(next);
   };
+  /** V0.3 — provenance wording; a CRS the source does not state is shown as not specified. */
+  const crsText = (crs?: string | number | null) =>
+    !crs || crs === "UNSPECIFIED" ? (officeSummary?.crs_not_specified_label ?? "Source CRS: Not specified") : `Source CRS: ${crs}`;
+  const provenanceText = (crs?: string | number | null) =>
+    `${officeSummary?.provenance_label ?? "Government-published latitude/longitude"} · ${crsText(crs)}`;
   const officeMarker = (o: OfficialOffice): OfficeMarker | null =>
     o.available && o.latitude != null && o.longitude != null
       ? {
@@ -268,7 +273,7 @@ export function ModelsView({ model }: { model: Portfolio }) {
           office_name: o.office_name,
           latitude: o.latitude,
           longitude: o.longitude,
-          source: `${o.source_dataset ?? ""}${o.source_last_modified ? `, ${o.source_last_modified}` : ""}`,
+          source: `${provenanceText(o.coordinate_crs)} · ${o.source_dataset ?? ""}${o.source_last_modified ? `, ${o.source_last_modified}` : ""}`,
         }
       : null;
 
@@ -636,7 +641,7 @@ export function ModelsView({ model }: { model: Portfolio }) {
                             {officeById.get(m.municipality_id)!.office_name} ·{" "}
                             {officeById.get(m.municipality_id)!.latitude?.toFixed(3)},{" "}
                             {officeById.get(m.municipality_id)!.longitude?.toFixed(3)} ·{" "}
-                            {officeSummary?.provenance_label ?? "Government-published"}
+                            {provenanceText(officeById.get(m.municipality_id)!.coordinate_crs)}
                           </>
                         ) : (
                           notAvailable
@@ -1027,8 +1032,8 @@ export function ModelsView({ model }: { model: Portfolio }) {
                                 {m["Coordinate Type"]}
                                 {office && (
                                   <div className="hint">
-                                    {office.office_name} · Coordinate provenance:{" "}
-                                    {officeSummary?.provenance_label ?? "Government-published"} · Source: {office.source_dataset}
+                                    {office.office_name} · Coordinate provenance: {provenanceText(office.coordinate_crs)} ·
+                                    Source: {office.source_dataset}
                                   </div>
                                 )}
                               </td>
@@ -1150,8 +1155,8 @@ export function ModelsView({ model }: { model: Portfolio }) {
                             <>
                               {c.office_name} · {Number(c.office_lat).toFixed(4)}, {Number(c.office_lon).toFixed(4)}
                               <br />
-                              {officeSummary?.provenance_label ?? "Government-published"} · {c.coordinate_source_date} · polygon{" "}
-                              {String(c.polygon_check).toLowerCase()}
+                              {provenanceText(c.coordinate_crs)} · {c.coordinate_source_date} · polygon check{" "}
+                              {String(c.polygon_check).toLowerCase()} (empirical)
                             </>
                           ) : (
                             <>
@@ -1336,9 +1341,10 @@ function PointDetail({
           )}
           {office && (
             <div className="hint" aria-label="coordinate provenance">
-              <b>Coordinate type: Official Office</b> · Coordinate provenance: Government-published · Source:{" "}
-              {office.source_dataset} ({office.source_provider}, {office.source_last_modified}) · {office.address} · polygon
-              check {office.polygon_check}
+              <b>Coordinate type: Official Office</b> · Coordinate provenance: Government-published latitude/longitude{" "}
+              {office.latitude}, {office.longitude} · {office.coordinate_crs === "UNSPECIFIED" || !office.coordinate_crs ? "Source CRS: Not specified" : `Source CRS: ${office.coordinate_crs}`} ·
+              Source: {office.source_dataset} ({office.source_provider}, {office.source_last_modified}) · {office.address} ·
+              polygon check {office.polygon_check} (empirical spatial check, not proof of the source CRS)
             </div>
           )}
         </div>

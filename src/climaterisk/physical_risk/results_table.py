@@ -742,6 +742,8 @@ def official_office_comparison_frame(
             "office_lat": pub.latitude if pub else None,
             "office_lon": pub.longitude if pub else None,
             "coordinate_method": pub.coordinate_method if pub else NOT_AVAILABLE_LABEL,
+            "coordinate_crs": pub.coordinate_crs if pub else None,
+            "coordinate_format": pub.coordinate_format if pub else None,
             "coordinate_source": (
                 f"{pub.source_dataset} ({pub.source_provider}; {pub.source_url})" if pub else None
             ),
