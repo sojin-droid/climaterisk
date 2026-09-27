@@ -27,11 +27,11 @@ Two roots:
         cache/                  regenerable caches
         evidence/               large reproducibility artefacts (small tables stay in docs/evidence)
 
-One further location is **intentionally external**: CLIMADA's own system data directory,
-where the CLIMADA library itself caches Data API hazards and reads LitPop / GPW / WorldPop /
-E-OBS inputs. It is owned by CLIMADA's configuration (``climada.conf``), not by this project;
-``climada_data_dir()`` is the single place that names it (override:
-``CLIMATERISK_CLIMADA_DATA_DIR``).
+CLIMADA's own system data directory (Data API cache, LitPop / GPW / WorldPop / E-OBS / OSM /
+MRIOT inputs) is named by ``climada_data_dir()`` alone: ``CLIMATERISK_CLIMADA_DATA_DIR``
+(recommended ``<DATA_ROOT>/external/climada``), else CLIMADA's default. When the variable is
+set, the worker relocates the CLIMADA library there through a project-scoped ``climada.conf``
+(:func:`write_climada_conf`) — never through the user's global CLIMADA configuration.
 
 Resolution rule for every path variable: process environment → the repo's ``.env`` →
 default. The same rule in every process, so a value set only in ``.env`` reaches the worker
@@ -46,6 +46,7 @@ catalogue keeps serving (status ``LEGACY_REPO_LOCATION``) until it is migrated.
 
 from __future__ import annotations
 
+import json
 import os
 from functools import lru_cache
 from pathlib import Path
@@ -189,14 +190,54 @@ def _climada_default() -> Path:
 
 
 def climada_data_dir() -> Path:
-    """CLIMADA's own system data directory — intentionally external, owned by ``climada.conf``.
+    """CLIMADA's system data directory as used by this project.
 
-    ``CLIMATERISK_CLIMADA_DATA_DIR`` when set; otherwise CLIMADA's documented default
-    (home/climada/data). If CLIMADA is relocated through ``climada.conf``, set the variable
-    to the same directory so the backend's drop-in destination and the worker agree.
+    ``CLIMATERISK_CLIMADA_DATA_DIR`` when set (the worker then points the CLIMADA library at
+    it, see :func:`write_climada_conf`); otherwise CLIMADA's documented default
+    (home/climada/data), where CLIMADA's own configuration decides.
     """
     value = setting(ENV_CLIMADA_DATA_DIR)
     return _as_path(value) if value else _climada_default()
+
+
+def climada_conf_dir() -> Path:
+    """Folder of the project-scoped ``climada.conf``: ``<DATA_ROOT>/cache/climada_conf``."""
+    return cache_dir("climada_conf")
+
+
+def climada_conf() -> dict[str, Any] | None:
+    """The ``climada.conf`` content that relocates CLIMADA to :func:`climada_data_dir`.
+
+    ``None`` when ``CLIMATERISK_CLIMADA_DATA_DIR`` is unset — CLIMADA's own configuration is
+    then left alone. Every CLIMADA / petals data path (Data API ledger and cache, MRIOT, OSM,
+    …) is written relative to ``local_data.system`` in CLIMADA's defaults, so setting it (plus
+    ``local_data.demo``) moves all of them.
+    """
+    if setting(ENV_CLIMADA_DATA_DIR) is None:
+        return None
+    system = climada_data_dir()
+    return {"local_data": {"system": str(system), "demo": str(system / "demo")}}
+
+
+def write_climada_conf() -> Path | None:
+    """Write the project-scoped ``climada.conf`` (only when its content changed).
+
+    Returns its folder, or ``None`` when no relocation is configured. CLIMADA reads a
+    ``climada.conf`` from the working directory **at import time**; the worker package imports
+    CLIMADA from this folder once (``climaterisk_worker._bootstrap_climada``). Nothing is
+    written to the user's global CLIMADA configuration (home .config or climada/conf), so
+    other projects that rely on CLIMADA's default directory are unaffected.
+    """
+    conf = climada_conf()
+    if conf is None:
+        return None
+    folder = climada_conf_dir()
+    folder.mkdir(parents=True, exist_ok=True)
+    target = folder / "climada.conf"
+    text = json.dumps(conf, indent=2) + "\n"
+    if not target.is_file() or target.read_text(encoding="utf-8") != text:
+        target.write_text(text, encoding="utf-8")
+    return folder
 
 
 def legacy_repo_hazard_db() -> Path:
@@ -233,6 +274,7 @@ def legacy_locations() -> dict[str, Path]:
     transitional hazard catalogue, see :func:`hazard_db_dir`)."""
     base = _climada_default()
     return {
+        "climada": base,
         "kma": base / "kma",
         "municipality_sgis": base / "municipality_src",
         "floodmap": base / "floodmap",
@@ -321,7 +363,7 @@ def status(with_sizes: bool = False) -> dict[str, Any]:
             "municipality_office": entry(municipality_office_dir()),
             "derived_municipality": entry(derived_municipality_dir()),
             "floodmap": entry(floodmap_dir(), legacy["floodmap"]),
-            "climada_data_dir": entry(climada_data_dir()),
+            "climada_data_dir": entry(climada_data_dir(), legacy.get("climada")),
             "cache": entry(cache_dir()),
             "evidence": entry(evidence_dir()),
         },

@@ -21,10 +21,14 @@ Run from the repo root.
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "worker"))
+import climaterisk_worker  # noqa: F401  (points CLIMADA at CLIMATERISK_CLIMADA_DATA_DIR)
 
 # Depth breakpoints must match assets/libraries/impact_functions.json "flood_depth_m".
 FLOOD_DEPTHS_M = [0.0, 0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0]

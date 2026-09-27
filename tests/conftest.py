@@ -2,11 +2,28 @@
 
 from __future__ import annotations
 
+import atexit
 import os
+import shutil
+import sys
+import tempfile
 from collections.abc import Iterator
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
+
+# Isolate the external data root before any test module is collected: test modules import the
+# worker package at collection time, and its CLIMADA bootstrap writes the project-scoped
+# climada.conf under <DATA_ROOT>/cache. The real ~/Data/climaterisk is never written by tests.
+# CLIMATERISK_CLIMADA_DATA_DIR still resolves from .env, so tests read the real CLIMADA cache.
+_TEST_DATA_ROOT = tempfile.mkdtemp(prefix="climaterisk-dataroot-")
+atexit.register(shutil.rmtree, _TEST_DATA_ROOT, ignore_errors=True)
+os.environ["CLIMATERISK_DATA_ROOT"] = _TEST_DATA_ROOT
+_WORKER = str(Path(__file__).resolve().parents[1] / "worker")
+if _WORKER not in sys.path:
+    sys.path.insert(0, _WORKER)
+import climaterisk_worker  # noqa: E402,F401  (CLIMADA bootstrap; no-op without CLIMADA)
 
 if TYPE_CHECKING:
     from fastapi.testclient import TestClient
@@ -22,7 +39,7 @@ def _isolate_data(tmp_path_factory: pytest.TempPathFactory) -> Iterator[None]:
     catalogue (``climaterisk.paths.hazard_db_dir``). The backend data dir is isolated only
     when the backend package is importable.
     """
-    os.environ["CLIMATERISK_DATA_ROOT"] = str(tmp_path_factory.mktemp("climaterisk-dataroot"))
+    os.environ["CLIMATERISK_DATA_ROOT"] = _TEST_DATA_ROOT
     try:
         from climaterisk.api.deps import get_session_store
         from climaterisk.config import get_settings

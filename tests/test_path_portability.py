@@ -14,6 +14,7 @@ CLIMADA-free. Pins the rules of ``climaterisk.paths``:
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -319,7 +320,13 @@ def test_migrator_links_and_copies_without_touching_the_legacy_tree(
     hz = tmp_path / "repo_data" / "hazard_db"
     hz.mkdir(parents=True)
     (hz / "catalog.json").write_text("{}", encoding="utf-8")
-    legacy = {"kma": kma, "municipality_sgis": sgis, "floodmap": flood, "hazard_db": hz}
+    legacy = {
+        "climada": old,
+        "kma": kma,
+        "municipality_sgis": sgis,
+        "floodmap": flood,
+        "hazard_db": hz,
+    }
     monkeypatch.setattr(paths, "legacy_locations", lambda: legacy)
     before = sorted(str(p.relative_to(old)) for p in old.rglob("*"))
 
@@ -343,3 +350,146 @@ def test_migrator_links_and_copies_without_touching_the_legacy_tree(
     # idempotent: a second run changes nothing
     assert mig.main(["--apply", "--method", "symlink", "--only", "kma,municipality_sgis"]) == 0
     assert sorted(str(p.relative_to(old)) for p in old.rglob("*")) == before
+
+
+def _tree(root: Path) -> dict[str, bytes]:
+    return {
+        str(p.relative_to(root)): p.read_bytes() for p in sorted(root.rglob("*")) if p.is_file()
+    }
+
+
+def test_migrator_clone_replaces_symlinks_with_verified_physical_files(
+    isolated: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """symlink migration first, then --method clone: every canonical file becomes a real,
+    independent file with the source's sha256; the legacy tree is untouched; the CLIMADA
+    download ledger is copied with its absolute paths rewritten; a manifest is written."""
+    import sqlite3
+
+    monkeypatch.setenv(paths.ENV_DATA_ROOT, str(isolated))
+    old = tmp_path / "climada_data"
+    kma = old / "kma"
+    kma.mkdir(parents=True)
+    (kma / "SSP245_TAMAX.tar.gz").write_bytes(b"kma-bytes")
+    (kma / "SSP585_TAMAX.tar.gz").write_bytes(b"kma-bytes-2")
+    sgis = old / "municipality_src"
+    (sgis / "extracted").mkdir(parents=True)
+    (sgis / "extracted" / "bnd_sigungu_00_2025_2Q.shp").write_bytes(b"shp")
+    (sgis / "sgis_admin_2025.zip").write_bytes(b"zip")
+    (old / "hazard" / "flood").mkdir(parents=True)
+    (old / "hazard" / "flood" / "rf.hdf5").write_bytes(b"rf")
+    (old / "NatRegIDs.csv").write_text("id", encoding="utf-8")
+    (old / "rsmc").mkdir()
+    (old / "rsmc" / "track.txt").write_text("t", encoding="utf-8")
+    with sqlite3.connect(old / ".downloads.db") as con:
+        con.execute("create table download (id integer primary key, path text unique)")
+        con.execute("insert into download (path) values (?)", (f"{old}/hazard/flood/rf.hdf5",))
+    legacy = {
+        "climada": old,
+        "kma": kma,
+        "municipality_sgis": sgis,
+        "floodmap": old / "floodmap",
+        "hazard_db": tmp_path / "none",
+    }
+    monkeypatch.setattr(paths, "legacy_locations", lambda: legacy)
+    before = _tree(old)
+
+    mig = _load_migrator()
+    assert mig.main(["--apply", "--method", "symlink", "--only", "kma,municipality_sgis"]) == 0
+    canon_kma = isolated / "external" / "kma"
+    canon_sgis = isolated / "external" / "municipality" / "sgis"
+    assert canon_kma.is_symlink() and (canon_sgis / "sgis_admin_2025.zip").is_symlink()
+
+    assert mig.main(["--preflight", "--only", "kma,municipality_sgis,climada"]) == 0
+    assert (
+        mig.main(["--apply", "--method", "clone", "--only", "kma,municipality_sgis,climada"]) == 0
+    )
+
+    links = [p for p in isolated.rglob("*") if p.is_symlink()]
+    assert links == []
+    assert canon_kma.is_dir() and _tree(canon_kma) == _tree(kma)
+    assert _tree(canon_sgis) == {
+        "bnd_sigungu_00_2025_2Q.shp": b"shp",
+        "sgis_admin_2025.zip": b"zip",
+    }
+    canon_cl = isolated / "external" / "climada"
+    assert (canon_cl / "hazard" / "flood" / "rf.hdf5").read_bytes() == b"rf"
+    assert (canon_cl / "NatRegIDs.csv").is_file()
+    assert not (canon_cl / "rsmc").exists()  # not read by the application
+    assert not (canon_cl / "kma").exists()  # project data has its own canonical home
+    with sqlite3.connect(canon_cl / ".downloads.db") as con:
+        rows = [r for (r,) in con.execute("select path from download")]
+    assert rows == [f"{canon_cl}/hazard/flood/rf.hdf5"]
+    with sqlite3.connect(old / ".downloads.db") as con:  # the legacy ledger is untouched
+        assert [r for (r,) in con.execute("select path from download")] == [
+            f"{old}/hazard/flood/rf.hdf5"
+        ]
+    # physical independence: the canonical copy survives the legacy file being replaced
+    assert _tree(old) == before
+    manifests = sorted((isolated / "evidence" / "migration").glob("*.json"))
+    assert {m.name.split("_", 1)[1] for m in manifests} >= {
+        "kma.json",
+        "kma_preflight.json",
+        "municipality_sgis.json",
+        "climada.json",
+    }
+    kma_manifest = json.loads(
+        next(m for m in manifests if m.name.endswith("_kma.json")).read_text(encoding="utf-8")
+    )
+    assert kma_manifest["all_match"] and kma_manifest["files"] == 2
+    # idempotent: a second physical run re-verifies and changes nothing
+    assert mig.main(["--apply", "--method", "clone", "--only", "kma,municipality_sgis"]) == 0
+    assert _tree(canon_kma) == _tree(kma) and _tree(old) == before
+
+
+def test_climada_conf_only_when_relocation_is_configured(
+    isolated: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv(paths.ENV_DATA_ROOT, str(isolated))
+    monkeypatch.setattr(paths, "setting", lambda name: os.environ.get(name) or None)
+    monkeypatch.delenv(paths.ENV_CLIMADA_DATA_DIR, raising=False)
+    assert paths.climada_conf() is None and paths.write_climada_conf() is None
+    target = isolated / "external" / "climada"
+    monkeypatch.setenv(paths.ENV_CLIMADA_DATA_DIR, str(target))
+    folder = paths.write_climada_conf()
+    assert folder == isolated / "cache" / "climada_conf"
+    conf = json.loads((folder / "climada.conf").read_text(encoding="utf-8"))
+    assert conf == {"local_data": {"system": str(target), "demo": str(target / "demo")}}
+    mtime = (folder / "climada.conf").stat().st_mtime_ns
+    paths.write_climada_conf()  # unchanged content is not rewritten
+    assert (folder / "climada.conf").stat().st_mtime_ns == mtime
+
+
+def test_worker_points_climada_at_the_configured_directory(tmp_path: Path) -> None:
+    """In the CLIMADA environment: importing the worker package makes CLIMADA's SYSTEM_DIR,
+    Data API ledger and cache, and petals' paths resolve inside CLIMATERISK_CLIMADA_DATA_DIR,
+    from any working directory — and nothing is created under the user's ~/climada."""
+    pytest.importorskip("climada")
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    target = tmp_path / "root" / "external" / "climada"
+    code = (
+        "import climaterisk_worker\n"
+        "from climada.util.constants import SYSTEM_DIR, DEMO_DIR\n"
+        "from climada.util.config import CONFIG\n"
+        "import climada_petals.util.config\n"
+        "print(SYSTEM_DIR); print(DEMO_DIR); print(CONFIG.data_api.cache_db.str());"
+        "print(CONFIG.engine.supplychain.local_data.mriot.str())\n"
+    )
+    env = {
+        "HOME": str(fake_home),
+        "PATH": "/usr/bin:/bin",
+        "PYTHONPATH": str(paths.REPO_ROOT / "worker"),
+        paths.ENV_DATA_ROOT: str(tmp_path / "root"),
+        paths.ENV_CLIMADA_DATA_DIR: str(target),
+    }
+    out = subprocess.run(
+        [sys.executable, "-c", code], cwd=tmp_path, env=env, capture_output=True, text=True
+    )
+    assert out.returncode == 0, out.stderr[-2000:]
+    system, demo, ledger, mriot = out.stdout.split("\n")[:4]
+    assert Path(system) == target
+    assert Path(demo) == target / "demo"
+    assert Path(ledger) == target / ".downloads.db"
+    assert Path(mriot) == target / "MRIOT"
+    assert not (fake_home / "climada").exists()

@@ -125,10 +125,12 @@ layer** that converts each source into a CLIMADA-ready hazard and files it in a 
   coastal flood), Copernicus DEM (for TC surge) and IBTrACS TCTracks; a TCRain refiner exists in
   the worker but is not yet accepted by the API. New formats map onto the standardized-grid
   on-ramp (`hazard_convert.py`).
-- **CLIMADA's own data directory** — managed by CLIMADA (`climada.conf`; CLIMADA's default is
-  `~/climada/data/`; set `CLIMATERISK_CLIMADA_DATA_DIR` if you relocated it). It holds CLIMADA's
-  Data API cache and the LitPop / WorldPop / E-OBS drop-ins; the only login-gated one is the GPW
-  population raster. See `assets/libraries/data_sources.json`.
+- **CLIMADA's data directory** — `CLIMATERISK_CLIMADA_DATA_DIR`, recommended
+  `<DATA_ROOT>/external/climada` (unset: CLIMADA's own default, `~/climada/data/`). When set, the
+  worker points the CLIMADA library there through a project-scoped `climada.conf` generated under
+  `<DATA_ROOT>/cache/` — the user's global CLIMADA configuration is never touched. It holds
+  CLIMADA's Data API cache and the LitPop / WorldPop / E-OBS drop-ins; the only login-gated one
+  is the GPW population raster. See `assets/libraries/data_sources.json` and `docs/DATA_LAYOUT.md`.
 
 ## Data sources
 
@@ -148,7 +150,7 @@ uv sync --all-extras && npm --prefix frontend/climaterisk install
 conda env create -f worker/climaterisk_worker/env_climada.yml --prefix ./.climada-env
 
 # 1. Observed climate for the heat perils: E-OBS daily Tmax, 0.25° ensemble mean (843 MB, no login)
-#    into CLIMADA's data directory (CLIMADA's default shown; match CLIMATERISK_CLIMADA_DATA_DIR if set)
+#    into CLIMADA's data directory (the value of CLIMATERISK_CLIMADA_DATA_DIR; CLIMADA's default shown)
 CLIMADA_DIR="${CLIMATERISK_CLIMADA_DATA_DIR:-$HOME/climada/data}"; mkdir -p "$CLIMADA_DIR"
 curl -sSfL -o "$CLIMADA_DIR/tg_ens_mean_0.25deg_reg_v31.0e.nc" \
   https://knmi-ecad-assets-prd.s3.amazonaws.com/ensembles/data/Grid_0.25deg_reg_ensemble/tg_ens_mean_0.25deg_reg_v31.0e.nc
