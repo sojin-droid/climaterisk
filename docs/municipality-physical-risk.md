@@ -236,3 +236,34 @@ unchanged, API validation and the municipalities route.
 of the same point with the same function, runner tagging and adapter resolution records, and
 measured resolution of the cached RF / TC / KMA layers equal to the registry (skipped without
 the cache).
+
+## 9. V0.3 official office points — investigation (2026-09-27), blocked
+
+V0.3 asked for a second spatial anchor, `OFFICIAL_OFFICE_POINT` (the 시청 / 군청 / 구청
+location), beside the V0.2 `BOUNDARY_INTERIOR_POINT`. The brief required an authoritative,
+accessible, inspectable source and forbade substitute coordinates. None was obtainable without
+an action only the user can take, so **no office point was created and V0.2 is unchanged.**
+
+| source | holds | access | usable now |
+|---|---|---|---|
+| 행정안전부 *도로명주소 민원행정기관 전자지도* (data.go.kr 15050409) | point layer of 자치단체 (시도, 시군구, 읍면동) and other offices; 공공누리 제1유형 | application on juso.go.kr with 본인인증 and a 행안부/자치단체 purpose review (도로명주소법 시행령 제46조) | **no** — user must apply |
+| 행정안전부 *도로명주소 위치정보 요약DB* (15050410) | address + main-entrance X/Y for every building | same juso.go.kr application | **no** — user must apply |
+| 행정안전부 *도로명주소 전자지도* (15050413) | buildings, entrances, boundaries | same application, approval by the competent authority | **no** — user must apply |
+| 행정안전부 *실시간 주소별 좌표정보 조회* (15056663) | X/Y for a structured road-name address | juso.go.kr 승인키 (instant issue); still needs a nationwide office address list | **no** — separate key; storage terms not verified |
+| 국토교통부 *지오코더 API* (15101106) | address → coordinate | data.go.kr key, but the terms state results may not be stored in a separate store or database | **no** — licence forbids a stored dataset |
+| 행정안전부 *행정표준코드 기관코드* (15077870) | agency code, name, rank, type, 소재지코드 | open | **no** — no address, no coordinates |
+| 행정안전부 *지방재정365 청사면적* (15138718) | office floor area | open | **no** — no location |
+| regional lists (경상남도 시군구청 정보 15062784, 경상북도 도청·시군청 정보 15044825, 경기도 청사및출장소 15057551) | office name and road address | open | **no** — addresses only, three provinces only |
+
+To unblock, one of these is needed from the user:
+
+1. **Preferred:** apply on juso.go.kr (menu DT04) for the *민원행정기관 전자지도* and place the
+   downloaded point files under `~/climada/data/municipality_src/`. Office rows can then be added
+   as `point_type = OFFICE_LOCATION` with `office_name` / `address` filled, joined to the SGIS
+   codes, without a schema change; the representative points stay as they are.
+2. Apply for the *위치정보 요약DB* and supply an authoritative nationwide office address list
+   (none exists in open data today) to join against it.
+
+Office-point assessment, the office ⇄ representative comparison sheet and the office UI were
+therefore not built. Drought and sea-level rise stay `NOT_READY`; KMA 500 m stays a documented
+candidate.
