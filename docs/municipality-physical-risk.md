@@ -247,6 +247,7 @@ an action only the user can take, so **no office point was created and V0.2 is u
 | source | holds | access | usable now |
 |---|---|---|---|
 | 행정안전부 *도로명주소 민원행정기관 전자지도* (data.go.kr 15050409) | point layer of 자치단체 (시도, 시군구, 읍면동) and other offices; 공공누리 제1유형 | application on juso.go.kr with 본인인증 and a 행안부/자치단체 purpose review (도로명주소법 시행령 제46조) | **no** — user must apply |
+| 국토지리정보원 *국가관심지점정보(POI) 시도별* (data.go.kr 15144087 → map.ngii.go.kr POI 내려받기) | national POI set (~6.8 M points) built from public-administration source DBs, per 시도, xlsx list or shapefile; 공공누리 제1유형 | free 국토정보플랫폼 **login** (the page also flags a user-authentication step); no purpose review; the format definition downloads without login | **no** — user must sign in (second pass, 2026-09-27) |
 | 행정안전부 *도로명주소 위치정보 요약DB* (15050410) | address + main-entrance X/Y for every building | same juso.go.kr application | **no** — user must apply |
 | 행정안전부 *도로명주소 전자지도* (15050413) | buildings, entrances, boundaries | same application, approval by the competent authority | **no** — user must apply |
 | 행정안전부 *실시간 주소별 좌표정보 조회* (15056663) | X/Y for a structured road-name address | juso.go.kr 승인키 (instant issue); still needs a nationwide office address list | **no** — separate key; storage terms not verified |
@@ -257,13 +258,24 @@ an action only the user can take, so **no office point was created and V0.2 is u
 
 To unblock, one of these is needed from the user:
 
-1. **Preferred:** apply on juso.go.kr (menu DT04) for the *민원행정기관 전자지도* and place the
+1. **Lightest:** sign in to 국토정보플랫폼 (map.ngii.go.kr → 공간정보 → POI 내려받기) and download
+   the 시도 files, or sign in inside the app's browser pane and let the agent download them with
+   your approval. The 시청/군청/구청 points would be selected by the POI classification and joined
+   to the SGIS codes; the portal's "최종 업데이트 2021-12-15" label (data.go.kr says 2025-01-27)
+   must be checked against the files before use.
+2. **Most authoritative:** apply on juso.go.kr (menu DT04) for the *민원행정기관 전자지도* and place the
    downloaded point files under `~/climada/data/municipality_src/`. Office rows can then be added
    as `point_type = OFFICE_LOCATION` with `office_name` / `address` filled, joined to the SGIS
    codes, without a schema change; the representative points stay as they are.
-2. Apply for the *위치정보 요약DB* and supply an authoritative nationwide office address list
+3. Apply for the *위치정보 요약DB* and supply an authoritative nationwide office address list
    (none exists in open data today) to join against it.
 
 Office-point assessment, the office ⇄ representative comparison sheet and the office UI were
-therefore not built. Drought and sea-level rise stay `NOT_READY`; KMA 500 m stays a documented
+therefore not built.
+
+Boundary currency: data.go.kr now lists providers such as 전남광주통합특별시 and 인천광역시
+영종구 / 서해구, i.e. administrative reorganisations after the SGIS `2025_2Q` boundaries used
+for the V0.2 points. Office points and representative points must come from the same
+administrative vintage; the V0.2 dataset should be rebuilt from a post-reorganisation SGIS
+release when one is published. Drought and sea-level rise stay `NOT_READY`; KMA 500 m stays a documented
 candidate.
