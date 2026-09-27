@@ -320,6 +320,8 @@ def export_frames(
         }
         if any(r.model_id == ModelId.GLOBAL_BASELINE.value for r in rs):
             frames.update(comparisons)
+        if _has_office_rows(rs):
+            frames["official_office_comparison"] = official_office_comparison_frame(rs, preferred)
         frames["methodology"] = methodology_frame(config)
         return frames
     return {
@@ -516,7 +518,8 @@ def summary_counts(
     """Counts for the results header, over primary rows only — no score, no ranking."""
     prim = primary_rows(rows, preferred)
     counts = {
-        "assets_analyzed": len({fid for fid, _ in prim}),
+        # a municipality assessed at two anchors (V0.3 POC) counts once here
+        "assets_analyzed": len({r.municipality_id or fid for (fid, _), r in prim.items()}),
         "high_risk": 0,
         "medium_risk": 0,
         "low_risk": 0,
@@ -537,6 +540,8 @@ def summary_counts(
             counts["errors"] += 1
         elif r.calculation_status in _UNAVAILABLE_STATUSES:
             counts["not_available"] += 1
+    if any(r.point_type == "OFFICIAL_OFFICE_POINT" for r in prim.values()):
+        counts["points_analyzed"] = len({fid for fid, _ in prim})
     return counts
 
 
@@ -553,8 +558,17 @@ MUNICIPALITY_HAZARDS: tuple[tuple[str, str], ...] = (
 #: Short labels for the point type on the summary sheet.
 _POINT_TYPE_LABEL = {
     "BOUNDARY_INTERIOR_POINT": "Boundary interior point",
-    "OFFICE_LOCATION": "Municipality office",
+    "OFFICIAL_OFFICE_POINT": "Official office point (government-published)",
 }
+#: Coordinate-type labels (V0.3 POC) — shown only when a run includes office points.
+_COORDINATE_TYPE_LABEL = {
+    "BOUNDARY_INTERIOR_POINT": "Representative Point",
+    "OFFICIAL_OFFICE_POINT": "Official Office",
+}
+
+
+def _has_office_rows(rows: list[ResultRow]) -> bool:
+    return any(r.point_type == "OFFICIAL_OFFICE_POINT" for r in rows)
 
 
 def _muni_status_short(status: str) -> str:
@@ -582,14 +596,21 @@ def municipality_summary_frame(
     """
     rs = _as_rows(rows)
     prim = primary_rows(rs, preferred)
+    two_anchors = _has_office_rows(rs)
     out = []
     for fid, first in _municipalities(rs).items():
         value = next(
             (r.asset_value_usd for r in rs if r.facility_id == fid and r.asset_value_usd), None
         )
         line: dict[str, Any] = {
-            "Municipality ID": fid,
+            "Municipality ID": (first.municipality_id or fid) if two_anchors else fid,
             "Municipality": first.municipality_name or first.facility_name,
+        }
+        if two_anchors:
+            line["Coordinate Type"] = _COORDINATE_TYPE_LABEL.get(
+                first.point_type or "", first.point_type
+            )
+        line |= {
             "Level": first.municipality_level,
             "Province": first.province_name,
             "Representative Point": _POINT_TYPE_LABEL.get(first.point_type or "", first.point_type),
@@ -640,12 +661,17 @@ def municipality_risk_matrix_frame(
     """
     rs = _as_rows(rows)
     prim = primary_rows(rs, preferred)
+    two_anchors = _has_office_rows(rs)
     out = []
     for fid, first in _municipalities(rs).items():
         line: dict[str, Any] = {
-            "Municipality ID": fid,
+            "Municipality ID": (first.municipality_id or fid) if two_anchors else fid,
             "Municipality": first.municipality_name or first.facility_name,
         }
+        if two_anchors:
+            line["Coordinate Type"] = _COORDINATE_TYPE_LABEL.get(
+                first.point_type or "", first.point_type
+            )
         priced = 0
         for tag, label in MUNICIPALITY_HAZARDS:
             r = prim.get((fid, tag))
@@ -657,6 +683,87 @@ def municipality_risk_matrix_frame(
             else:
                 line[label] = _muni_status_short(r.calculation_status)
         line["Calculated"] = f"{priced} of {len(MUNICIPALITY_HAZARDS)} calculated"
+        out.append(line)
+    return out
+
+
+def anchor_cell(r: ResultRow | None) -> str:
+    """One comparison cell: the risk level (or short status) and the hazard intensity read.
+
+    E.g. ``High (8.314 m)``, ``Hazard only (34.06 degC)``, ``No asset value (0 m)``. Text only.
+    """
+    if r is None:
+        return "Not assessed"
+    label = r.risk_level or _muni_status_short(r.calculation_status)
+    if r.hazard_intensity is None:
+        return label
+    return f"{label} ({r.hazard_intensity:.4g} {r.hazard_intensity_unit or ''})".replace(" )", ")")
+
+
+def official_office_comparison_frame(
+    rows: Iterable[ResultRow | dict[str, Any]], preferred: dict[str, str] | None = None
+) -> list[dict[str, Any]]:
+    """V0.3 POC — *Official Office Comparison*: one line per municipality in the run.
+
+    Representative point vs government-published office point under the same hazards,
+    models and impact functions. The distance is descriptive only; neither point is called
+    more accurate, better or preferred. A municipality without a published office
+    coordinate reads "Not available in V0.3 POC" — its representative point is never
+    reused as an office point.
+    """
+    from climaterisk.physical_risk.municipalities import load_municipalities
+    from climaterisk.physical_risk.official_offices import (
+        NOT_AVAILABLE_LABEL,
+        haversine_km,
+        office_facility_id,
+        offices_by_id,
+    )
+
+    rs = _as_rows(rows)
+    prim = primary_rows(rs, preferred)
+    reps = {m.municipality_id: m for m in load_municipalities()}
+    offices = offices_by_id()
+    fids = {r.facility_id for r in rs}
+    order: list[str] = []
+    for r in rs:
+        mid = r.municipality_id or r.facility_id
+        if mid not in order:
+            order.append(mid)
+    out = []
+    for mid in order:
+        rep_pt, office = reps.get(mid), offices.get(mid)
+        ofid = office_facility_id(mid)
+        # the office point counts only when it is published AND was assessed in this run
+        pub = office if office is not None and office.available and ofid in fids else None
+        line: dict[str, Any] = {
+            "municipality": rep_pt.municipality_name if rep_pt else mid,
+            "office_name": office.office_name if office else NOT_AVAILABLE_LABEL,
+            "office_address": pub.address if pub else None,
+            "office_lat": pub.latitude if pub else None,
+            "office_lon": pub.longitude if pub else None,
+            "coordinate_method": pub.coordinate_method if pub else NOT_AVAILABLE_LABEL,
+            "coordinate_source": (
+                f"{pub.source_dataset} ({pub.source_provider}; {pub.source_url})" if pub else None
+            ),
+            "coordinate_source_date": pub.source_last_modified if pub else None,
+            "polygon_check": pub.polygon_check if pub else None,
+            "representative_lat": rep_pt.latitude if rep_pt else None,
+            "representative_lon": rep_pt.longitude if rep_pt else None,
+        }
+        for tag, key in (("RF", "flood"), ("TC", "tc"), ("HW", "heatwave")):
+            line[f"{key}_representative"] = (
+                anchor_cell(prim.get((mid, tag))) if mid in fids else "Not assessed"
+            )
+            line[f"{key}_official_office"] = (
+                anchor_cell(prim.get((ofid, tag))) if pub else NOT_AVAILABLE_LABEL
+            )
+        distance = None
+        if pub and rep_pt and pub.latitude is not None and pub.longitude is not None:
+            distance = round(
+                haversine_km(rep_pt.latitude, rep_pt.longitude, pub.latitude, pub.longitude), 3
+            )
+        line["distance_between_points_km"] = distance
+        line["office_status"] = office.office_status if office else NOT_AVAILABLE_LABEL
         out.append(line)
     return out
 

@@ -13,9 +13,9 @@ anchor for hazard screening — *not* a city-hall location and *not* an area agg
     point_type = BOUNDARY_INTERIOR_POINT
 
 No coordinate is typed in or copied from a web page; every value is derived from the
-official geometry by this script. When the 행정안전부 *민원행정기관 전자지도* (office
-locations; released only after an application on juso.go.kr) becomes available, rows with
-``point_type = OFFICE_LOCATION`` can replace these without a schema change.
+official geometry by this script. Official office locations are a separate, second anchor
+(``point_type = OFFICIAL_OFFICE_POINT``, ``scripts/build_official_offices.py``, V0.3 POC) and
+never replace these rows.
 
 Runs in the CLIMADA worker environment (needs geopandas)::
 

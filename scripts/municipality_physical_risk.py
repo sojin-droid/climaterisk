@@ -123,6 +123,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--models", nargs="+", default=["recommended"])
     ap.add_argument("--country", default="KOR", help="ISO3 (municipalities are Korean)")
     ap.add_argument("--baseline-scenario", default=None)
+    ap.add_argument(
+        "--anchors",
+        nargs="+",
+        default=["REPRESENTATIVE_POINT"],
+        choices=["REPRESENTATIVE_POINT", "OFFICIAL_OFFICE_POINT"],
+        help="V0.3 POC: add OFFICIAL_OFFICE_POINT to also assess the government-published "
+        "city-hall point (only where one exists; never a substitute)",
+    )
     args = ap.parse_args(argv)
     if not args.out:
         ap.error("--output is required (the .xlsx to write)")
@@ -151,15 +159,41 @@ def main(argv: list[str] | None = None) -> int:
     except (ValueError, KeyError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    facilities = [
-        m.as_facility(value, ptype)
-        for m, (_, value, ptype) in zip(municipalities, selection, strict=True)
-    ]
-    n_valued = sum(1 for f in facilities if f["asset_value_usd"])
-    print(
-        f"{len(facilities)} municipalities ({n_valued} with a supplied asset value, "
-        f"{len(facilities) - n_valued} screening only)"
+    from climaterisk.physical_risk.official_offices import (
+        ANCHOR_OFFICIAL_OFFICE,
+        ANCHOR_REPRESENTATIVE,
+        NOT_AVAILABLE_LABEL,
+        office_facility,
+        offices_by_id,
     )
+
+    offices = offices_by_id() if ANCHOR_OFFICIAL_OFFICE in args.anchors else {}
+    facilities = []
+    for m, (_, value, ptype) in zip(municipalities, selection, strict=True):
+        if ANCHOR_REPRESENTATIVE in args.anchors:
+            facilities.append(m.as_facility(value, ptype))
+        if ANCHOR_OFFICIAL_OFFICE in args.anchors:
+            office = offices.get(m.municipality_id)
+            if office is not None and office.available:
+                facilities.append({**office_facility(m, office, value), "property_type": ptype})
+            else:
+                print(f"{m.municipality_name}: Official Office {NOT_AVAILABLE_LABEL}")
+    if not facilities:
+        print("error: no point to assess for the chosen anchors", file=sys.stderr)
+        return 2
+    n_valued = sum(1 for f in facilities if f["asset_value_usd"])
+    n_office = sum(1 for f in facilities if f["point_type"] == "OFFICIAL_OFFICE_POINT")
+    if n_office:
+        print(
+            f"{len(facilities)} points: {len(facilities) - n_office} representative, "
+            f"{n_office} official office ({n_valued} with a supplied asset value, "
+            f"{len(facilities) - n_valued} screening only)"
+        )
+    else:
+        print(
+            f"{len(facilities)} municipalities ({n_valued} with a supplied asset value, "
+            f"{len(facilities) - n_valued} screening only)"
+        )
     n_calc = len(facilities) * len(hazards) * len(models)
     print(f"hazards {hazards} x models {models} -> {n_calc} calculations")
 
@@ -192,6 +226,10 @@ def main(argv: list[str] | None = None) -> int:
     print(
         "This result represents hazard conditions at each municipality's representative point. "
         "It is not a municipality-wide spatial aggregation."
+        if not n_office
+        else "These results represent hazard conditions at each selected point (representative "
+        "point and/or government-published official office point). They are not "
+        "municipality-wide spatial aggregations."
     )
     return 0
 

@@ -9,10 +9,13 @@ import {
   submitPhysicalRiskModels,
 } from "../lib/api";
 import { money } from "../lib/format";
-import { MunicipalityMap, type PointStatus } from "../components/MunicipalityMap";
+import { MunicipalityMap, type OfficeMarker, type PointStatus } from "../components/MunicipalityMap";
 import type {
+  Anchor,
   Asset,
   Municipality,
+  OfficialOffice,
+  OfficialOfficeSummary,
   PhysicalRiskModelsOutput,
   PhysicalRiskReadiness,
   PhysicalRiskRow,
@@ -156,6 +159,10 @@ export function ModelsView({ model }: { model: Portfolio }) {
   const [muniQuery, setMuniQuery] = useState("");
   const [muniTier, setMuniTier] = useState<"ALL" | "SIDO" | "SIGUNGU">("ALL");
   const [muniPage, setMuniPage] = useState(0);
+  // 1c — V0.3 POC: spatial anchors (representative point is the V0.2 default)
+  const [offices, setOffices] = useState<OfficialOffice[]>([]);
+  const [officeSummary, setOfficeSummary] = useState<OfficialOfficeSummary | null>(null);
+  const [anchors, setAnchors] = useState<Set<Anchor>>(() => new Set<Anchor>(["REPRESENTATIVE_POINT"]));
   // 2 — hazards
   const [hazards, setHazards] = useState<Set<string>>(() => new Set(HAZARD_KEYS));
   // 3 — analysis
@@ -183,7 +190,11 @@ export function ModelsView({ model }: { model: Portfolio }) {
   useEffect(() => {
     getPhysicalRiskReadiness().then(setReadiness).catch(() => setReadiness(null));
     getMunicipalities()
-      .then((r) => setMunicipalities(r.municipalities))
+      .then((r) => {
+        setMunicipalities(r.municipalities);
+        setOffices(r.official_offices ?? []);
+        setOfficeSummary(r.official_office_summary ?? null);
+      })
       .catch((e) => setMuniError(String(e)));
   }, []);
   useEffect(() => {
@@ -226,6 +237,40 @@ export function ModelsView({ model }: { model: Portfolio }) {
     [municipalities, muniSelected],
   );
   const valuedCount = selectedMunis.filter((m) => Number(muniValues[m.municipality_id]) > 0).length;
+  const officeById = useMemo(() => new Map(offices.map((o) => [o.municipality_id, o])), [offices]);
+  const officeOk = (id: string) => officeById.get(id)?.available === true;
+  const wantRep = anchors.has("REPRESENTATIVE_POINT");
+  const wantOffice = anchors.has("OFFICIAL_OFFICE_POINT");
+  const selectedWithOffice = selectedMunis.filter((m) => officeOk(m.municipality_id));
+  const selectedWithoutOffice = selectedMunis.filter((m) => !officeOk(m.municipality_id));
+  const notAvailable = officeSummary?.not_available_label ?? "Not available in V0.3 POC";
+  const anchorProblem =
+    target !== "MUNICIPALITY"
+      ? null
+      : anchors.size === 0
+        ? "Choose at least one coordinate type."
+        : wantOffice && !wantRep && selectedWithoutOffice.length > 0
+          ? `Official Office — ${notAvailable} for: ${selectedWithoutOffice.map((m) => m.municipality_name).join(", ")}. ` +
+            "Deselect them or add Representative Point; the representative point is never used in place of an office."
+          : null;
+  const toggleAnchor = (a: Anchor) => {
+    const next = new Set(anchors);
+    if (next.has(a)) next.delete(a);
+    else next.add(a);
+    setAnchors(next);
+  };
+  const officeMarker = (o: OfficialOffice): OfficeMarker | null =>
+    o.available && o.latitude != null && o.longitude != null
+      ? {
+          facility_id: o.facility_id,
+          municipality_id: o.municipality_id,
+          municipality_name: o.municipality_name,
+          office_name: o.office_name,
+          latitude: o.latitude,
+          longitude: o.longitude,
+          source: `${o.source_dataset ?? ""}${o.source_last_modified ? `, ${o.source_last_modified}` : ""}`,
+        }
+      : null;
 
   const recommended = display?.recommended_models ?? {};
   const modelsToRun = useMemo(() => {
@@ -235,7 +280,10 @@ export function ModelsView({ model }: { model: Portfolio }) {
     }
     return MODELS.filter((m) => scopes.has(m) && [...hazards].some((h) => canRun(readiness, m, h)));
   }, [mode, hazards, scopes, recommended, readiness]);
-  const nPoints = target === "MUNICIPALITY" ? muniSelected.size : selected.size;
+  const nPoints =
+    target === "MUNICIPALITY"
+      ? (wantRep ? muniSelected.size : 0) + (wantOffice ? selectedWithOffice.length : 0)
+      : selected.size;
   const nCalc = nPoints * hazards.size * modelsToRun.length * (mode === "custom" && baseline ? 2 : 1);
 
   async function openRun(r: Run) {
@@ -272,6 +320,7 @@ export function ModelsView({ model }: { model: Portfolio }) {
               asset_values: Object.fromEntries(
                 [...muniSelected].filter((id) => Number(muniValues[id]) > 0).map((id) => [id, Number(muniValues[id])]),
               ),
+              anchors: [...anchors],
             }
           : { ...common, assessment_target: "FACILITY" as const, facility_ids: [...selected] };
       let r: Run = await submitPhysicalRiskModels(model.id, body);
@@ -300,6 +349,8 @@ export function ModelsView({ model }: { model: Portfolio }) {
   const resultTarget = targetOf(out);
   const matrix = (table?.frames?.asset_risk_matrix ?? []) as Record<string, string>[];
   const muniMatrix = (table?.frames?.municipality_risk_matrix ?? []) as Record<string, string>[];
+  const twoAnchors = muniMatrix.some((m) => "Coordinate Type" in m);
+  const officeComparison = (table?.frames?.official_office_comparison ?? []) as Record<string, string | number | null>[];
   const assetById = useMemo(() => new Map(model.assets.map((a) => [a.id, a])), [model.assets]);
   const detailAsset = detailId && resultTarget === "FACILITY" ? assetById.get(detailId) : undefined;
   const excelHref = run ? `/api/session/${model.id}/run/${run.id}/physical-risk-export.xlsx` : "";
@@ -311,12 +362,23 @@ export function ModelsView({ model }: { model: Portfolio }) {
     const ids = [...new Set(out.rows.map((r) => r.facility_id))];
     return ids.map((id) => muniById.get(id)).filter((m): m is Municipality => !!m);
   }, [out, resultTarget, muniById]);
-  const statusOf = (m: Municipality): PointStatus => {
+  /** V0.3 POC — office points actually assessed in this run (never inferred). */
+  const resultOffices = useMemo(() => {
+    if (!out || resultTarget !== "MUNICIPALITY") return [] as OfficeMarker[];
+    const mids = [...new Set(out.rows.filter((r) => r.point_type === "OFFICIAL_OFFICE_POINT").map((r) => r.municipality_id ?? ""))];
+    return mids
+      .map((mid) => officeById.get(mid))
+      .map((o) => (o ? officeMarker(o) : null))
+      .filter((o): o is OfficeMarker => !!o);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [out, resultTarget, officeById]);
+  const statusOf = (m: Municipality): PointStatus => statusOfId(m.municipality_id);
+  const statusOfId = (pointId: string): PointStatus => {
     const lines: string[] = [];
     let worst: string | null = null;
     let worstStatus: string | undefined;
     for (const h of HAZARD_KEYS) {
-      const r = primaryRow(rows, m.municipality_id, TAG_OF[h], recommended[h]);
+      const r = primaryRow(rows, pointId, TAG_OF[h], recommended[h]);
       if (!r) continue;
       const short = r.risk_level ?? muniCopy?.status_short[r.calculation_status] ?? display?.status_short[r.calculation_status] ?? r.calculation_status;
       lines.push(`${display?.hazard_label[h] ?? h}: ${short}`);
@@ -462,6 +524,53 @@ export function ModelsView({ model }: { model: Portfolio }) {
                 {valuedCount > 0 ? ` · ${valuedCount} with an asset value` : ""}
               </span>
             </div>
+            <div
+              aria-label="coordinate type"
+              style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap", margin: "6px 0 8px" }}
+            >
+              <b>Coordinate type</b>
+              <label style={{ cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  aria-label="Representative Point"
+                  checked={wantRep}
+                  onChange={() => toggleAnchor("REPRESENTATIVE_POINT")}
+                />{" "}
+                Representative Point
+              </label>
+              <label
+                style={{ cursor: selectedWithOffice.length || wantOffice ? "pointer" : "not-allowed" }}
+                title={`V0.3 POC: only city halls with a government-published coordinate (${offices
+                  .filter((o) => o.available)
+                  .map((o) => o.office_name)
+                  .join(", ")})`}
+              >
+                <input
+                  type="checkbox"
+                  aria-label="Official Office"
+                  checked={wantOffice}
+                  disabled={!wantOffice && selectedWithOffice.length === 0}
+                  onChange={() => toggleAnchor("OFFICIAL_OFFICE_POINT")}
+                />{" "}
+                Official Office
+              </label>
+              {officeSummary && (
+                <span className="hint" aria-label="official office coverage">
+                  V0.3 POC — {officeSummary.official_coordinates_found} of {officeSummary.targets} metropolitan city halls
+                  have a government-published coordinate (
+                  {offices
+                    .filter((o) => o.available)
+                    .map((o) => o.office_name)
+                    .join(", ")}
+                  ); everywhere else: {notAvailable}.
+                </span>
+              )}
+            </div>
+            {anchorProblem && (
+              <div className="status-box error" aria-label="coordinate type problem">
+                {anchorProblem}
+              </div>
+            )}
             <div className="table-wrap">
               <table>
                 <thead>
@@ -483,6 +592,7 @@ export function ModelsView({ model }: { model: Portfolio }) {
                     <th>Province</th>
                     <th>Asset value (USD, optional)</th>
                     <th>Representative point</th>
+                    <th>Official office (V0.3 POC)</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -520,6 +630,18 @@ export function ModelsView({ model }: { model: Portfolio }) {
                       <td className="hint">
                         {m.latitude.toFixed(3)}, {m.longitude.toFixed(3)} · boundary interior point
                       </td>
+                      <td className="hint" aria-label={`official office ${m.municipality_name}`}>
+                        {officeOk(m.municipality_id) ? (
+                          <>
+                            {officeById.get(m.municipality_id)!.office_name} ·{" "}
+                            {officeById.get(m.municipality_id)!.latitude?.toFixed(3)},{" "}
+                            {officeById.get(m.municipality_id)!.longitude?.toFixed(3)} ·{" "}
+                            {officeSummary?.provenance_label ?? "Government-published"}
+                          </>
+                        ) : (
+                          notAvailable
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -541,7 +663,15 @@ export function ModelsView({ model }: { model: Portfolio }) {
             {selectedMunis.length > 0 && muniCopy && (
               <div style={{ marginTop: 10 }}>
                 <MunicipalityMap
-                  points={selectedMunis}
+                  points={wantRep ? selectedMunis : []}
+                  offices={
+                    wantOffice
+                      ? selectedWithOffice
+                          .map((m) => officeById.get(m.municipality_id))
+                          .map((o) => (o ? officeMarker(o) : null))
+                          .filter((o): o is OfficeMarker => !!o)
+                      : []
+                  }
                   activeId={null}
                   statusOf={() => ({ color: "#3aa0ff", label: "selected — not assessed yet" })}
                   onSelect={() => undefined}
@@ -751,11 +881,17 @@ export function ModelsView({ model }: { model: Portfolio }) {
           </div>
         )}
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 12 }}>
-          <button className="btn" onClick={runAssessment} disabled={status === "running" || nCalc === 0}>
+          <button className="btn" onClick={runAssessment} disabled={status === "running" || nCalc === 0 || !!anchorProblem}>
             {status === "running" ? "Analyzing…" : "RUN ASSESSMENT"}
           </button>
           <span className="hint">
-            {nPoints} {target === "MUNICIPALITY" ? "municipalities" : "assets"} × {hazards.size} hazards ×{" "}
+            {nPoints}{" "}
+            {target === "MUNICIPALITY"
+              ? wantOffice
+                ? `${nPoints === 1 ? "point" : "points"} (${wantRep ? `${muniSelected.size} representative + ` : ""}${selectedWithOffice.length} official office)`
+                : "municipalities"
+              : "assets"}{" "}
+            × {hazards.size} hazards ×{" "}
             {modelsToRun.length} data scopes
             {mode === "custom" && baseline ? " × 2 periods" : ""} = <b>{nCalc}</b> calculations · scenario{" "}
             {model.scenario.climate}
@@ -805,6 +941,12 @@ export function ModelsView({ model }: { model: Portfolio }) {
               {resultTarget === "MUNICIPALITY" && (
                 <div className="status-box info" style={{ marginTop: 8 }} aria-label="representative point warning">
                   {muniCopy?.warning ?? out.municipality_dataset?.warning}
+                  {resultOffices.length > 0 && officeSummary && (
+                    <>
+                      <br />
+                      {officeSummary.warning}
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -824,13 +966,17 @@ export function ModelsView({ model }: { model: Portfolio }) {
 
           {resultTarget === "MUNICIPALITY" && muniCopy && (
             <div className="card">
-              <div className="section-title">Map — representative points</div>
+              <div className="section-title">
+                Map — representative points{resultOffices.length > 0 ? " and official office points" : ""}
+              </div>
               <div className="hint" style={{ marginBottom: 6 }}>
                 Click a point to open its row; click a row below to highlight its point. Colour = highest priced risk
                 level among the selected hazards (blue = hazard only, grey = no priced hazard).
               </div>
               <MunicipalityMap
                 points={resultPoints}
+                offices={resultOffices}
+                officeStatusOf={(o) => statusOfId(o.facility_id)}
                 activeId={detailId}
                 statusOf={statusOf}
                 onSelect={(id) => setDetailId(id)}
@@ -845,7 +991,8 @@ export function ModelsView({ model }: { model: Portfolio }) {
               {resultTarget === "MUNICIPALITY" ? "Municipality risk table" : "Asset risk matrix"}
             </div>
             <div className="hint" style={{ marginBottom: 6 }}>
-              One row per {resultTarget === "MUNICIPALITY" ? "municipality" : "asset"}. Click a row for the expected
+              One row per{" "}
+              {resultTarget === "MUNICIPALITY" ? (twoAnchors ? "municipality and coordinate type" : "municipality") : "asset"}. Click a row for the expected
               loss, the potential loss and why each hazard got its level.
             </div>
             <div className="table-wrap">
@@ -853,6 +1000,7 @@ export function ModelsView({ model }: { model: Portfolio }) {
                 <thead>
                   <tr>
                     <th>{resultTarget === "MUNICIPALITY" ? "Municipality" : "Asset"}</th>
+                    {twoAnchors && resultTarget === "MUNICIPALITY" && <th>Coordinate type</th>}
                     <th>Asset value</th>
                     <th>Flood</th>
                     <th>Tropical Cyclone</th>
@@ -863,7 +1011,9 @@ export function ModelsView({ model }: { model: Portfolio }) {
                 <tbody>
                   {resultTarget === "MUNICIPALITY"
                     ? muniMatrix.map((m) => {
-                        const id = m["Municipality ID"];
+                        const isOffice = m["Coordinate Type"] === "Official Office";
+                        const id = isOffice ? `${m["Municipality ID"]}#OFFICIAL_OFFICE` : m["Municipality ID"];
+                        const office = isOffice ? officeById.get(m["Municipality ID"]) : undefined;
                         const value = rows.find((r) => r.facility_id === id && r.asset_value_usd)?.asset_value_usd;
                         return (
                           <tr
@@ -872,6 +1022,17 @@ export function ModelsView({ model }: { model: Portfolio }) {
                             style={{ cursor: "pointer", background: detailId === id ? "var(--panel-2)" : undefined }}
                           >
                             <td>{m["Municipality"]}</td>
+                            {twoAnchors && (
+                              <td>
+                                {m["Coordinate Type"]}
+                                {office && (
+                                  <div className="hint">
+                                    {office.office_name} · Coordinate provenance:{" "}
+                                    {officeSummary?.provenance_label ?? "Government-published"} · Source: {office.source_dataset}
+                                  </div>
+                                )}
+                              </td>
+                            )}
                             <td>{value ? fmtUsdFull(value) : <span className="hint">not supplied</span>}</td>
                             {["Flood", "Tropical Cyclone", "Heatwave"].map((h) => (
                               <td key={h}>
@@ -918,6 +1079,29 @@ export function ModelsView({ model }: { model: Portfolio }) {
               onClose={() => setDetailId(null)}
             />
           )}
+          {detailId &&
+            resultTarget === "MUNICIPALITY" &&
+            detailId.endsWith("#OFFICIAL_OFFICE") &&
+            (() => {
+              const mid = detailId.replace("#OFFICIAL_OFFICE", "");
+              const o = officeById.get(mid);
+              const mu = muniById.get(mid);
+              if (!o || !mu) return null;
+              return (
+                <PointDetail
+                  title={o.office_name}
+                  subtitle={`${mu.municipality_name} · official office point ${o.latitude?.toFixed(4)}, ${o.longitude?.toFixed(4)}`}
+                  pointId={detailId}
+                  out={out}
+                  recommended={recommended}
+                  display={display}
+                  municipality={mu}
+                  office={o}
+                  officeWarning={officeSummary?.warning}
+                  onClose={() => setDetailId(null)}
+                />
+              );
+            })()}
           {detailId && resultTarget === "MUNICIPALITY" && muniById.get(detailId) && (
             <PointDetail
               title={muniById.get(detailId)!.municipality_name}
@@ -931,6 +1115,74 @@ export function ModelsView({ model }: { model: Portfolio }) {
               municipality={muniById.get(detailId)!}
               onClose={() => setDetailId(null)}
             />
+          )}
+
+          {resultTarget === "MUNICIPALITY" && officeComparison.length > 0 && (
+            <div className="card" aria-label="official office comparison">
+              <div className="section-title">Official Office Comparison (V0.3 POC)</div>
+              <div className="hint" style={{ marginBottom: 6 }}>
+                The same hazards, data scopes and impact functions at two different locations: the representative point
+                (boundary interior point) and the city hall as published by a government dataset. The distance only
+                describes how far apart they are.
+              </div>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Municipality</th>
+                      <th>Representative Point</th>
+                      <th>Official Office Point</th>
+                      <th>Distance between points</th>
+                      <th>Flood</th>
+                      <th>Tropical Cyclone</th>
+                      <th>Heatwave</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {officeComparison.map((c) => (
+                      <tr key={String(c.municipality)}>
+                        <td>{c.municipality}</td>
+                        <td className="hint">
+                          {Number(c.representative_lat).toFixed(4)}, {Number(c.representative_lon).toFixed(4)}
+                        </td>
+                        <td className="hint">
+                          {c.office_lat != null ? (
+                            <>
+                              {c.office_name} · {Number(c.office_lat).toFixed(4)}, {Number(c.office_lon).toFixed(4)}
+                              <br />
+                              {officeSummary?.provenance_label ?? "Government-published"} · {c.coordinate_source_date} · polygon{" "}
+                              {String(c.polygon_check).toLowerCase()}
+                            </>
+                          ) : (
+                            <>
+                              {c.office_name} · {notAvailable}
+                            </>
+                          )}
+                        </td>
+                        <td>
+                          {c.distance_between_points_km != null ? `${Number(c.distance_between_points_km).toFixed(2)} km` : "—"}
+                        </td>
+                        {(["flood", "tc", "heatwave"] as const).map((h) => (
+                          <td key={h}>
+                            <div>
+                              <span className="hint">Rep.</span> {c[`${h}_representative`]}
+                            </div>
+                            <div>
+                              <span className="hint">Office</span> {c[`${h}_official_office`]}
+                            </div>
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {officeSummary && (
+                <div className="hint" style={{ marginTop: 6 }}>
+                  {muniCopy?.warning} {officeSummary.warning}
+                </div>
+              )}
+            </div>
           )}
 
           <details className="card">
@@ -1049,6 +1301,8 @@ function PointDetail({
   recommended,
   display,
   municipality,
+  office = null,
+  officeWarning,
   onClose,
 }: {
   title: string;
@@ -1058,6 +1312,9 @@ function PointDetail({
   recommended: Record<string, string>;
   display: PhysicalRiskReadiness["display"] | undefined;
   municipality: Municipality | null;
+  /** V0.3 POC — set when this point is the government-published official office point. */
+  office?: OfficialOffice | null;
+  officeWarning?: string;
   onClose: () => void;
 }) {
   const [why, setWhy] = useState<string | null>(null);
@@ -1072,9 +1329,16 @@ function PointDetail({
         <div>
           <div className="section-title">{title}</div>
           <div className="hint">{subtitle}</div>
-          {municipality && (
+          {municipality && !office && (
             <div className="hint">
-              <b>Representative point</b> · {muniCopy?.point_label} {muniCopy?.point_definition}
+              <b>Coordinate type: Representative Point</b> · {muniCopy?.point_label} {muniCopy?.point_definition}
+            </div>
+          )}
+          {office && (
+            <div className="hint" aria-label="coordinate provenance">
+              <b>Coordinate type: Official Office</b> · Coordinate provenance: Government-published · Source:{" "}
+              {office.source_dataset} ({office.source_provider}, {office.source_last_modified}) · {office.address} · polygon
+              check {office.polygon_check}
             </div>
           )}
         </div>
@@ -1189,7 +1453,7 @@ function PointDetail({
                     Status {r.calculation_status}
                     {r.status_detail ? ` — ${r.status_detail}` : ""}
                   </div>
-                  {municipality && <div>{muniCopy?.warning}</div>}
+                  {municipality && <div>{office ? officeWarning : muniCopy?.warning}</div>}
                 </div>
               )}
 
@@ -1272,7 +1536,7 @@ function PointDetail({
           );
         })}
       </div>
-      {municipality && <div className="hint" style={{ marginTop: 8 }}>{muniCopy?.warning}</div>}
+      {municipality && <div className="hint" style={{ marginTop: 8 }}>{office ? officeWarning : muniCopy?.warning}</div>}
     </div>
   );
 }

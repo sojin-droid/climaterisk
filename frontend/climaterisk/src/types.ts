@@ -686,10 +686,54 @@ export interface MunicipalityDataset {
   warning: string;
 }
 
+// V0.3 POC — government-published official office point (assets/libraries/korea_official_offices.csv).
+export interface OfficialOffice {
+  municipality_id: string;
+  municipality_name: string;
+  office_name: string;
+  office_status: "AVAILABLE" | "OFFICIAL_COORDINATE_NOT_AVAILABLE" | "AMBIGUOUS_OFFICE" | string;
+  address: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  coordinate_method: string | null;
+  coordinate_crs: string | null;
+  source_dataset: string | null;
+  source_dataset_id: string | null;
+  source_provider: string | null;
+  source_url: string | null;
+  source_last_modified: string | null;
+  source_licence: string | null;
+  source_row_name: string | null;
+  polygon_check: string | null;
+  distance_to_representative_km: number | null;
+  note: string;
+  available: boolean;
+  facility_id: string;
+}
+
+export interface OfficialOfficeSummary {
+  target: string;
+  targets: number;
+  official_coordinates_found: number;
+  government_published: number;
+  unsupported: number;
+  supported_ids: string[];
+  coordinate_method: string;
+  sources: string[];
+  warning: string;
+  definition: string;
+  not_available_label: string;
+  provenance_label: string;
+}
+
+export type Anchor = "REPRESENTATIVE_POINT" | "OFFICIAL_OFFICE_POINT";
+
 export interface MunicipalitiesResponse {
   municipalities: Municipality[];
   summary: MunicipalityDataset;
   levels: string[];
+  official_offices?: OfficialOffice[];
+  official_office_summary?: OfficialOfficeSummary;
 }
 
 export interface CoverageRow {
@@ -708,6 +752,7 @@ export interface PhysicalRiskModelsOutput {
   status: string;
   assessment_target?: "FACILITY" | "MUNICIPALITY" | string;
   municipality_dataset?: MunicipalityDataset | null;
+  official_office_dataset?: Partial<OfficialOfficeSummary> | null;
   climate_scenario: string;
   target_year: number | null;
   country: string | null;
@@ -779,6 +824,8 @@ export interface PhysicalRiskModelsBody {
   assessment_target?: "FACILITY" | "MUNICIPALITY";
   municipality_ids?: string[];
   asset_values?: Record<string, number>;
+  // V0.3 POC — spatial anchors (default REPRESENTATIVE_POINT)
+  anchors?: Anchor[];
 }
 
 export interface PhysicalRiskTable {

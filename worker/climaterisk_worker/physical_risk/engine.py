@@ -256,9 +256,14 @@ def calculate(
 
     if row.asset_value_usd is None or row.asset_value_usd <= 0:
         row.calculation_status = CalculationStatus.NO_EXPOSURE_DATA.value
+        anchor = (
+            "official office point"
+            if row.point_type == "OFFICIAL_OFFICE_POINT"
+            else "representative point"
+        )
         row.status_detail = (
             "no asset value supplied for this municipality — hazard screening only at its "
-            "representative point; no value is assumed and no loss is estimated"
+            f"{anchor}; no value is assumed and no loss is estimated"
             if row.assessment_target == "MUNICIPALITY"
             else "facility carries no positive asset_value_usd"
         )

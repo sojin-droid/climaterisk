@@ -38,7 +38,8 @@ Two things the dataset deliberately is **not**:
   could not be used. The schema keeps `office_name` / `address` (null today) and a
   `point_type = OFFICE_LOCATION` value so that product can replace the interior points row for
   row, without a schema change, once the user obtains it. No coordinate was typed in or copied
-  from a web page.
+  from a web page. (V0.3 superseded this plan: the value is now `OFFICIAL_OFFICE_POINT` and an
+  office point is a *second* anchor, never a replacement — §10.)
 * **Not asset values.** A municipality row has no value. The engine prices it only with a value
   the user supplies for that municipality (`asset_values` in the API, `asset_value_usd` in the
   CLI CSV, the input box in the UI). Nothing is estimated from population, building area or a
@@ -382,3 +383,54 @@ release when one is published. Re-checked 2026-09-27: the newest open SGIS relea
 (광주 6, 전남 23, 인천 11). Any office layer must be joined through an explicit
 old-code → new-code mapping that reports unmatched, new and renamed units. Drought and sea-level rise stay `NOT_READY`; KMA 500 m stays a documented
 candidate.
+
+## 10. V0.3 POC — metropolitan city hall official coordinates (2026-09-27)
+
+Scope: the 7 metropolitan city halls only (서울 · 부산 · 대구 · 인천 · 광주 · 대전 · 울산 —
+no 세종, no 도청, no 시군구청). Rule: a coordinate is accepted only when a government dataset
+publishes the office name, latitude and longitude in the same row
+(`coordinate_method = GOVERNMENT_PUBLISHED`). No geocoding, no VWorld / Kakao / Naver / Google /
+OSM, no scraping, no manual map coordinates, no estimates, no representative-point substitution.
+
+### 10.1 Result: 1 of 7
+
+| municipality | office | status | source |
+|---|---|---|---|
+| 부산광역시 | 부산광역시청 | **GOVERNMENT_PUBLISHED** — 35.1799490, 129.0751049; polygon INSIDE; 3.968 km from the representative point | 부산광역시_연제구_공공기관 현황 (data.go.kr 15025212, 부산광역시 연제구 총무과, modified 2026-05-11, 이용허락범위 제한 없음); row "부산광역시청, 부산광역시의회", 중앙대로 1001 |
+| 서울특별시 | 서울특별시청 | OFFICIAL_COORDINATE_NOT_AVAILABLE | no coordinate-bearing source found |
+| 대구광역시 | 대구광역시청 | OFFICIAL_COORDINATE_NOT_AVAILABLE | 15111262 lists two campuses (동인청사 / 산격청사), no coordinates |
+| 인천광역시 | 인천광역시청 | OFFICIAL_COORDINATE_NOT_AVAILABLE | 15013638 / 15048910: address only |
+| 광주광역시 | 광주광역시청 | OFFICIAL_COORDINATE_NOT_AVAILABLE | no coordinate-bearing source lists the city hall |
+| 대전광역시 | 대전광역시청 | OFFICIAL_COORDINATE_NOT_AVAILABLE | no coordinate-bearing source lists the city hall |
+| 울산광역시 | 울산광역시청 | OFFICIAL_COORDINATE_NOT_AVAILABLE | no coordinate-bearing source lists the city hall |
+
+Every dataset checked is listed in `docs/evidence/v03_poc_city_hall_sources.csv`. The Busan
+source states no coordinate reference system for its 위도 / 경도 columns; the values are decimal
+degrees inside the SGIS Busan polygon when read as WGS84 and are used **without transformation**
+(`coordinate_crs` says so). The row names the city hall together with the city council (one
+row, one point, one address); no other row names the city hall, so it is the headquarters row.
+
+### 10.2 How it is built and used
+
+* Source registry (committed): `assets/libraries/official_office_sources.json` — per target the
+  status and, for AVAILABLE, the dataset, URL, date, licence, raw file name, sha256 and the exact
+  row name. Raw file (not committed): `<DATA_ROOT>/external/municipality/source/`.
+* `scripts/build_official_offices.py` (worker env) verifies the sha256, takes the one row whose
+  name equals the registry's `row_name` exactly, runs the polygon check against the SGIS
+  `2025_2Q` 시도 polygon (an OUTSIDE point would be kept and flagged
+  `OFFICE_OUTSIDE_MUNICIPALITY`, never moved), and writes
+  `assets/libraries/korea_official_offices.csv` (7 rows; coordinates only on AVAILABLE rows).
+* `OFFICIAL_OFFICE_POINT` is a **second anchor**. The V0.2 `BOUNDARY_INTERIOR_POINT` dataset is
+  unchanged and stays the default. A run can request `anchors = [REPRESENTATIVE_POINT,
+  OFFICIAL_OFFICE_POINT]`; the office point is a separate facility (`SGIS-21#OFFICIAL_OFFICE`)
+  assessed by the unchanged engine, hazards, data scopes, impact functions, thresholds and
+  statuses. No value is attached to a city hall: the only value is the one the user types for
+  the municipality, placed at each selected anchor.
+* No silent fallback: Official Office alone is refused for a municipality without a published
+  coordinate; with both anchors, its office cells read "Not available in V0.3 POC".
+* Outputs: the municipality table gets a *Coordinate Type* column and the workbook an
+  *Official Office Comparison* sheet **only** when office points were assessed — a
+  representative-only run is byte-for-byte the V0.2 output (verified against the pre-V0.3 run:
+  identical JSON; workbook identical apart from the generation time). The distance between the
+  two points is descriptive; neither point is ranked.
+* CLI: `scripts/municipality_physical_risk.py … --anchors REPRESENTATIVE_POINT OFFICIAL_OFFICE_POINT`.
