@@ -273,9 +273,29 @@ To unblock, one of these is needed from the user:
 Office-point assessment, the office ⇄ representative comparison sheet and the office UI were
 therefore not built.
 
+### 9.1 Third pass — 국토교통부 검색 API (data.go.kr 15058799), 2026-09-27
+
+| item | finding |
+|---|---|
+| service | LINK entry on data.go.kr; served by 브이월드 (국토교통부 / 공간정보산업진흥원) |
+| endpoint | `https://api.vworld.kr/req/search?service=search&request=search&version=2.0&type=place&query=…&format=json&crs=EPSG:4326&key=…` (optional `category`, `bbox`, `size` ≤ 1000, `page`) |
+| key | 브이월드 인증키 required — tested: no key → `PARAM_REQUIRED`, dummy key → `INVALID_KEY` ("등록되지 않은 인증키입니다"). Key issuance is a 브이월드 member menu (로그인필요); the data.go.kr "자동승인" does not issue it |
+| place fields (documented) | `id`, `title`, `category` (장소분류코드; list file `브이월드_장소분류코드_20240712.xlsx`), `address.road`, `address.parcel`, `point.x`, `point.y` (EPSG:4326 default). No 행정구역 code in place results |
+| storage terms | 브이월드 이용약관 제19조 (저작권), in force since 2023-08-18: "오픈플랫폼에서 제공되는 데이터는 사전 승낙 없이 데이터를 무단으로 저장하지 못합니다"; information obtained may not be copied or provided to others without prior consent; 제10조-type conduct rules forbid profit-making use without the operator's consent. The data.go.kr "이용허락범위 제한 없음" label is contradicted by the operator's own terms |
+| live tests (서울특별시청 … 전주시청, 광주시청 vs 광주광역시청, 시청/군청/구청, repeatability) | **not run** — no 브이월드 key is available to the agent |
+
+Decision: **blocked** — (1) no key, so no response has been inspected; (2) even with a key,
+storing the returned office coordinates in `korea_municipalities.csv` requires the operator's
+prior written consent under 제19조, and commercial use requires consent. A key alone would
+allow the ambiguity/category/repeatability tests, not a stored office layer.
+
 Boundary currency: data.go.kr now lists providers such as 전남광주통합특별시 and 인천광역시
 영종구 / 서해구, i.e. administrative reorganisations after the SGIS `2025_2Q` boundaries used
 for the V0.2 points. Office points and representative points must come from the same
 administrative vintage; the V0.2 dataset should be rebuilt from a post-reorganisation SGIS
-release when one is published. Drought and sea-level rise stay `NOT_READY`; KMA 500 m stays a documented
+release when one is published. Re-checked 2026-09-27: the newest open SGIS release is still
+`2025_2Q` ("2025년 기준 경계"), while data.go.kr providers already use 인천광역시 제물포구 /
+영종구 / 서해구 and 전남광주통합특별시. 40 of the 269 V0.2 rows are in the affected areas
+(광주 6, 전남 23, 인천 11). Any office layer must be joined through an explicit
+old-code → new-code mapping that reports unmatched, new and renamed units. Drought and sea-level rise stay `NOT_READY`; KMA 500 m stays a documented
 candidate.
