@@ -349,6 +349,29 @@ legitimately fall outside the 옹진군 polygon.
 Decision: **B — address layer partial (107 / 269), geocoder not available** (absent from this
 machine; if it is V-World's, its terms forbid a stored layer). No coordinates were generated.
 
+### 9.4 Sixth pass — recovering the original V5 geocoder, 2026-09-27
+
+Searched: `Agrivoltaic-Feasibility` (files + full history), `Agrivoltaic-Feasibility-V5` (files +
+history; a snapshot of an "원본 v5 브랜치 18a230c" that no reachable repository contains),
+`project-Ragnarok`, this repository's history, the private `agrivoltaic-model` repository (files +
+252 commits, read-only clone, deleted after the search), the iCloud `Backup/Downloads_20260827`
+archive, and Claude session records of the other projects.
+
+Found, and **not** the V5 geocoder:
+* `agrivoltaic-model/geocode_complexes.py` — OSM Nominatim name search for 52 industrial complexes
+  (1 req/s); no 지번 / 도로명 address geocoding, no `x_geo`/`y_geo`, no audit.
+* `Backup/Downloads_20260827/geocoding_20191203_25h54m47s.csv` — 99 rows produced by biz-gis.com in 2019.
+* Agrivoltaic V-World calls — land register / parcel geometry, not address geocoding.
+
+Not found anywhere reachable: a script writing `x_geo` / `y_geo`, a 지번 / 도로명 geocoding run, or
+any file containing the audit figures. The figures cited for the V5 audit — 지번 median ≈ 4.98 m,
+도로명 median ≈ 7.23 m, 읍면동 fallback median ≈ 3.5 km, 읍면동 match ≈ 99.9 % — are therefore
+**HISTORICAL_UNVERIFIED_IN_CURRENT_ENVIRONMENT** and are not used as evidence.
+
+Decision: **C. NOT_RECOVERED.** V0.3 office points need either the original Windows-era files
+(the scripts point at `C:\Users\user\새 폴더`) or a new, explicitly approved coordinate source whose
+terms permit storage. The 107-address layer and the 16 government-published coordinates stand.
+
 Boundary currency: data.go.kr now lists providers such as 전남광주통합특별시 and 인천광역시
 영종구 / 서해구, i.e. administrative reorganisations after the SGIS `2025_2Q` boundaries used
 for the V0.2 points. Office points and representative points must come from the same
