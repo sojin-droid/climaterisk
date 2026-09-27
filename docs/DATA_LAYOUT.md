@@ -155,6 +155,8 @@ The future official-office feature reads and writes only:
 <DATA_ROOT>/derived/municipality/           derived office points
 ```
 
-and records per row: `office_source`, `office_source_date`, `coordinate_source`,
-`coordinate_method` (`GOVERNMENT_PUBLISHED` | `ADDRESS_GEOCODING`). It is not implemented: no
-approved, storable coordinate source exists yet (`municipality-physical-risk.md` §9).
+V0.3 POC (7 metropolitan city halls, `municipality-physical-risk.md` §10) uses the first of
+these: `external/municipality/source/data.go.kr_15025212_부산광역시_연제구_공공기관현황_20260511.csv`
+(raw, sha256 in `assets/libraries/official_office_sources.json`). The built layer is small and
+committed as `assets/libraries/korea_official_offices.csv` (`coordinate_method =
+GOVERNMENT_PUBLISHED` only; 1 of 7 has a coordinate). A nationwide office layer is not built.

@@ -200,6 +200,7 @@ class RunManager:
         assessment_target: str = "FACILITY",
         municipality_ids: list[str] | None = None,
         asset_values: dict[str, float] | None = None,
+        anchors: list[str] | None = None,
     ) -> Run:
         """Create a three-model physical-risk run (global / country / Korea-local hazard).
 
@@ -222,6 +223,7 @@ class RunManager:
                 target_year=target_year or (max(portfolio.scenario.anchor_years or [2050])),
                 country=country or "KOR",
                 baseline_scenario=baseline_scenario,
+                anchors=anchors,
             )
         else:
             request = PhysicalRiskModelsRequest.from_portfolio(

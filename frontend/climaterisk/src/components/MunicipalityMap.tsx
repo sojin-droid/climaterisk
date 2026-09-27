@@ -19,18 +19,41 @@ export interface PointStatus {
   lines?: string[];
 }
 
+/** V0.3 POC — a government-published official office point (a second, separate anchor). */
+export interface OfficeMarker {
+  facility_id: string;
+  municipality_id: string;
+  municipality_name: string;
+  office_name: string;
+  latitude: number;
+  longitude: number;
+  source: string;
+}
+
 const KOREA_CENTER: [number, number] = [36.3, 127.8];
 
-function FitTo({ points, activeId }: { points: Municipality[]; activeId: string | null }) {
+function FitTo({
+  points,
+  offices,
+  activeId,
+}: {
+  points: Municipality[];
+  offices: OfficeMarker[];
+  activeId: string | null;
+}) {
   const map = useMap();
+  const all: [number, number][] = [
+    ...points.map((m) => [m.latitude, m.longitude] as [number, number]),
+    ...offices.map((o) => [o.latitude, o.longitude] as [number, number]),
+  ];
   useEffect(() => {
-    if (points.length === 0) return;
-    const bounds = new LatLngBounds(points.map((m) => [m.latitude, m.longitude])).pad(0.3);
+    if (all.length === 0) return;
+    const bounds = new LatLngBounds(all).pad(0.3);
     const fit = () => {
       const el = map.getContainer();
       if (el.clientWidth === 0 || el.clientHeight === 0) return false;
       map.invalidateSize();
-      if (points.length === 1) map.setView([points[0].latitude, points[0].longitude], 9);
+      if (all.length === 1) map.setView(all[0], 9);
       else map.fitBounds(bounds, { maxZoom: 9 });
       return true;
     };
@@ -42,11 +65,13 @@ function FitTo({ points, activeId }: { points: Municipality[]; activeId: string 
     return () => obs.disconnect();
     // fit only when the set of points changes, not when the highlight moves
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [map, points.map((m) => m.municipality_id).join(",")]);
+  }, [map, [...points.map((m) => m.municipality_id), ...offices.map((o) => o.facility_id)].join(",")]);
   useEffect(() => {
     const m = activeId ? points.find((p) => p.municipality_id === activeId) : undefined;
+    const o = activeId ? offices.find((p) => p.facility_id === activeId) : undefined;
     if (m) map.panTo([m.latitude, m.longitude]);
-  }, [map, points, activeId]);
+    else if (o) map.panTo([o.latitude, o.longitude]);
+  }, [map, points, offices, activeId]);
   return null;
 }
 
@@ -58,6 +83,9 @@ export function MunicipalityMap({
   height = 360,
   pointLabel,
   warning,
+  offices = [],
+  officeStatusOf,
+  officeLabel,
 }: {
   points: Municipality[];
   activeId: string | null;
@@ -68,6 +96,11 @@ export function MunicipalityMap({
   pointLabel: string;
   /** The fixed representative-point warning sentence. */
   warning: string;
+  /** V0.3 POC — official office points (drawn as dashed, dark-outlined circles). */
+  offices?: OfficeMarker[];
+  officeStatusOf?: (o: OfficeMarker) => PointStatus;
+  /** Legend text for the office marker. */
+  officeLabel?: string;
 }) {
   return (
     <div>
@@ -77,7 +110,7 @@ export function MunicipalityMap({
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
-          <FitTo points={points} activeId={activeId} />
+          <FitTo points={points} offices={offices} activeId={activeId} />
           {points.map((m) => {
             const s = statusOf(m);
             const active = m.municipality_id === activeId;
@@ -108,10 +141,49 @@ export function MunicipalityMap({
               </CircleMarker>
             );
           })}
+          {offices.map((o) => {
+            const s = officeStatusOf ? officeStatusOf(o) : { color: "#3aa0ff", label: "selected — not assessed yet" };
+            const active = o.facility_id === activeId;
+            return (
+              <CircleMarker
+                key={o.facility_id}
+                center={[o.latitude, o.longitude]}
+                radius={active ? 11 : 8}
+                pathOptions={{
+                  color: active ? "#ffffff" : "#111827",
+                  fillColor: s.color,
+                  fillOpacity: active ? 0.95 : 0.85,
+                  weight: active ? 3 : 2.5,
+                  dashArray: "3 2",
+                }}
+                eventHandlers={{ click: () => onSelect(o.facility_id) }}
+              >
+                <Tooltip>
+                  <b>{o.office_name}</b> · official office point
+                  <br />
+                  {o.municipality_name} · {o.source}
+                  <br />
+                  {s.label}
+                  {(s.lines ?? []).map((l) => (
+                    <span key={l}>
+                      <br />
+                      {l}
+                    </span>
+                  ))}
+                </Tooltip>
+              </CircleMarker>
+            );
+          })}
         </MapContainer>
       </div>
       <div className="hint" style={{ marginTop: 6 }}>
         <b>●</b> {pointLabel} {warning}
+        {offices.length > 0 && (
+          <>
+            <br />
+            <b>◌</b> {officeLabel ?? "Official office point (government-published) — a separate location, not a replacement."}
+          </>
+        )}
       </div>
     </div>
   );

@@ -1,0 +1,76 @@
+{
+  "version": "V0.3-POC (investigated 2026-09-27)",
+  "rule": "Only government-published coordinates: office name, latitude and longitude from the same official row. No geocoding (VWorld, Kakao, Naver, Google, OSM), no manual map coordinates, no scraping, no estimates, no representative-point substitution.",
+  "polygon_source": "SGIS 2025_2Q bnd_sido_00_2025_2Q.shp (the V0.2 boundary)",
+  "targets": [
+    {
+      "municipality_id": "SGIS-11",
+      "municipality_name": "서울특별시",
+      "office_name": "서울특별시청",
+      "status": "OFFICIAL_COORDINATE_NOT_AVAILABLE",
+      "note": "No government dataset found that publishes 서울특별시청 with latitude/longitude (data.go.kr by city, by host district 중구 and nationally; 서울 열린데이터광장). OA-12991 lists names/addresses only; OA-20961 is planning-facility zoning, not an office point."
+    },
+    {
+      "municipality_id": "SGIS-21",
+      "municipality_name": "부산광역시",
+      "office_name": "부산광역시청",
+      "status": "AVAILABLE",
+      "source": {
+        "dataset": "부산광역시_연제구_공공기관 현황",
+        "dataset_id": "15025212",
+        "provider": "부산광역시 연제구 (총무과)",
+        "url": "https://www.data.go.kr/data/15025212/fileData.do",
+        "last_modified": "2026-05-11",
+        "licence": "공공데이터포털 이용허락범위 제한 없음",
+        "file": "data.go.kr_15025212_부산광역시_연제구_공공기관현황_20260511.csv",
+        "encoding": "cp949",
+        "sha256": "4df7a6eb195729ef4fe65e652022d24384e6b657233f3a134579860ad31f3ec2",
+        "name_column": "행정공공기관명",
+        "row_name": "부산광역시청, 부산광역시의회",
+        "address_column": "도로명주소",
+        "lat_column": "위도",
+        "lon_column": "경도",
+        "crs_stated_by_source": null,
+        "coordinate_crs": "UNSPECIFIED",
+        "coordinate_format": "DECIMAL_DEGREES",
+        "transformation": "NONE"
+      },
+      "note": "Headquarters row: the source row names 부산광역시청 together with 부산광역시의회 (the city council) — one row, one point, one address (중앙대로 1001), which is the city-hall complex; no other row in the source names the city hall. The published latitude/longitude is kept exactly as published; the source does not state a CRS and none is assumed."
+    },
+    {
+      "municipality_id": "SGIS-22",
+      "municipality_name": "대구광역시",
+      "office_name": "대구광역시청",
+      "status": "OFFICIAL_COORDINATE_NOT_AVAILABLE",
+      "note": "No coordinate-bearing government source found. 대구광역시_공공기관 및 관공서 리스트 (data.go.kr 15111262) lists 대구광역시청 with two campuses (동인청사 중구 공평로 88 / 산격청사 북구 연암로 40) and no coordinates; a future coordinate source would also need headquarters semantics, else AMBIGUOUS_OFFICE."
+    },
+    {
+      "municipality_id": "SGIS-23",
+      "municipality_name": "인천광역시",
+      "office_name": "인천광역시청",
+      "status": "OFFICIAL_COORDINATE_NOT_AVAILABLE",
+      "note": "인천광역시_행정기관 현황 (15013638) and 인천광역시_공공청사 도로명주소 현황 (15048910) list 인천광역시청 (남동구 정각로 29) with an address only — no coordinates; no coordinate-bearing source found."
+    },
+    {
+      "municipality_id": "SGIS-24",
+      "municipality_name": "광주광역시",
+      "office_name": "광주광역시청",
+      "status": "OFFICIAL_COORDINATE_NOT_AVAILABLE",
+      "note": "No coordinate-bearing government source lists 광주광역시청 (host district 서구: 우리동네생활지도 15134842 has coordinates but no city-hall row). data.go.kr provider names now read 전남광주통합특별시 (docs/evidence/v03_admin_vintage_changes.csv); the V0.2 unit SGIS-24 (SGIS 2025_2Q) is unchanged."
+    },
+    {
+      "municipality_id": "SGIS-25",
+      "municipality_name": "대전광역시",
+      "office_name": "대전광역시청",
+      "status": "OFFICIAL_COORDINATE_NOT_AVAILABLE",
+      "note": "No coordinate-bearing government source lists 대전광역시청 (host district 서구 publishes no public-institution list; 대전광역시_청사 시설 및 설비현황 15081279 has building facts, no coordinates)."
+    },
+    {
+      "municipality_id": "SGIS-26",
+      "municipality_name": "울산광역시",
+      "office_name": "울산광역시청",
+      "status": "OFFICIAL_COORDINATE_NOT_AVAILABLE",
+      "note": "No coordinate-bearing government source lists 울산광역시청 (the 울주군 방사능방재 생활기반시설 layer 15095521 covers 남구 offices incl. 남구청, not 울산광역시청)."
+    }
+  ]
+}

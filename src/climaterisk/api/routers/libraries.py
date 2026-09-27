@@ -86,7 +86,25 @@ def get_municipalities(level: str | None = None) -> dict[str, Any]:
     items = [
         m.to_dict() for m in load_municipalities() if level is None or m.municipality_level == level
     ]
-    return {"municipalities": items, "summary": dataset_summary(), "levels": list(LEVELS)}
+    from climaterisk.physical_risk.official_offices import (
+        NOT_AVAILABLE_LABEL,
+        PROVENANCE_LABEL,
+        load_offices,
+    )
+    from climaterisk.physical_risk.official_offices import dataset_summary as office_summary
+
+    return {
+        "municipalities": items,
+        "summary": dataset_summary(),
+        "levels": list(LEVELS),
+        # V0.3 POC — the 7 metropolitan city halls; coordinates only where government-published
+        "official_offices": [o.to_dict() for o in load_offices()],
+        "official_office_summary": {
+            **office_summary(),
+            "not_available_label": NOT_AVAILABLE_LABEL,
+            "provenance_label": PROVENANCE_LABEL,
+        },
+    }
 
 
 @router.get("/{name}")

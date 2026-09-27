@@ -48,8 +48,9 @@ COLUMNS: tuple[str, ...] = (
 
 #: The point is an interior point of the official boundary polygon (today's dataset).
 POINT_TYPE_BOUNDARY_INTERIOR = "BOUNDARY_INTERIOR_POINT"
-#: The point is the municipality office (city/county/district hall) — future dataset.
-POINT_TYPE_OFFICE = "OFFICE_LOCATION"
+#: The point is the municipality office as published by a government dataset (V0.3 POC,
+#: ``official_offices``) — a second anchor, never a replacement of the boundary point.
+POINT_TYPE_OFFICE = "OFFICIAL_OFFICE_POINT"
 POINT_TYPES: tuple[str, ...] = (POINT_TYPE_BOUNDARY_INTERIOR, POINT_TYPE_OFFICE)
 
 #: Levels, derived from the unit's official name suffix.

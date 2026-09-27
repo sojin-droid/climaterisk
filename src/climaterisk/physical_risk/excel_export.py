@@ -9,6 +9,8 @@ nothing is computed here. Sheet order (titles as the reader sees them)::
     Global vs Country      GLOBAL_BASELINE vs DATA_API_COUNTRY, same impact function
     Global vs Korea Local  GLOBAL_BASELINE vs KOREA_LOCAL (not available today, said so)
     Climate Change         only when a baseline scenario was run: same-model multipliers
+    Official Office Comparison  V0.3 POC, only when official office points were assessed:
+                           representative point vs government-published office point
     Methodology            definitions, formulas, thresholds attribution, limitations
     Run Info               what was run: scenario, target year, country, readiness
 
@@ -51,6 +53,7 @@ SHEET_TITLES: dict[str, str] = {
     "global_vs_country": "Global vs Country",
     "global_vs_korea_local": "Global vs Korea Local",
     "climate_change": "Climate Change",
+    "official_office_comparison": "Official Office Comparison",
     "methodology": "Methodology",
     "run_info": "Run Info",
 }
@@ -121,7 +124,7 @@ def run_info_frame(output: dict[str, Any]) -> list[dict[str, Any]]:
     readiness = output.get("readiness") or {}
     summary = readiness.get("summary") or {}
     target = str(output.get("assessment_target") or "FACILITY")
-    n_points = len({r["facility_id"] for r in output.get("rows") or []})
+    n_points = len({r.get("municipality_id") or r["facility_id"] for r in output.get("rows") or []})
     lines: list[tuple[str, Any]] = [
         ("generated_at_utc", datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")),
         ("status", output.get("status")),
@@ -140,6 +143,8 @@ def run_info_frame(output: dict[str, Any]) -> list[dict[str, Any]]:
         lines.append(("representative_point_warning", REPRESENTATIVE_POINT_WARNING))
         for k, v in (output.get("municipality_dataset") or {}).items():
             lines.append((f"municipality_dataset.{k}", v))
+        for k, v in (output.get("official_office_dataset") or {}).items():
+            lines.append((f"official_office_dataset.{k}", v))
     for desc in output.get("adapters") or []:
         res = desc.get("spatial_resolution") if isinstance(desc, dict) else None
         if res:
@@ -264,7 +269,7 @@ def _plain_methodology(
 def report_filename(output: dict[str, Any] | None, created_at: str | None) -> str:
     """``Physical_Risk_Report_<N>_Assets_<YYYYMMDD>.xlsx`` or the municipality form."""
     rows = (output or {}).get("rows") or []
-    n = len({r.get("facility_id") for r in rows})
+    n = len({r.get("municipality_id") or r.get("facility_id") for r in rows})
     stamp = str(created_at or "")[:10].replace("-", "") or "run"
     if str((output or {}).get("assessment_target") or "FACILITY") == "MUNICIPALITY":
         return f"Municipality_Physical_Risk_Report_{n}_Municipalities_{stamp}.xlsx"
