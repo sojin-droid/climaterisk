@@ -99,6 +99,40 @@ class PhysicalRiskModelsBody(BaseModel):
     assessment_target: str = "FACILITY"  # FACILITY | MUNICIPALITY
     municipality_ids: list[str] | None = None  # ids from GET /libraries/municipalities
     asset_values: dict[str, float] | None = None  # municipality id -> user-supplied USD value
+    # V0.3 POC — REPRESENTATIVE_POINT (default) and/or OFFICIAL_OFFICE_POINT
+    anchors: list[str] | None = None
+
+
+def _validated_anchors(anchors: list[str] | None, municipality_ids: list[str]) -> list[str]:
+    """V0.3 POC anchor rules — never a silent fallback to the representative point.
+
+    Official Office alone is refused for a municipality without a government-published
+    office coordinate; with both anchors, such a municipality keeps its representative point
+    and its office cell reads "Not available in V0.3 POC".
+    """
+    from climaterisk.physical_risk.official_offices import (
+        ANCHOR_OFFICIAL_OFFICE,
+        ANCHOR_REPRESENTATIVE,
+        ANCHORS,
+        NOT_AVAILABLE_LABEL,
+        supported_ids,
+    )
+
+    chosen = list(dict.fromkeys(anchors or [ANCHOR_REPRESENTATIVE]))
+    bad = [a for a in chosen if a not in ANCHORS]
+    if bad or not chosen:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, detail=f"anchors must be a subset of {list(ANCHORS)}"
+        )
+    if ANCHOR_OFFICIAL_OFFICE in chosen:
+        supported = set(supported_ids())
+        missing = [m for m in municipality_ids if m not in supported]
+        if ANCHOR_REPRESENTATIVE not in chosen and missing:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail=f"Official Office {NOT_AVAILABLE_LABEL} for: {missing}",
+            )
+    return chosen
 
 
 @router.post("/{session_id}/physical-risk-models", response_model=Run)
@@ -143,6 +177,7 @@ def submit_physical_risk_models(
                     status.HTTP_400_BAD_REQUEST,
                     detail=f"asset value for {mid} must be a positive USD amount (or omitted)",
                 )
+        anchors = _validated_anchors(body.anchors, body.municipality_ids)
         return manager.submit_physical_risk_models(
             portfolio,
             hazards=body.hazards,
@@ -150,6 +185,7 @@ def submit_physical_risk_models(
             target_year=body.target_year,
             country=body.country.upper() if body.country else None,
             baseline_scenario=body.baseline_scenario,
+            anchors=anchors,
             assessment_target="MUNICIPALITY",
             municipality_ids=body.municipality_ids,
             asset_values={k: float(v) for k, v in (body.asset_values or {}).items()},

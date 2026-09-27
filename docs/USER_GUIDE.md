@@ -141,14 +141,17 @@ python3 scripts/fetch_floodmap_kor.py                            # 환경부 flo
 
 The complete list with links lives in **[DATA_SOURCES.md](DATA_SOURCES.md)**; the summary:
 
+Locations: `<DATA_ROOT>` is `CLIMATERISK_DATA_ROOT` (default `~/Data/climaterisk`); CLIMADA's data
+directory is CLIMADA's own (default `~/climada/data`). Details: [DATA_LAYOUT.md](DATA_LAYOUT.md).
+
 | Data | Access | Where it goes |
 |---|---|---|
-| CLIMADA hazards (typhoon, river flood, wildfire, earthquake) | automatic from the CLIMADA Data API on first run | `data/hazard_db/` |
-| Natural Earth boundaries, WorldPop population | free, Data tab or `curl` (README) | `data/downloads/`, `~/climada/data/` |
-| E-OBS daily Tmax (Europe heat) | free, 0.9 GB `curl` (README) | `~/climada/data/` |
+| CLIMADA hazards (typhoon, river flood, wildfire, earthquake) | automatic from the CLIMADA Data API on first run | CLIMADA's data directory; pre-cached layers in `<DATA_ROOT>/derived/hazard_db/` |
+| Natural Earth boundaries, WorldPop population | free, Data tab or `curl` (README) | `data/downloads/`, CLIMADA's data directory |
+| E-OBS daily Tmax (Europe heat) | free, 0.9 GB `curl` (README) | CLIMADA's data directory |
 | WIOD16 MRIOT (supply chain) | automatic, ~900 MB | CLIMADA cache |
-| KMA 남한상세 1 km scenarios (Korea heat) | **account** at 기후변화 상황지도 — see `KMA_DOWNLOAD_LIST.md` | `~/climada/data/kma/` |
-| GPW v4 population (LitPop) | **NASA Earthdata login** | `~/climada/data/` |
+| KMA 남한상세 1 km scenarios (Korea heat) | **account** at 기후변화 상황지도 — see `KMA_DOWNLOAD_LIST.md` | `<DATA_ROOT>/external/kma/` |
+| GPW v4 population (LitPop) | **NASA Earthdata login** | CLIMADA's data directory |
 | Korean loss statistics (재해연보), KOSIS age structure | **API key** — intended for vulnerability calibration; the current `POST /api/session/{id}/calibration` reads only an EM-DAT CSV (`CLIMATERISK_EMDAT_PATH`), so a 재해연보 loader is still to be written | (not wired yet) |
 
 Vulnerability curves are global defaults until calibrated on national loss records; results for a

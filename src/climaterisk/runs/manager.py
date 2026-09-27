@@ -15,6 +15,7 @@ import time
 import uuid
 from pathlib import Path
 
+from climaterisk import paths
 from climaterisk.config import Settings
 from climaterisk.core.entities import Portfolio
 from climaterisk.engines.base import (
@@ -85,6 +86,9 @@ class RunManager:
             # during long multi-peril runs (otherwise it stays empty until the process exits).
             "PYTHONUNBUFFERED": "1",
             "CLIMATERISK_HAZARD_DB": str(self._settings.hazard_db_path),
+            # Same roots as the backend (DATA_ROOT, KMA, CLIMADA data dir), resolved from
+            # env → .env → default in climaterisk.paths — never from the worker's cwd.
+            **paths.worker_env(),
         }
         if self._settings.dem_path:
             env["CLIMATERISK_DEM_PATH"] = str(self._settings.dem_path)
@@ -196,6 +200,7 @@ class RunManager:
         assessment_target: str = "FACILITY",
         municipality_ids: list[str] | None = None,
         asset_values: dict[str, float] | None = None,
+        anchors: list[str] | None = None,
     ) -> Run:
         """Create a three-model physical-risk run (global / country / Korea-local hazard).
 
@@ -218,6 +223,7 @@ class RunManager:
                 target_year=target_year or (max(portfolio.scenario.anchor_years or [2050])),
                 country=country or "KOR",
                 baseline_scenario=baseline_scenario,
+                anchors=anchors,
             )
         else:
             request = PhysicalRiskModelsRequest.from_portfolio(

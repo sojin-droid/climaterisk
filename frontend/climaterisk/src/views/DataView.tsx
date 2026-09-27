@@ -155,7 +155,7 @@ function DownloadControls({ source }: { source: DataSource }) {
   const [msg, setMsg] = useState<string | null>(null);
   const destLabel =
     source.dest === "climada"
-      ? "~/climada/data"
+      ? "CLIMADA data directory"
       : source.dest === "catalog"
         ? "hazard catalog"
         : "data/downloads";

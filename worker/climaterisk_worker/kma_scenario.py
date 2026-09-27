@@ -29,10 +29,11 @@ Data (기상청 기후변화 시나리오 활용매뉴얼 v5.1, 2024-12; files v
       AR6_SSP585_5ENSMN_skorea_TA_gridraw_daily_2021_2030_asc.tar.gz  # → …_2021.txt, …
 
   Note the two spellings: the AR6 products carry a ``skorea`` token and MK-PRISM does not.
-  Drop the archives under ``~/climada/data/kma/`` or point ``CLIMATERISK_KMA_DIR`` at the
-  folder. NetCDF archives are unpacked by :func:`extract_archives`; **ASCII archives never
-  are** — one ASCII year is 1.3 GB and a scenario 13 GB, so :func:`_iter_asc_seasons`
-  streams the tar and parses only the 122 Jun–Sep lines, writing nothing to disk.
+  Drop the archives under ``<DATA_ROOT>/external/kma/`` (``climaterisk.paths.kma_dir``) or
+  point ``CLIMATERISK_KMA_DIR`` at the folder. NetCDF archives are unpacked by
+  :func:`extract_archives`; **ASCII archives never are** — one ASCII year is 1.3 GB and a
+  scenario 13 GB, so :func:`_iter_asc_seasons` streams the tar and parses only the 122
+  Jun–Sep lines, writing nothing to disk.
 
 Honest caveats
 --------------
@@ -46,7 +47,6 @@ Honest caveats
 
 from __future__ import annotations
 
-import os
 import re
 import tarfile
 import warnings
@@ -58,8 +58,6 @@ from typing import IO
 import numpy as np
 
 from climaterisk_worker.eobs import SEASON_DAYS, SEASON_END, SEASON_START, SummerDailyMean
-
-_HOME_KMA = Path.home() / "climada" / "data" / "kma"
 
 #: File-name token of the variable the heat-**mortality** model consumes. ``TA`` is 평균기온
 #: (daily mean): every citable threshold and exposure-response estimate is expressed in daily
@@ -114,9 +112,9 @@ class KmaUnavailable(Exception):
         "No KMA 남한상세 TA (daily mean) NetCDF found. Log in to 기후변화 상황지도 "
         "(https://climate.go.kr/atlas/ana/cdd), filter 남한상세 › 격자 › 평균기온 › "
         "일자료 › nc, "
-        "download the tar.gz archives and drop them under ~/climada/data/kma/ "
-        "(or set CLIMATERISK_KMA_DIR). Run `scripts/heat_korea.py files` to see what is "
-        "expected and what is present."
+        "download the tar.gz archives and drop them under <DATA_ROOT>/external/kma/ "
+        "(CLIMATERISK_DATA_ROOT, default ~/Data/climaterisk; or set CLIMATERISK_KMA_DIR). "
+        "Run `scripts/heat_korea.py files` to see what is expected and what is present."
     )
 
     def __init__(self, detail: str | None = None) -> None:
@@ -151,9 +149,10 @@ class KmaFile:
 
 
 def kma_dir() -> Path:
-    """Resolve the drop folder (``CLIMATERISK_KMA_DIR`` → ``~/climada/data/kma``)."""
-    env = os.environ.get("CLIMATERISK_KMA_DIR")
-    return Path(env) if env else _HOME_KMA
+    """Resolve the drop folder: ``CLIMATERISK_KMA_DIR`` → ``<DATA_ROOT>/external/kma``."""
+    from climaterisk_worker._paths import paths
+
+    return paths.kma_dir()
 
 
 def parse_name(path: Path) -> KmaFile | None:

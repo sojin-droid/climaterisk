@@ -25,36 +25,36 @@ from typing import Any
 
 # Actionable "where to get the data" help per source. Kept climada-free at module level
 # so the registry and messages are importable/testable without the CLIMADA worker env.
-EXPOSURE_HELP: dict[str, str] = {
+_EXPOSURE_HELP_TEMPLATE: dict[str, str] = {
     "litpop": (
         "LitPop needs the GPW v4 population GeoTIFF (free NASA Earthdata login, no "
         "auto-download). Get gpw-v4-population-count-rev11_2020_30_sec_tif.zip from "
         "https://sedac.ciesin.columbia.edu/data/collection/gpw-v4 and unzip under "
-        "~/climada/data/, then re-run."
+        "{climada_dir}/, then re-run."
     ),
     "blackmarble": (
         "BlackMarble needs NASA Black Marble nightlight tiles and the GPW population "
         "layer (Earthdata login). CLIMADA fetches the nightlights on first use; if that "
-        "fails, download them manually into ~/climada/data/ and re-run."
+        "fails, download them manually into {climada_dir}/ and re-run."
     ),
     "gdp": (
         "GDP2Asset needs a gridded GDP NetCDF (e.g. the ISIMIP/Geiger asset-value grid). "
-        "Place it under ~/climada/data/ and set the GDP2Asset path, then re-run."
+        "Place it under {climada_dir}/ and set the GDP2Asset path, then re-run."
     ),
     "crop": (
         "CropProduction needs an ISIMIP crop NetCDF (e.g. histsoc yield/area) or the "
-        "SPAM raster. Download the ISIMIP product, drop it under ~/climada/data/, and "
+        "SPAM raster. Download the ISIMIP product, drop it under {climada_dir}/, and "
         "use the crop-production importer; this source cannot be auto-fetched."
     ),
     "osm": (
         "OSM building exposure needs an OpenStreetMap extract: download the country's "
         ".osm.pbf from https://download.geofabrik.de/ (open, no login) into "
-        "~/climada/data/osm/ (any filename containing the country name or ISO3 works), "
+        "{climada_dir}/osm/ (any filename containing the country name or ISO3 works), "
         "then re-run. Large countries can be multi-GB and take minutes to extract."
     ),
     "raster": (
         "No population/value raster found for this country. Use the Data tab to download "
-        "WorldPop 1 km population for the portfolio's country (it lands in ~/climada/data), "
+        "WorldPop 1 km population for the portfolio's country (it lands in {climada_dir}), "
         "or drop a GeoTIFF there and set CLIMATERISK_EXPOSURE_RASTER, then re-run."
     ),
     "population_ref": (
@@ -63,6 +63,24 @@ EXPOSURE_HELP: dict[str, str] = {
         "worker/climaterisk_worker/heat_mortality.py, or use the 'raster' source with a "
         "WorldPop population GeoTIFF for full national coverage."
     ),
+}
+
+
+def _climada_dir() -> Path:
+    """CLIMADA's data directory — the single definition lives in ``climaterisk.paths``."""
+    from climaterisk_worker._paths import paths
+
+    return paths.climada_data_dir()
+
+
+def _osm_dir() -> Path:
+    return _climada_dir() / "osm"
+
+
+#: The help texts with CLIMADA's data directory filled in (resolved when the worker starts;
+#: the backend injects the same directory it uses).
+EXPOSURE_HELP: dict[str, str] = {
+    k: v.format(climada_dir=_climada_dir()) for k, v in _EXPOSURE_HELP_TEMPLATE.items()
 }
 
 # Display metadata for the UI / result payloads.
@@ -86,20 +104,18 @@ EXPOSURE_SOURCES: dict[str, dict[str, str]] = {
 # (heat_mortality) consume these as headcount; damage perils must not treat them as money.
 POPULATION_SOURCES = frozenset({"population_ref", "raster"})
 
-_HOME_CLIMADA = Path.home() / "climada" / "data"
-_OSM_DIR = _HOME_CLIMADA / "osm"
-
 
 def _resolve_osm_pbf(country: str) -> Path | None:
-    """Find a Geofabrik ``.osm.pbf`` for ``country`` under ``~/climada/data/osm``.
+    """Find a Geofabrik ``.osm.pbf`` for ``country`` under ``{climada_dir}/osm``.
 
     Matches, in order: a filename starting with the ISO3 code (``kor.osm.pbf``), a
     filename containing a word of the country's short name (``south-korea-latest``),
     and finally — when exactly one extract is present — that file.
     """
-    if not _OSM_DIR.is_dir():
+    osm_dir = _osm_dir()
+    if not osm_dir.is_dir():
         return None
-    pbfs = sorted(_OSM_DIR.glob("*.osm.pbf"))
+    pbfs = sorted(osm_dir.glob("*.osm.pbf"))
     if not pbfs:
         return None
     iso = country.lower()
@@ -135,7 +151,7 @@ def _osm_building_exposure(pbf: Path, res_arcsec: int) -> Any:
 
     # Extracting ~10⁶ polygons takes minutes; cache the aggregated grid per (pbf, res)
     # so re-runs (other perils/scenarios on the same extract) start in seconds.
-    cache = _OSM_DIR / f"{pbf.name}.{res_arcsec}s.cells.csv"
+    cache = _osm_dir() / f"{pbf.name}.{res_arcsec}s.cells.csv"
     if cache.is_file() and cache.stat().st_mtime >= pbf.stat().st_mtime:
         cells = pd.read_csv(cache)
     else:
@@ -177,14 +193,14 @@ def _resolve_exposure_raster(country: str) -> Path | None:
 
     Resolution order: explicit ``CLIMATERISK_EXPOSURE_RASTER`` env path → the WorldPop
     1 km file the Data tab downloads (``<iso3>_ppp_2020_1km_Aggregated.tif``) under
-    ~/climada/data. Returns None if nothing is present (caller degrades gracefully).
+    CLIMADA's data directory. Returns None if nothing is present (caller degrades gracefully).
     """
     import os
 
     explicit = os.environ.get("CLIMATERISK_EXPOSURE_RASTER")
     if explicit and Path(explicit).is_file():
         return Path(explicit)
-    worldpop = _HOME_CLIMADA / f"{country.lower()}_ppp_2020_1km_Aggregated.tif"
+    worldpop = _climada_dir() / f"{country.lower()}_ppp_2020_1km_Aggregated.tif"
     if worldpop.is_file():
         return worldpop
     return None

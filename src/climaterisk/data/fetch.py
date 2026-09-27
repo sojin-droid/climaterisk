@@ -5,7 +5,8 @@ Safety: only fetches sources from the bundled ``data_sources.json`` registry (no
 client-supplied URLs → no SSRF), HTTPS only, into a fixed set of destination directories:
 
   - ``downloads`` → ``<data_dir>/downloads`` (generic staging)
-  - ``climada``   → ``~/climada/data``       (LitPop / exposure drop-ins CLIMADA reads)
+  - ``climada``   → CLIMADA's own data dir   (LitPop / exposure drop-ins CLIMADA reads;
+                    ``climaterisk.paths.climada_data_dir``)
   - ``catalog``   → the local hazard catalog dir
 
 Per-country files use a ``{iso3}`` / ``{iso3_lower}`` template filled from the request.
@@ -21,19 +22,18 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
+from climaterisk import paths
 from climaterisk.config import get_settings
 from climaterisk.data.libraries import load_libraries
 from climaterisk.logger import get_logger
 
 logger = get_logger(__name__)
 
-_HOME_CLIMADA = Path.home() / "climada" / "data"
-
 
 def _dest_dir(dest: str) -> Path:
     settings = get_settings()
     if dest == "climada":
-        path = _HOME_CLIMADA
+        path = paths.climada_data_dir()
     elif dest == "catalog":
         path = settings.hazard_db_path
     else:

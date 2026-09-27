@@ -26,6 +26,10 @@
 
 ## 2. 이미 확보한 것 (이 PC)
 
+> 2026-09 이전 배치를 기록한 표입니다. KMA·홍수위험지도·카탈로그의 현재 기준 위치는
+> `<DATA_ROOT>/external/kma/`, `<DATA_ROOT>/external/other/floodmap/`, `<DATA_ROOT>/derived/hazard_db/`
+> 이고, `~/climada/data/…`의 나머지는 CLIMADA 자체 데이터 폴더입니다 — [DATA_LAYOUT.md](DATA_LAYOUT.md).
+
 | 데이터 | 위치 | 크기 |
 |---|---|---|
 | E-OBS 일평균기온 `tg` | `~/climada/data/tg_ens_mean_0.25deg_reg_v31.0e.nc` | 788 MB |

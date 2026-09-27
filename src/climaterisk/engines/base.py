@@ -683,19 +683,37 @@ class PhysicalRiskModelsRequest(BaseModel):
         target_year: int | None = None,
         country: str | None = "KOR",
         baseline_scenario: str | None = None,
+        anchors: list[str] | None = None,
     ) -> PhysicalRiskModelsRequest:
         """A municipality run: the bundled representative points as the exposure points.
 
         ``asset_values`` maps a municipality id to a user-supplied USD value; a municipality
         without one is screened (hazard only) — no value is ever assumed for it.
+
+        ``anchors`` (V0.3 POC) chooses the spatial anchors: ``REPRESENTATIVE_POINT`` (default,
+        V0.2) and/or ``OFFICIAL_OFFICE_POINT`` — the government-published office point, added
+        only for municipalities that have one (``official_offices.supported_ids``). The same
+        user-supplied value, or none, is placed at each anchor; the two stay separate points.
         """
         from climaterisk.physical_risk.municipalities import by_id
+        from climaterisk.physical_risk.official_offices import (
+            ANCHOR_OFFICIAL_OFFICE,
+            ANCHOR_REPRESENTATIVE,
+            office_facility,
+            offices_by_id,
+        )
 
         values = asset_values or {}
-        facilities = [
-            FacilitySpec(**m.as_facility(values.get(m.municipality_id)))
-            for m in by_id(municipality_ids)
-        ]
+        chosen = list(anchors or [ANCHOR_REPRESENTATIVE])
+        offices = offices_by_id() if ANCHOR_OFFICIAL_OFFICE in chosen else {}
+        facilities: list[FacilitySpec] = []
+        for m in by_id(municipality_ids):
+            value = values.get(m.municipality_id)
+            if ANCHOR_REPRESENTATIVE in chosen:
+                facilities.append(FacilitySpec(**m.as_facility(value)))
+            office = offices.get(m.municipality_id)
+            if office is not None and office.available:
+                facilities.append(FacilitySpec(**office_facility(m, office, value)))
         return cls(
             session_id=session_id,
             facilities=facilities,

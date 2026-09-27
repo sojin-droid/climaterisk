@@ -3,7 +3,8 @@
 
 License: 공공누리 제4유형 (출처표시 · 상업적 이용금지 · 변경금지) — internal validation
 only until terms are cleared with 한강홍수통제소. Files land under
-``~/climada/data/floodmap/<dataset>/RFM_*.zip``; existing complete files are skipped.
+``<DATA_ROOT>/external/other/floodmap/<dataset>/RFM_*.zip`` (``climaterisk.paths.floodmap_dir``);
+existing complete files are skipped. Nothing has been downloaded under the current licence.
 
 Usage::
 
@@ -21,6 +22,12 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+REPO = Path(__file__).resolve().parents[1]
+if str(REPO / "src") not in sys.path:
+    sys.path.insert(0, str(REPO / "src"))
+
+from climaterisk import paths  # noqa: E402
+
 BASE = "https://data.floodmap.go.kr"
 LIST_KIND = {  # dataset name → list endpoint suffix (scope-river kind), from the portal bundle
     "국가하천 하천범람지도": "rv-ntn",
@@ -32,7 +39,7 @@ DEFAULT_DATASETS = [
     "유역별 200년 빈도 국가하천 하천범람지도",
     "유역별 500년 빈도 국가하천 하천범람지도",
 ]
-OUT_ROOT = Path.home() / "climada" / "data" / "floodmap"
+OUT_ROOT = paths.floodmap_dir()
 
 
 def _kind(dataset: str) -> str:

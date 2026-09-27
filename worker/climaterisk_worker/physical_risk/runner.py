@@ -205,7 +205,19 @@ def compute_physical_risk_models(request: dict[str, Any]) -> dict[str, Any]:
         except Exception as exc:  # the dataset file is a library asset; report, don't abort
             municipality_dataset = {"error": f"{type(exc).__name__}: {exc}"}
 
+    out_extra: dict[str, Any] = {}
+    if any(f.get("point_type") == "OFFICIAL_OFFICE_POINT" for f in facilities):
+        try:  # V0.3 POC provenance — present only when an office point was assessed
+            from climaterisk.physical_risk.official_offices import (
+                dataset_summary as office_summary,
+            )
+
+            out_extra["official_office_dataset"] = office_summary()
+        except Exception as exc:
+            out_extra["official_office_dataset"] = {"error": f"{type(exc).__name__}: {exc}"}
+
     return {
+        **out_extra,
         "status": "ok",
         "assessment_target": target,
         "municipality_dataset": municipality_dataset,
