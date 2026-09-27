@@ -8,6 +8,7 @@ import type {
   KoreaStatus,
   Libraries,
   MeasureSpec,
+  MunicipalitiesResponse,
   OpenDataFetchResult,
   PhysicalRiskModelsBody,
   PhysicalRiskReadiness,
@@ -208,6 +209,12 @@ export async function getPhysicalRiskReadiness(): Promise<PhysicalRiskReadiness>
 /** Canonical batch table + export frames + summary counts of a finished three-model run. */
 export async function getPhysicalRiskTable(sessionId: string, runId: string): Promise<PhysicalRiskTable> {
   return http<PhysicalRiskTable>(`/api/session/${sessionId}/run/${runId}/physical-risk-table`);
+}
+
+/** The bundled Korea municipality representative points (V0.2), with provenance. */
+export async function getMunicipalities(level?: string): Promise<MunicipalitiesResponse> {
+  const qs = level ? `?level=${encodeURIComponent(level)}` : "";
+  return http<MunicipalitiesResponse>(`/api/libraries/municipalities${qs}`);
 }
 
 /** Coarse progress (done / total calculations) of a running batch. */

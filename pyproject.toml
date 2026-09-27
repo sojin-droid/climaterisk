@@ -49,6 +49,9 @@ ignore = ["RUF001", "RUF002", "RUF003", "RUF012"]
 # hazard modules carry long literals / dense numeric one-liners.
 "src/climaterisk/report/html.py" = ["E501"]
 "scripts/fetch_ngfs.py" = ["E501"]
+# V0.2 municipality tests: dense one-line assertions against real dataset values.
+"tests/test_municipality_physical_risk.py" = ["E501"]
+"tests/test_municipality_worker.py" = ["E501"]
 "scripts/build_hazard.py" = ["E501"]
 "worker/climaterisk_worker/catalog.py" = ["E501"]
 "worker/climaterisk_worker/hazard_convert.py" = ["E501"]

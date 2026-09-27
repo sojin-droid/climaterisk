@@ -131,6 +131,7 @@ def calculate(
     flood_region: str = "Asia",
     status_override: str | None = None,
     status_detail: str | None = None,
+    spatial_resolution: dict[str, Any] | None = None,
     config: dict[str, Any] | None = None,
 ) -> ResultRow:
     """Price one facility against one hazard set, or say why it cannot be priced.
@@ -149,6 +150,8 @@ def calculate(
         status_override: A non-financial status the adapter already decided
             (``NOT_IMPLEMENTED``, ``NO_HAZARD_DATA``) — the row is returned with it and
             no calculation is attempted.
+        spatial_resolution: What the adapter measured/read for the dataset's grid
+            (``value``, ``unit``, ``unit_type``, ``description``); copied onto the row.
 
     Returns:
         A finalised :class:`ResultRow`; financial fields are null unless the status is
@@ -180,8 +183,22 @@ def calculate(
         floor_area_m2=facility.get("floor_area_m2"),
         year_built=facility.get("year_built"),
         structure_type=facility.get("structure_type"),
+        # V0.2 — what the point is, and the hazard grid it is read from
+        assessment_target=str(facility.get("assessment_target") or "FACILITY"),
+        municipality_id=facility.get("municipality_id"),
+        municipality_name=facility.get("municipality_name"),
+        municipality_level=facility.get("municipality_level"),
+        province_name=facility.get("province_name"),
+        point_type=facility.get("point_type"),
+        latitude=float(facility["latitude"]),
+        longitude=float(facility["longitude"]),
         definitions=dict(cfg["definitions"]),
     )
+    if spatial_resolution:
+        row.spatial_resolution = spatial_resolution.get("value")
+        row.spatial_resolution_unit = spatial_resolution.get("unit")
+        row.spatial_resolution_description = spatial_resolution.get("description")
+        row.spatial_unit_type = spatial_resolution.get("unit_type")
     lat, lon = float(facility["latitude"]), float(facility["longitude"])
 
     if status_override is not None:
@@ -239,7 +256,12 @@ def calculate(
 
     if row.asset_value_usd is None or row.asset_value_usd <= 0:
         row.calculation_status = CalculationStatus.NO_EXPOSURE_DATA.value
-        row.status_detail = "facility carries no positive asset_value_usd"
+        row.status_detail = (
+            "no asset value supplied for this municipality — hazard screening only at its "
+            "representative point; no value is assumed and no loss is estimated"
+            if row.assessment_target == "MUNICIPALITY"
+            else "facility carries no positive asset_value_usd"
+        )
         return row.finalise(cfg)
 
     # --- CLIMADA does the arithmetic ------------------------------------------------

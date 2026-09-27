@@ -68,6 +68,19 @@ HAZARD_RESULTS_COLUMNS: tuple[str, ...] = (
     "status_detail",
     "confidence",
     "property_type",
+    # V0.2 — assessment target and spatial resolution
+    "assessment_target",
+    "municipality_id",
+    "municipality_name",
+    "municipality_level",
+    "province_name",
+    "point_type",
+    "latitude",
+    "longitude",
+    "spatial_resolution",
+    "spatial_resolution_unit",
+    "spatial_resolution_description",
+    "spatial_unit_type",
 )
 
 #: Filter keys the batch table supports, mapped to the row attribute they test.
@@ -275,24 +288,46 @@ def methodology_frame(config: dict[str, Any] | None = None) -> list[dict[str, An
 
 
 def export_frames(
-    rows: Iterable[ResultRow | dict[str, Any]], config: dict[str, Any] | None = None
+    rows: Iterable[ResultRow | dict[str, Any]],
+    config: dict[str, Any] | None = None,
+    target: str = "FACILITY",
 ) -> dict[str, list[dict[str, Any]]]:
-    """Every export frame, keyed by frame name (the two non-expert views first)."""
+    """Every export frame, keyed by frame name (the two non-expert views first).
+
+    ``target = "MUNICIPALITY"`` swaps the two non-expert sheets for their municipality
+    forms and adds *Spatial Resolution* and *Hazard Coverage*; the Global comparison sheets
+    are kept only when a Global run actually exists in ``rows``.
+    """
     rs = _as_rows(rows)
     from climaterisk.physical_risk.display_copy import recommended_models
 
     preferred = recommended_models()
-    return {
-        "portfolio_summary": portfolio_summary_frame(rs, preferred),
-        "asset_risk_matrix": asset_risk_matrix_frame(rs, preferred),
-        "hazard_results": hazard_results_frame(rs),
-        "asset_summary": asset_summary_frame(rs),
+    comparisons = {
         "global_vs_country": comparison_frame(
             rs, ModelId.GLOBAL_BASELINE.value, ModelId.DATA_API_COUNTRY.value, "country"
         ),
         "global_vs_korea_local": comparison_frame(
             rs, ModelId.GLOBAL_BASELINE.value, ModelId.KOREA_LOCAL.value, "korea_local"
         ),
+    }
+    if target == "MUNICIPALITY":
+        frames: dict[str, list[dict[str, Any]]] = {
+            "municipality_summary": municipality_summary_frame(rs, preferred),
+            "municipality_risk_matrix": municipality_risk_matrix_frame(rs, preferred),
+            "hazard_results": hazard_results_frame(rs),
+            "spatial_resolution": spatial_resolution_frame(rs),
+            "hazard_coverage": hazard_coverage_frame(),
+        }
+        if any(r.model_id == ModelId.GLOBAL_BASELINE.value for r in rs):
+            frames.update(comparisons)
+        frames["methodology"] = methodology_frame(config)
+        return frames
+    return {
+        "portfolio_summary": portfolio_summary_frame(rs, preferred),
+        "asset_risk_matrix": asset_risk_matrix_frame(rs, preferred),
+        "hazard_results": hazard_results_frame(rs),
+        "asset_summary": asset_summary_frame(rs),
+        **comparisons,
         "methodology": methodology_frame(config),
     }
 
@@ -503,3 +538,203 @@ def summary_counts(
         elif r.calculation_status in _UNAVAILABLE_STATUSES:
             counts["not_available"] += 1
     return counts
+
+
+# --------------------------------------------------------------------------- #
+# V0.2 — municipality views, spatial resolution, hazard coverage                #
+# --------------------------------------------------------------------------- #
+#: Hazard tags of the municipality views, with the names the spec uses.
+MUNICIPALITY_HAZARDS: tuple[tuple[str, str], ...] = (
+    ("RF", "Flood"),
+    ("TC", "Tropical Cyclone"),
+    ("HW", "Heatwave"),
+)
+
+#: Short labels for the point type on the summary sheet.
+_POINT_TYPE_LABEL = {
+    "BOUNDARY_INTERIOR_POINT": "Boundary interior point",
+    "OFFICE_LOCATION": "Municipality office",
+}
+
+
+def _muni_status_short(status: str) -> str:
+    from climaterisk.physical_risk.display_copy import MUNICIPALITY_STATUS_SHORT
+
+    return MUNICIPALITY_STATUS_SHORT.get(status) or _status_short(status)
+
+
+def _municipalities(rows: list[ResultRow]) -> dict[str, ResultRow]:
+    """First row per municipality (facility_id), in first-seen order."""
+    out: dict[str, ResultRow] = {}
+    for r in rows:
+        out.setdefault(r.facility_id, r)
+    return out
+
+
+def municipality_summary_frame(
+    rows: Iterable[ResultRow | dict[str, Any]], preferred: dict[str, str] | None = None
+) -> list[dict[str, Any]]:
+    """The municipality first sheet: one line per municipality, one primary row per hazard.
+
+    ``Financially Assessed`` says whether an asset value was supplied; without one the
+    money cells stay empty and the status reads "No asset value" — a screening result, not
+    a zero. Heatwave carries its hazard indicator only.
+    """
+    rs = _as_rows(rows)
+    prim = primary_rows(rs, preferred)
+    out = []
+    for fid, first in _municipalities(rs).items():
+        value = next(
+            (r.asset_value_usd for r in rs if r.facility_id == fid and r.asset_value_usd), None
+        )
+        line: dict[str, Any] = {
+            "Municipality ID": fid,
+            "Municipality": first.municipality_name or first.facility_name,
+            "Level": first.municipality_level,
+            "Province": first.province_name,
+            "Representative Point": _POINT_TYPE_LABEL.get(first.point_type or "", first.point_type),
+            "Asset Value": value,
+        }
+        priced_any = False
+        for tag, label in MUNICIPALITY_HAZARDS:
+            r = prim.get((fid, tag))
+            if r is None:
+                line[f"{label} Status"] = "Not assessed"
+                if tag != "HW":
+                    line[f"{label} Risk"] = None
+                    line[f"{label} EAL"] = None
+                    line[f"{label} EAL / Assets"] = None
+                    line[f"{label} Hazard Intensity"] = None
+                else:
+                    line["Heatwave Tmax p95 (°C)"] = None
+                line[f"{label} Data Source"] = None
+                continue
+            line[f"{label} Status"] = _muni_status_short(r.calculation_status)
+            if tag != "HW":
+                line[f"{label} Risk"] = r.risk_level
+                line[f"{label} EAL"] = r.eal_usd
+                line[f"{label} EAL / Assets"] = r.eal_as_pct_of_assets
+                line[f"{label} Hazard Intensity"] = (
+                    f"{r.hazard_intensity:g} {r.hazard_intensity_unit or ''}".strip()
+                    if r.hazard_intensity is not None
+                    else None
+                )
+                priced_any = priced_any or r.eal_usd is not None
+            else:
+                line["Heatwave Tmax p95 (°C)"] = r.hazard_intensity
+            line[f"{label} Data Source"] = _scope_short(r.model_id)
+        line["Financially Assessed"] = (
+            "Yes" if priced_any else ("No — asset value not supplied" if not value else "No")
+        )
+        out.append(line)
+    return out
+
+
+def municipality_risk_matrix_frame(
+    rows: Iterable[ResultRow | dict[str, Any]], preferred: dict[str, str] | None = None
+) -> list[dict[str, Any]]:
+    """Municipality x hazard cells: the risk level where priced, else a short status label.
+
+    Text only (High / Medium / Low / Hazard only / No asset value / Unavailable …); colour
+    in the workbook is an aid, never the message.
+    """
+    rs = _as_rows(rows)
+    prim = primary_rows(rs, preferred)
+    out = []
+    for fid, first in _municipalities(rs).items():
+        line: dict[str, Any] = {
+            "Municipality ID": fid,
+            "Municipality": first.municipality_name or first.facility_name,
+        }
+        priced = 0
+        for tag, label in MUNICIPALITY_HAZARDS:
+            r = prim.get((fid, tag))
+            if r is None:
+                line[label] = "Not assessed"
+            elif r.risk_level is not None:
+                line[label] = r.risk_level
+                priced += 1
+            else:
+                line[label] = _muni_status_short(r.calculation_status)
+        line["Calculated"] = f"{priced} of {len(MUNICIPALITY_HAZARDS)} calculated"
+        out.append(line)
+    return out
+
+
+def spatial_resolution_frame(rows: Iterable[ResultRow | dict[str, Any]]) -> list[dict[str, Any]]:
+    """One line per (hazard x data scope) in the run, with the resolution the worker measured.
+
+    Rows carry what the adapter read from the dataset; the declared registry value is
+    listed beside it so a discrepancy is visible. Drought and sea-level rise are appended
+    from the registry as N/A so the sheet always shows all five hazards.
+    """
+    from climaterisk.physical_risk.coverage import (
+        EXTENDED_HAZARDS,
+        RESOLUTION_NOTE,
+        km_class,
+        resolution_for,
+    )
+    from climaterisk.physical_risk.display_copy import HAZARD_LABEL, SCOPE_LABEL
+    from climaterisk.physical_risk.models import hazard_key_for_tag
+
+    rs = _as_rows(rows)
+    seen: dict[tuple[str, str], ResultRow] = {}
+    for r in rs:
+        seen.setdefault((r.hazard_type, r.model_id), r)
+    out: list[dict[str, Any]] = []
+    for (tag, model), r in sorted(seen.items()):
+        key = hazard_key_for_tag(tag) or tag
+        declared = resolution_for(key, model)
+        measured = r.spatial_resolution
+        out.append(
+            {
+                "Hazard": HAZARD_LABEL.get(key, key),
+                "Data Scope": SCOPE_LABEL.get(model, model),
+                "Model ID": model,
+                "Dataset": r.hazard_dataset,
+                "Spatial Resolution": measured,
+                "Unit": r.spatial_resolution_unit,
+                "Spatial Unit": r.spatial_unit_type,
+                "Approx. Korea Scale": (
+                    km_class(float(measured), str(r.spatial_resolution_unit))
+                    if measured is not None and r.spatial_resolution_unit
+                    else None
+                ),
+                "Description": r.spatial_resolution_description,
+                "Declared (registry)": (
+                    f"{declared['value']:g} {declared['unit']}" if declared else None
+                ),
+                "Read From": declared["metadata_field"] if declared else None,
+                "Status": r.calculation_status,
+                "Note": RESOLUTION_NOTE,
+            }
+        )
+    for ext in EXTENDED_HAZARDS.values():
+        out.append(
+            {
+                "Hazard": ext["label"],
+                "Data Scope": None,
+                "Model ID": None,
+                "Dataset": None,
+                "Spatial Resolution": None,
+                "Unit": None,
+                "Spatial Unit": None,
+                "Approx. Korea Scale": None,
+                "Description": ext["resolution_text"],
+                "Declared (registry)": None,
+                "Read From": None,
+                "Status": ext["status"],
+                "Note": RESOLUTION_NOTE,
+            }
+        )
+    return out
+
+
+def hazard_coverage_frame() -> list[dict[str, Any]]:
+    """The *Hazard Coverage* sheet — the five-hazard table, generated from the registries."""
+    from climaterisk.physical_risk.coverage import coverage_table
+
+    return [
+        {k: v for k, v in row.items() if k not in ("hazard_key", "models")}
+        for row in coverage_table()
+    ]

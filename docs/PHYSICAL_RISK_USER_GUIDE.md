@@ -58,9 +58,45 @@ Rules you can rely on: a blank cell is *not calculated* (its status column says 
 `0` is a computed zero; currency is `$1,234`; ratios are `0.746%`; risk cells are coloured
 but the word is always there.
 
+## Municipalities instead of assets (V0.2)
+
+At the top of the screen, *Assessment Target* offers **Municipalities** (default) or **My
+Assets**. With Municipalities you pick from 269 official representative points (every 시·도
+and 시·군·구 unit of Statistics Korea's 2025 boundaries), search by name or province, filter by
+level, and optionally type an asset value (USD) next to a municipality. Then the same steps:
+hazards → Recommended → Run → map + table → Excel.
+
+What you get per municipality:
+
+- **without an asset value** — hazard screening: the modeled hazard intensity at the
+  representative point, the data source, the hazard grid size and the status *No asset value*.
+  No loss is estimated; the money cells stay blank.
+- **with an asset value** — the same financial assessment as for an asset (EAL, potential
+  loss, EAL ÷ assets, risk level) with the same CLIMADA impact function.
+
+Read every municipality result with this sentence in mind (it is printed on the screen, in the
+detail panel and in the Excel): *This result represents hazard conditions at the selected
+municipality's representative point. It is not a municipality-wide spatial aggregation.* The
+point is an interior point of the official boundary, not the city hall.
+
+The header also lists what the tool covers today — Flood and Tropical Cyclone with financial
+risk, Heatwave hazard-only, Drought and Sea-level rise not ready — each with a one-line reason,
+and the grid size of every hazard dataset. A finer grid does not by itself mean a more accurate
+model.
+
+The municipality Excel (`Municipality_Physical_Risk_Report_<N>_Municipalities_<YYYYMMDD>.xlsx`)
+has *Municipality Summary*, *Municipality Risk Matrix*, *Hazard Results*, *Spatial Resolution*,
+*Hazard Coverage*, *Methodology* and *Run Info*. Command line equivalent:
+
+```bash
+./.climada-env/bin/python scripts/municipality_physical_risk.py municipalities.csv \
+    --hazards flood,typhoon,heatwave --models recommended --output report.xlsx
+```
+
 ## What the tool does not do (today)
 
-The full list, with reasons, is §15 of [`physical-risk-models.md`](physical-risk-models.md).
+The full list, with reasons, is §15 of [`physical-risk-models.md`](physical-risk-models.md);
+the municipality-specific limits are §7 of [`municipality-physical-risk.md`](municipality-physical-risk.md).
 
 - No Korea-local flood or typhoon dataset yet (domestic source adapters not implemented).
 - Heatwave has no financial impact function — hazard only.

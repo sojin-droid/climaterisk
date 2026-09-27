@@ -1,0 +1,238 @@
+# Korea municipality physical-risk assessment (V0.2)
+
+Companion to [`physical-risk-models.md`](physical-risk-models.md) (the three-model engine,
+frozen at `v0.1.1-physical-risk-final`) and [`korea-hazard-replacement.md`](korea-hazard-replacement.md).
+V0.2 adds one thing on top of that baseline: **an official municipality representative point
+can be the assessment target instead of a portfolio asset.** The engine, the adapters, the
+published CLIMADA impact functions, the risk bands and the Excel writer are the same code.
+
+```text
+Municipality representative point            →  hazard screening
+Municipality representative point + user-supplied asset value  →  financial risk assessment
+```
+
+Every municipality result carries this sentence, verbatim, in the UI, the detail panel, the
+Excel *Run Info* and *Methodology* sheets and the CLI output:
+
+> This result represents hazard conditions at the selected municipality's representative
+> point. It is not a municipality-wide spatial aggregation.
+
+## 1. The dataset — `assets/libraries/korea_municipalities.csv`
+
+| | |
+|---|---|
+| source | 국가데이터처 (Statistics Korea) **SGIS 행정구역 통계 및 경계**, data.go.kr dataset 15129688, package registered 2026-07-23 |
+| layers | `bnd_sido_00_2025_2Q.shp` (17 시도) and `bnd_sigungu_00_2025_2Q.shp` (252 SGIS 시군구 units), `BASE_DATE 20250630`, EPSG:5179 |
+| licence | 공공데이터포털 **이용허락범위 제한 없음** |
+| rows | **269** = 17 시도 + 252 시군구 units (8 METROPOLITAN, 9 PROVINCE, 66 CITY, 82 COUNTY, 104 DISTRICT) |
+| representative point | `shapely.representative_point()` of each polygon — a point **guaranteed to lie inside the official boundary**, computed in EPSG:5179 and transformed to WGS84. `point_type = BOUNDARY_INTERIOR_POINT` |
+| id | `SGIS-<ADM_CD>` (SGIS code: 2 digits for 시도, 5 for 시군구); `admin_code` keeps the bare code |
+| builder | `scripts/build_korea_municipalities.py` (worker env, geopandas) — the CSV is the only committed artefact; the 269 MB source package stays outside the repository |
+| loader | `climaterisk.physical_risk.municipalities` — stdlib only; `validate()` checks unique ids, coordinates inside Korea, known levels/point types and stated provenance on every load |
+
+Two things the dataset deliberately is **not**:
+
+* **Not city-hall locations.** The nationwide office-location product (행정안전부 *도로명주소
+  민원행정기관 전자지도*, data.go.kr 15050409) is released only after an application with
+  identity verification and a purpose review on juso.go.kr (도로명주소법 시행령 제46조), so it
+  could not be used. The schema keeps `office_name` / `address` (null today) and a
+  `point_type = OFFICE_LOCATION` value so that product can replace the interior points row for
+  row, without a schema change, once the user obtains it. No coordinate was typed in or copied
+  from a web page.
+* **Not asset values.** A municipality row has no value. The engine prices it only with a value
+  the user supplies for that municipality (`asset_values` in the API, `asset_value_usd` in the
+  CLI CSV, the input box in the UI). Nothing is estimated from population, building area or a
+  "typical city hall".
+
+SGIS 시군구 units include the 일반구 of large cities (e.g. 수원시 장안구, level DISTRICT) and
+the 행정시 of 제주 (level CITY); the level comes from the official name suffix and the tier from
+the source layer. A `DISTRICT` row is therefore a statistical unit, not necessarily a
+self-governing 자치구.
+
+## 2. What a municipality row means
+
+| field | value |
+|---|---|
+| `assessment_target` | `MUNICIPALITY` (portfolio assets stay `FACILITY`) |
+| `facility_id` / `municipality_id` | the SGIS id; `municipality_name`, `municipality_level`, `province_name`, `point_type`, `latitude`, `longitude` are carried on every row |
+| hazard fields | the hazard grid cell nearest the representative point — exactly what a facility row gets at the same coordinate |
+| `spatial_resolution` … | the grid the row was read from (§4) |
+| money | present only when a value was supplied **and** the status is `FULL` (or `RETURN_PERIOD_NOT_RESOLVABLE`, EAL only) |
+| `calculation_status` | `NO_EXPOSURE_DATA` for a screened point — hazard intensity reported, money `null`, `status_detail` says no value was supplied; shown as **"No asset value"** |
+
+A computed zero stays `0` (Busan / Incheon / Chuncheon flood at their points: dry cell, EAL 0,
+Low). A missing value stays empty. The two are never merged.
+
+## 3. Measured on the real chain (2026-09-27, rcp85 / 2040, Recommended)
+
+`scripts/municipality_physical_risk.py` with the five validation municipalities (values equal to
+the frozen asset-level fixture) plus two screening-only 구:
+
+| municipality | flood (Country, ISIMIP) | TC (Country) | heat (Local, KMA TAMAX) |
+|---|---|---|---|
+| 광주광역시, $80 M | 8.31 m · EAL **$597,067** · 0.746 % · **High** | 55.2 m/s · $11,200 · Low | 37.8 °C · hazard only |
+| 서울특별시, $100 M | 6.97 m · $30,000 · 0.030 % · Low | 53.8 m/s · $4,235 · Low | 37.6 °C · hazard only |
+| 부산광역시, $60 M | 0 m · **$0** · Low (computed zero) | 60.3 m/s · $14,749 · Low | 34.1 °C · hazard only |
+| 춘천시, $50 M | 0 m · $0 · Low | 41.1 m/s · $488 · Low | 37.2 °C · hazard only |
+| 인천광역시, $80 M | 0 m · $0 · Low | 57.0 m/s · $5,399 · Low | 34.9 °C · hazard only |
+| 서초구, no value | 0 m · **No asset value** | 52.3 m/s · No asset value | 38.1 °C · hazard only |
+| 광주 서구, no value | 8.31 m · No asset value | 55.4 m/s · No asset value | 37.6 °C · hazard only |
+
+Same functions as the asset baseline (JRC sector curves ids 21/22, Eberenz North West
+Pacific id 9); `KOREA_LOCAL` flood/TC stay `NOT_IMPLEMENTED`; Global was not downloaded. The
+서울특별시 interior point falls in a wet ISIMIP cell (6.97 m at a very low frequency), the
+서초구 point in a dry one — the points were **not** moved to make either case appear.
+
+## 4. Spatial resolution — read from the data
+
+Every row and every adapter description carries `spatial_resolution`, `spatial_resolution_unit`,
+`spatial_unit_type` and a description. The worker **measures** the value on the loaded hazard
+(`adapters.measure_grid_spacing`: median step of the unique centroid latitudes/longitudes) and,
+for the Data API, reads the dataset property `res_arcsec`; a >5 % disagreement is written into
+the description. The backend registry (`coverage.SPATIAL_RESOLUTION`) declares the expected
+values and `tests/test_municipality_worker.py` asserts the measurement equals the declaration
+on the cached layers.
+
+| hazard | source | grid | approx. size in Korea | financial |
+|---|---|---|---|---|
+| Flood | Data API `river_flood_150arcsec` (ISIMIP) | **150 arcsec** grid cell | ~4–5 km | yes |
+| Tropical cyclone | Data API `tropical_cyclone_10synth_tracks_150arcsec` | **150 arcsec** grid cell | ~4–5 km | yes |
+| Heatwave | KMA 남한상세 TAMAX via the KOR catalog layer | **0.05°** grid (source 0.005° obs / 0.01° SSP, block-averaged when the layer is built) | ~4–6 km | no |
+| Drought | none connected | N/A | — | no |
+| Sea-level rise | none — static configuration only | N/A (no grid) | — | no |
+
+Vocabulary: *grid*, *grid cell*, *hazard centroid*, *spatial resolution*. Not "pixel".
+
+> Spatial resolution describes the size of the modeled hazard grid. A finer grid does not by
+> itself mean higher model accuracy.
+
+The hazard grid size is not the accuracy of a building-level estimate and it is not a
+"municipality-wide resolution": the point assessment reads one cell; the supplied value is one
+exposure.
+
+## 5. Five-hazard coverage — generated, not typed
+
+`coverage.coverage_table()` builds the table from `models.READINESS` (the three core hazards)
+and `coverage.EXTENDED_HAZARDS` (drought, sea-level rise); the UI, the *Hazard Coverage* Excel
+sheet and the "What this tool covers today" lines are all that one function.
+
+| Hazard | Hazard data | Financial loss | Risk level | Resolution | Status |
+|---|---|---|---|---|---|
+| Flood | Available | Available | Available | 150 arcsec (~4–5 km) | READY |
+| Tropical Cyclone | Available | Available | Available | 150 arcsec (~4–5 km) | READY |
+| Heatwave | Available | Not available | Not available | 0.05 degree (~4–6 km) | HAZARD_ONLY |
+| Drought | Not connected | Not available | Not available | N/A | NOT_READY |
+| Sea-level rise | Legacy / static only | Not available | Not available | N/A | NOT_READY |
+
+"Why is this unavailable?" (served as `display.why_unavailable`):
+
+* **Heatwave** — Hazard data is available, but no applicable CLIMADA Impact Function is
+  currently available for financial loss calculation.
+* **Drought** — A legacy drought result exists, but the current validated financial-risk
+  pipeline has not been implemented for this hazard.
+* **Sea-level rise** — The current implementation is configuration-based rather than a spatial
+  CLIMADA hazard-loss calculation.
+
+### 5.1 Drought — investigated by import / instantiate / inspect (2026-09-27)
+
+| checked | result |
+|---|---|
+| `climada_petals.entity.impact_funcs.drought.ImpfDrought.from_default()` | instantiates: `haz_type=DR`, intensity `[-6.5, -4, -1, 0]` (SPEI), `mdd = paa = [1, 1, 0, 0]`, unit `"NA"` — a step function on a drought index, not a damage curve for a priced real-estate exposure |
+| `climada_petals.hazard.drought.Drought()` | instantiates; reads the global SPEIbase `spei06.nc` (`SPEI_FILE_URL` digital.csic.es, 0.5°); default extent lat 44.5–50 / lon 5–12 (Europe demo) |
+| CLIMADA Data API type list (live) | no drought / SPEI hazard type |
+| this repository | `perils.json` drought = legacy indicative SPEI ramp ("productivity"), `requires_ingest`, **no ingester, no catalog entry**; no Open-Meteo / ERA5 client exists (contrary to the brief's assumption — recorded here rather than copied) |
+
+Verdict: **NOT_READY**. A drought hazard would need a Korean SPEI product (KMA-derived or
+SPEIbase) *and* an impact function whose exposure is a priced asset; neither exists, and none
+is authored. KMA 500 m TA/RN grids could feed an SPEI computation, but "KMA data → new drought
+formula" is out of scope by rule.
+
+### 5.2 Sea-level rise — investigated the same way
+
+| checked | result |
+|---|---|
+| `climada.hazard` modules | no sea-level-rise hazard class |
+| `climada_petals.hazard.coastal_flood.CoastalFlood.from_aqueduct_tif` | signature `(rcp, target_year, return_periods, subsidence='wtsub', percentile='95', countries, boundaries)`: Aqueduct coastal inundation, RCP 4.5/8.5, 2030/2050/2080 — a *coastal flood* hazard, not connected to the validated chain |
+| `TCSurgeBathtub.from_tc_winds(..., add_sea_level_rise=…)` | the legacy `sea_level_rise_m` option (`physical.py _run_tc_surge`): a static offset on the bathtub surge height |
+| Data API | no coastal-flood type served (the client config names `aqueduct_coastal_flood`; the server type list does not include it) |
+
+Verdict: **NOT_READY** — configuration-based, no spatial hazard grid, no events/frequencies.
+A future phase could connect `CoastalFlood` with the JRC coastal depth-damage function, with
+its own licence and validation evidence.
+
+### 5.3 KMA 500 m — investigated (2026-09-27)
+
+| | |
+|---|---|
+| portal checked | 기후정보포털 data download (`climate.go.kr/home/CCS/contents_2021/35_download1_ssp.php`), file list queried for 남한상세 |
+| offered | SSP1-2.6 / 2-4.5 / 3-7.0 / 5-8.5, model `5ENSMN`, elements TA · TAMAX · TAMIN · RN · RHM · WS, daily / monthly / yearly, 2021–2100 by decade, NetCDF / ASCII; and MK-PRISM v2.1 observations 2000–2019 |
+| grid of the SSP files (read from the archives in `~/climada/data/kma`) | **0.01° (601 × 751, ~1 km)** — `kma_scenario.GRID_RES_DEG` |
+| grid of the MK-PRISM v3.1 observations | **0.005° (1201 × 1501, ~500 m)**, whose even nodes coincide with the 0.01° grid |
+| licence / access | KMA 국가 기후변화 표준 시나리오, free registration; cite KMA |
+| what the platform stores | 0.05° layers (block-averaged) — a `KOREA_LOCAL` heat row is ~5 km |
+
+Finding: **there is no 500 m climate-change (SSP) product.** The only ~500 m KMA grid is the
+observational climatology (MK-PRISM, 2000–2019). So:
+
+```text
+CURRENT           KMA 남한상세 → 0.05° catalog layer (heatwave TAMAX p95)   — HAZARD_ONLY
+FUTURE CANDIDATE  1 km SSP grids (0.01°) at native resolution; 500 m only for the observed period
+```
+
+Neither candidate is connected in V0.2, and connecting one would not change financial
+availability: no CLIMADA heat impact function exists, so heat stays hazard-only. A finer grid
+would not be reported as "more accurate".
+
+## 6. Product surface
+
+* **UI (Models tab)** — *Assessment Target* toggle (Municipalities default / My Assets), search,
+  level filter, select all / clear, per-municipality optional USD value; a map of the selected
+  representative points; after a run: warning banner, map coloured by the highest priced level
+  (blue = hazard only, grey = screening), the municipality risk table (text levels — High /
+  Medium / Low / Hazard only / No asset value / Unavailable), map ⇄ table synchronisation
+  (click a point → row + detail; click a row → point highlighted), a detail panel per hazard
+  with intensity, status, money when priced, "Financial assessment: Not available — asset value
+  not supplied" otherwise, the hazard grid resolution and "Why?". The header lists the five
+  coverage lines, the coverage table and the resolution note; drought and sea-level rise appear
+  as disabled hazards with their reason.
+* **API** — `GET /api/libraries/municipalities[?level=]`; `POST /api/session/{id}/physical-risk-models`
+  with `assessment_target = "MUNICIPALITY"`, `municipality_ids`, optional `asset_values`
+  (id → positive USD; validated); the existing table, progress, export and history routes.
+  `GET /api/libraries/physical-risk-models` now also carries `coverage_table`, `coverage_lines`,
+  `why_unavailable`, `resolution`, `resolution_note` and the `municipality` copy + dataset summary.
+* **Excel** — `Municipality_Physical_Risk_Report_<N>_Municipalities_<YYYYMMDD>.xlsx` with, in
+  order, *Municipality Summary*, *Municipality Risk Matrix*, *Hazard Results*, *Spatial
+  Resolution*, *Hazard Coverage*, (*Global vs Country* / *Global vs Korea Local* only when a
+  Global scope was actually run, *Climate Change* only with a baseline), *Methodology*, *Run Info*.
+  Empty cells are unpriced fields; a computed zero is `0`.
+* **CLI** — `scripts/municipality_physical_risk.py` (`municipalities.csv` with `municipality_id`
+  or `municipality_name` and optional `asset_value_usd` / `property_type`; or `--ids`, `--level`,
+  `--all`), same hazard/model words as the asset batch, same engine, same workbook.
+* **Batch** — one adapter load per (hazard × scope), every point priced against it; 269 points
+  × 3 hazards × 2 scopes reuse the cached datasets.
+
+## 7. Not done in V0.2, on purpose
+
+* No municipality polygon-wide aggregation (V0.3+ candidate: polygon → all cells → exposure
+  aggregation → municipality-wide EAL; the point assessment will keep its own name).
+* No Korea-specific impact function; no heat, drought or sea-level-rise financial function.
+* No city-hall values, population-as-value, or assumed building values.
+* No TC surge / rainfall, no 1 km conversion, no 500 m KMA integration.
+* No change to the frozen asset baseline: `v0.1.0-physical-risk-baseline` and
+  `v0.1.1-physical-risk-final` are untouched; the asset workbook keeps its sheets; the
+  Phase 7 fixture is unchanged and still reproduced.
+
+## 8. Tests
+
+`tests/test_municipality_physical_risk.py` (backend, CLIMADA-free): dataset validity, duplicate /
+out-of-Korea / unknown-level detection, order-preserving lookup, no invented value, verbatim
+warning, request builder, generated coverage table (and that it follows a changed readiness
+table), coverage lines, resolution registry and km classes, extended-hazard evidence, untouched
+core readiness, screening vs computed-zero rows, municipality summary / matrix / resolution
+frames, municipality workbook sheets and blank cells, filenames by target, facility workbook
+unchanged, API validation and the municipalities route.
+
+`tests/test_municipality_worker.py` (worker): grid-spacing measurement, screening-then-pricing
+of the same point with the same function, runner tagging and adapter resolution records, and
+measured resolution of the cached RF / TC / KMA layers equal to the registry (skipped without
+the cache).

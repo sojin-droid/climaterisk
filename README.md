@@ -20,7 +20,15 @@ transition risk uses bundled **NGFS** scenarios + **EDGAR** emission factors.
 
 **CLIMADA 기반 다중 부동산 자산 물리적 리스크 평가 도구.** 글로벌·국가 단위 hazard(같은 CLIMADA Data API 계열의 전지구 세트와 그 국가 컷 — 국내 원천자료가 아님)와 자산가치를 결합하여 Flood 및 Tropical Cyclone의 확률적 금융손실(EAL, Potential Loss)을 산정하고, Heatwave는 현재 적용 가능한 CLIMADA Impact Function이 없어 hazard exposure만 제공한다.
 
-Workflow for non-experts — **Select your assets → Select hazards → Run → Download Excel** — see
+V0.2 adds **municipalities as the assessment target**: 269 official representative points
+(Statistics Korea SGIS 2025 boundaries, an interior point per 시도 / 시군구 unit — not city
+halls, not area aggregates) are screened for Flood / Tropical Cyclone / Heatwave, priced only
+with a user-supplied asset value, shown on a map synced with the table, and exported to
+`Municipality_Physical_Risk_Report_<N>_Municipalities_<YYYYMMDD>.xlsx` together with the
+spatial resolution of every hazard grid and a five-hazard coverage table (drought and sea-level
+rise are `NOT_READY`, with reasons). See [`docs/municipality-physical-risk.md`](docs/municipality-physical-risk.md).
+
+Workflow for non-experts — **Select municipalities or your assets → Select hazards → Run → Download Excel** — see
 [`docs/PHYSICAL_RISK_USER_GUIDE.md`](docs/PHYSICAL_RISK_USER_GUIDE.md); method and provenance in
 [`docs/physical-risk-models.md`](docs/physical-risk-models.md); the asset-level regression baseline
 in [`docs/asset-level-validation.md`](docs/asset-level-validation.md) and

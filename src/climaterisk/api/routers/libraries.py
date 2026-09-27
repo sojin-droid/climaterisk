@@ -65,6 +65,30 @@ def get_physical_risk_models() -> dict[str, Any]:
     return {**readiness(), "display": display_bundle()}
 
 
+@router.get("/municipalities")
+def get_municipalities(level: str | None = None) -> dict[str, Any]:
+    """The bundled Korea municipality representative points (V0.2), with provenance.
+
+    Each point is an interior point of the official boundary (Statistics Korea SGIS), used
+    as a spatial anchor for hazard screening — not a city hall, not an area aggregate, and
+    never carrying an asset value of its own. ``level`` filters (e.g. ``METROPOLITAN``).
+    """
+    from climaterisk.physical_risk.municipalities import (
+        LEVELS,
+        dataset_summary,
+        load_municipalities,
+    )
+
+    if level is not None and level not in LEVELS:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, detail=f"unknown level {level!r}; expected one of {LEVELS}"
+        )
+    items = [
+        m.to_dict() for m in load_municipalities() if level is None or m.municipality_level == level
+    ]
+    return {"municipalities": items, "summary": dataset_summary(), "levels": list(LEVELS)}
+
+
 @router.get("/{name}")
 def get_library(name: str) -> dict[str, Any]:
     """Return a single named library, or 404 if it does not exist."""

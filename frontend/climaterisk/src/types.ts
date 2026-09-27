@@ -639,10 +639,75 @@ export interface PhysicalRiskRow {
   status_detail: string | null;
   confidence: string | null;
   property_type: string | null;
+  // V0.2 — assessment target and spatial resolution
+  assessment_target?: "FACILITY" | "MUNICIPALITY" | string;
+  municipality_id?: string | null;
+  municipality_name?: string | null;
+  municipality_level?: string | null;
+  province_name?: string | null;
+  point_type?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  spatial_resolution?: number | null;
+  spatial_resolution_unit?: string | null;
+  spatial_resolution_description?: string | null;
+  spatial_unit_type?: string | null;
+}
+
+// V0.2 — a municipality representative point (assets/libraries/korea_municipalities.csv).
+export interface Municipality {
+  municipality_id: string;
+  municipality_name: string;
+  municipality_level: string;
+  province_name: string;
+  office_name: string | null;
+  address: string | null;
+  latitude: number;
+  longitude: number;
+  point_type: string;
+  admin_code: string;
+  source: string;
+  source_layer: string;
+  source_version: string;
+  source_licence: string;
+  source_crs: string;
+  tier: string;
+}
+
+export interface MunicipalityDataset {
+  total: number;
+  by_level: Record<string, number>;
+  point_types: string[];
+  source: string[];
+  source_version: string[];
+  source_licence: string[];
+  representative_point_definition: string;
+  path: string;
+  warning: string;
+}
+
+export interface MunicipalitiesResponse {
+  municipalities: Municipality[];
+  summary: MunicipalityDataset;
+  levels: string[];
+}
+
+export interface CoverageRow {
+  hazard_key: string;
+  Hazard: string;
+  "Hazard Data": string;
+  "Financial Loss": string;
+  "Risk Level": string;
+  Resolution: string;
+  Status: string;
+  Why: string;
+  models: Record<string, string>;
 }
 
 export interface PhysicalRiskModelsOutput {
   status: string;
+  assessment_target?: "FACILITY" | "MUNICIPALITY" | string;
+  municipality_dataset?: MunicipalityDataset | null;
   climate_scenario: string;
   target_year: number | null;
   country: string | null;
@@ -673,6 +738,25 @@ export interface PhysicalRiskDisplay {
   recommended_models: Record<string, string>;
   scope_availability: Record<string, Record<string, string>>;
   comparison_note: string;
+  // V0.2
+  coverage_table: CoverageRow[];
+  coverage_lines: string[];
+  why_unavailable: Record<string, string>;
+  extended_hazards: Record<string, Record<string, unknown>>;
+  resolution_note: string;
+  resolution: { note: string; cells: Record<string, Record<string, Record<string, unknown>>>; extended: Record<string, unknown> };
+  municipality: {
+    target_municipalities: string;
+    target_facilities: string;
+    warning: string;
+    point_label: string;
+    screening_vs_financial: string;
+    financial_unavailable: string;
+    point_definition: string;
+    status_copy: Record<string, string>;
+    status_short: Record<string, string>;
+    dataset: MunicipalityDataset;
+  };
 }
 
 export interface PhysicalRiskReadiness {
@@ -691,12 +775,17 @@ export interface PhysicalRiskModelsBody {
   country?: string;
   baseline_scenario?: string;
   facility_ids?: string[];
+  // V0.2 — municipality mode
+  assessment_target?: "FACILITY" | "MUNICIPALITY";
+  municipality_ids?: string[];
+  asset_values?: Record<string, number>;
 }
 
 export interface PhysicalRiskTable {
   columns: string[];
   rows: Record<string, unknown>[];
   n_total: number;
+  assessment_target?: string;
   frames: Record<string, Record<string, unknown>[]>;
   summary_counts: Record<string, number>;
 }

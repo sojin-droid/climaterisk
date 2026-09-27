@@ -97,7 +97,10 @@ Decisions and open items from `KOREA_1KM_IMPLEMENTATION_GAP.md`:
   fields. TAMAX archives: MK-PRISM 2000–2019 and AR6 SSP245/SSP585 2021–2060, in
   `~/climada/data/kma/`.
 * Stored resolution is 0.05° (coarsened from 1 km by choice), so a `KOREA_LOCAL` heat row
-  is 5 km, not 1 km.
+  is 5 km, not 1 km. Since V0.2 the row says so itself (`spatial_resolution = 0.05 degree`,
+  measured on the layer's centroids); the 500 m question is answered in
+  [`municipality-physical-risk.md`](municipality-physical-risk.md) §5.3 — no 500 m scenario
+  product exists.
 
 ## 3. Adapter contract (any hazard)
 

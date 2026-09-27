@@ -15,8 +15,20 @@ from __future__ import annotations
 
 from typing import Any
 
+from climaterisk.physical_risk.coverage import (
+    EXTENDED_HAZARDS,
+    RESOLUTION_NOTE,
+    coverage_summary_lines,
+    coverage_table,
+    resolution_registry,
+)
 from climaterisk.physical_risk.metrics import CalculationStatus, ModelId, load_config
 from climaterisk.physical_risk.models import HAZARD_KEYS, READINESS
+from climaterisk.physical_risk.municipalities import (
+    REPRESENTATIVE_POINT_LABEL,
+    REPRESENTATIVE_POINT_WARNING,
+    dataset_summary,
+)
 
 #: User-facing hazard names. ``HEAT`` is the readiness key; ``HW`` the CLIMADA tag.
 HAZARD_LABEL: dict[str, str] = {
@@ -25,6 +37,8 @@ HAZARD_LABEL: dict[str, str] = {
     "HEAT": "Heatwave",
     "HW": "Heatwave",
     "HM": "Heat mortality",
+    "DROUGHT": "Drought",
+    "SLR": "Sea-level rise",
 }
 
 #: One-line, non-expert descriptions shown under each hazard checkbox.
@@ -115,6 +129,37 @@ LIMITATIONS: tuple[str, ...] = (
     "impact-function assumptions, not observed damage.",
     "No overall portfolio risk score is computed; risk levels are per hazard.",
 )
+
+#: Municipality-mode wording for the one status that means something different there:
+#: a municipality point never has a value unless the user supplied one, so "no exposure
+#: data" is the *normal* screening case, not a data defect.
+MUNICIPALITY_STATUS_COPY: dict[str, str] = {
+    CalculationStatus.NO_EXPOSURE_DATA.value: (
+        "No asset value was supplied for this municipality, so this is hazard screening only: "
+        "the modeled hazard intensity and its data source are reported and no loss is "
+        "estimated. Supply an asset value to obtain a financial assessment."
+    ),
+}
+MUNICIPALITY_STATUS_SHORT: dict[str, str] = {
+    CalculationStatus.NO_EXPOSURE_DATA.value: "No asset value",
+}
+
+#: Shown wherever a municipality result is shown (spec §37) — never reworded.
+MUNICIPALITY_COPY: dict[str, str] = {
+    "target_municipalities": "Municipalities",
+    "target_facilities": "My Assets",
+    "warning": REPRESENTATIVE_POINT_WARNING,
+    "point_label": REPRESENTATIVE_POINT_LABEL,
+    "screening_vs_financial": (
+        "Municipality point → hazard screening. Municipality point + supplied asset value → "
+        "financial risk assessment. No asset value is ever estimated for a municipality."
+    ),
+    "financial_unavailable": "Financial assessment: Not available — asset value not supplied.",
+    "point_definition": (
+        "The representative point is an interior point of the municipality's official "
+        "boundary (Statistics Korea SGIS 2025 2Q), not the city-hall building."
+    ),
+}
 
 #: Under the summary counts, always.
 SUMMARY_NOTE = (
@@ -211,9 +256,43 @@ def scope_availability(
     return out
 
 
+def why_unavailable() -> dict[str, str]:
+    """The "Why is this unavailable?" sentence per non-priced hazard (spec §25).
+
+    Read from the coverage table, so the reason and the status cannot disagree.
+    """
+    out: dict[str, str] = {}
+    for row in coverage_table():
+        if row["Status"] != "READY":
+            out[str(row["hazard_key"])] = str(row["Why"])
+    return out
+
+
+def municipality_bundle() -> dict[str, Any]:
+    """Municipality-mode copy plus the dataset provenance (for the UI and the Excel run info)."""
+    return {
+        **MUNICIPALITY_COPY,
+        "status_copy": dict(MUNICIPALITY_STATUS_COPY),
+        "status_short": dict(MUNICIPALITY_STATUS_SHORT),
+        "dataset": dataset_summary(),
+    }
+
+
 def display_bundle() -> dict[str, Any]:
     """Everything the UI needs in one payload (served with the readiness table)."""
     return {
+        # V0.2 — five-hazard coverage, resolution and municipality copy
+        "coverage_table": coverage_table(),
+        "coverage_lines": coverage_summary_lines(),
+        "why_unavailable": why_unavailable(),
+        "extended_hazards": {
+            k: {kk: vv for kk, vv in v.items() if kk != "evidence"}
+            | {"evidence": dict(v["evidence"])}
+            for k, v in EXTENDED_HAZARDS.items()
+        },
+        "resolution_note": RESOLUTION_NOTE,
+        "resolution": resolution_registry(),
+        "municipality": municipality_bundle(),
         "hazard_label": dict(HAZARD_LABEL),  # readiness keys and CLIMADA tags alike
         "hazard_copy": dict(HAZARD_COPY),
         "scope_label": dict(SCOPE_LABEL),
