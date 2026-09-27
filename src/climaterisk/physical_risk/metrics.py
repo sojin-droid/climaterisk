@@ -243,6 +243,11 @@ class ResultRow:
 
     Financial fields default to None. :meth:`finalise` fills the derived ones and enforces
     the invariant that a non-FULL status carries no financial numbers.
+
+    ``assessment_target`` says what the point is. A ``MUNICIPALITY`` row is a
+    representative-point assessment (the hazard grid cell at an official-boundary interior
+    point) — never a municipality-wide aggregate — and carries money only when the caller
+    supplied an asset value for it.
     """
 
     facility_id: str
@@ -302,6 +307,24 @@ class ResultRow:
     floor_area_m2: float | None = None
     year_built: int | None = None
     structure_type: str | None = None
+
+    # V0.2 — what the point is (FACILITY = a portfolio asset; MUNICIPALITY = an official
+    # boundary representative point used for hazard screening, priced only with a supplied value)
+    assessment_target: str = "FACILITY"
+    municipality_id: str | None = None
+    municipality_name: str | None = None
+    municipality_level: str | None = None
+    province_name: str | None = None
+    point_type: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+
+    # V0.2 — spatial resolution of the hazard dataset the row was read from (metadata, not
+    # accuracy): e.g. 150 arcsec / "grid cell" for the Data API, 0.05 degree / "grid" for KMA
+    spatial_resolution: float | None = None
+    spatial_resolution_unit: str | None = None
+    spatial_resolution_description: str | None = None
+    spatial_unit_type: str | None = None
 
     definitions: dict[str, str] = field(default_factory=dict)
 

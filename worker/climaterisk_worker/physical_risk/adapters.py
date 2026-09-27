@@ -86,6 +86,64 @@ class HazardAdapter(Protocol):
 
     def load(self, bbox: tuple[float, float, float, float] | None = None) -> Any: ...
 
+    def spatial_resolution(self, hazard: Any) -> dict[str, Any] | None: ...
+
+
+# --------------------------------------------------------------------------- #
+# Spatial resolution — read from the data, never typed in                        #
+# --------------------------------------------------------------------------- #
+def measure_grid_spacing(hazard: Any) -> float | None:
+    """Median spacing (degrees) between neighbouring centroid rows/columns of a hazard.
+
+    Uses the unique latitudes and longitudes of the centroids, so a cropped or masked grid
+    (land cells only) still reports its native step. None when fewer than two distinct
+    coordinates exist.
+    """
+    import numpy as np
+
+    lats = np.unique(np.round(np.asarray(hazard.centroids.lat, dtype=float), 6))
+    lons = np.unique(np.round(np.asarray(hazard.centroids.lon, dtype=float), 6))
+    steps = np.concatenate([np.diff(lats), np.diff(lons)])
+    steps = steps[steps > 0]
+    if steps.size == 0:
+        return None
+    return float(np.median(steps))
+
+
+def resolution_record(
+    value: float,
+    unit: str,
+    unit_type: str,
+    *,
+    source: str,
+    measured_deg: float | None,
+    dataset_family: str,
+) -> dict[str, Any]:
+    """The row fields for one dataset's resolution, plus a consistency note when the
+    declared value and the measured centroid spacing disagree by more than 5 %."""
+    from climaterisk.physical_risk.coverage import km_class
+
+    declared_deg = value / 3600.0 if unit == "arcsec" else value
+    consistent = (
+        None if measured_deg is None else abs(measured_deg - declared_deg) <= 0.05 * declared_deg
+    )
+    description = f"{value:g} {unit} {unit_type} ({km_class(value, unit)} class in Korea)"
+    if consistent is False:
+        description += (
+            f" — NOTE: measured centroid spacing {measured_deg:.6f} deg differs from the "
+            f"declared {declared_deg:.6f} deg"
+        )
+    return {
+        "value": float(value),
+        "unit": unit,
+        "unit_type": unit_type,
+        "description": description,
+        "source": source,
+        "dataset_family": dataset_family,
+        "measured_centroid_spacing_deg": measured_deg,
+        "consistent_with_measurement": consistent,
+    }
+
 
 # --------------------------------------------------------------------------- #
 # Data API naming — deterministic, testable without network                    #
@@ -174,6 +232,33 @@ class DataApiAdapter:
             hazard_type, scenario, self.year, coverage=self.coverage, iso3=iso3
         )
         self._version: str | None = None
+        self._res_arcsec: float | None = None
+
+    def spatial_resolution(self, hazard: Any) -> dict[str, Any] | None:
+        """The Data API ``res_arcsec`` property (read on load), checked against the grid."""
+        if hazard is None:
+            return None
+        measured = measure_grid_spacing(hazard)
+        if self._res_arcsec is None:
+            if measured is None:
+                return None
+            # no property available (offline cache): the measurement is the record
+            return resolution_record(
+                round(measured * 3600.0, 3),
+                "arcsec",
+                "grid cell",
+                source="measured centroid spacing (dataset property unavailable)",
+                measured_deg=measured,
+                dataset_family=self.dataset,
+            )
+        return resolution_record(
+            self._res_arcsec,
+            "arcsec",
+            "grid cell",
+            source="CLIMADA Data API dataset property res_arcsec",
+            measured_deg=measured,
+            dataset_family=self.dataset,
+        )
 
     def describe(self) -> HazardDescription:
         product = (
@@ -207,6 +292,10 @@ class DataApiAdapter:
         client = Client()
         info = client.get_dataset_info(name=self.dataset)
         self._version = str(info.version)
+        try:
+            self._res_arcsec = float((info.properties or {}).get("res_arcsec"))
+        except (TypeError, ValueError):
+            self._res_arcsec = None
         hazard = resilient_get_hazard(client, info.data_type.data_type, name=self.dataset)
         return _crop(hazard, bbox)
 
@@ -275,6 +364,9 @@ class _NotImplementedAdapter:
         """Always None. Never raises, never fabricates, never downloads."""
         return None
 
+    def spatial_resolution(self, hazard: Any) -> dict[str, Any] | None:
+        return None
+
 
 class KoreaLocalFloodAdapter(_NotImplementedAdapter):
     hazard_type = "RF"
@@ -322,6 +414,9 @@ class _NoHeatDataAdapter:
         )
 
     def load(self, bbox: tuple[float, float, float, float] | None = None) -> None:
+        return None
+
+    def spatial_resolution(self, hazard: Any) -> dict[str, Any] | None:
         return None
 
 
@@ -401,6 +496,28 @@ class KoreaLocalHeatAdapter:
 
         return catalog.load_hazard(
             self._PERIL[self.hazard_type], self.scenario, self.iso3, self.year
+        )
+
+    def spatial_resolution(self, hazard: Any) -> dict[str, Any] | None:
+        """The catalog layer's grid step, measured on its centroids (0.05° today).
+
+        The KMA source grids are finer (observations 0.005°, SSP 0.01°,
+        ``kma_scenario.GRID_RES_DEG``); the layer is block-averaged when it is built, so the
+        row reports the grid it was actually read from, not the source's.
+        """
+        if hazard is None:
+            return None
+        measured = measure_grid_spacing(hazard)
+        if measured is None:
+            return None
+        entry = self._lookup() or {}
+        return resolution_record(
+            round(measured, 6),
+            "degree",
+            "grid",
+            source="catalog layer centroid spacing (measured on load)",
+            measured_deg=measured,
+            dataset_family=str(entry.get("file") or self._PERIL[self.hazard_type]),
         )
 
 

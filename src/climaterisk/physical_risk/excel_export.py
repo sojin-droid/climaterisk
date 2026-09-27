@@ -9,6 +9,8 @@ nothing is computed here. Sheet order (titles as the reader sees them)::
     Global vs Country      GLOBAL_BASELINE vs DATA_API_COUNTRY, same impact function
     Global vs Korea Local  GLOBAL_BASELINE vs KOREA_LOCAL (not available today, said so)
     Climate Change         only when a baseline scenario was run: same-model multipliers
+    Official Office Comparison  V0.3 POC, only when official office points were assessed:
+                           representative point vs government-published office point
     Methodology            definitions, formulas, thresholds attribution, limitations
     Run Info               what was run: scenario, target year, country, readiness
 
@@ -37,18 +39,39 @@ from climaterisk.physical_risk.display_copy import LIMITATIONS, STATUS_COPY, ris
 from climaterisk.physical_risk.metrics import MODEL_DEFINITIONS, ModelId
 from climaterisk.physical_risk.results_table import HAZARD_RESULTS_COLUMNS, export_frames
 
-#: Frame key -> sheet title, in workbook order.
+#: Frame key -> sheet title, in workbook order. A facility workbook uses the first two
+#: non-expert sheets, a municipality workbook the next two plus Spatial Resolution and
+#: Hazard Coverage; the rest are shared.
 SHEET_TITLES: dict[str, str] = {
     "portfolio_summary": "Portfolio Summary",
     "asset_risk_matrix": "Asset Risk Matrix",
+    "municipality_summary": "Municipality Summary",
+    "municipality_risk_matrix": "Municipality Risk Matrix",
     "hazard_results": "Hazard Results",
+    "spatial_resolution": "Spatial Resolution",
+    "hazard_coverage": "Hazard Coverage",
     "global_vs_country": "Global vs Country",
     "global_vs_korea_local": "Global vs Korea Local",
     "climate_change": "Climate Change",
+    "official_office_comparison": "Official Office Comparison",
     "methodology": "Methodology",
     "run_info": "Run Info",
 }
 SHEET_ORDER: tuple[str, ...] = tuple(SHEET_TITLES)
+
+#: Sheets a municipality workbook must have (spec §26), by frame key, in order.
+REQUIRED_MUNICIPALITY_SHEETS: tuple[str, ...] = (
+    "municipality_summary",
+    "municipality_risk_matrix",
+    "hazard_results",
+    "spatial_resolution",
+    "hazard_coverage",
+    "methodology",
+    "run_info",
+)
+_PLAIN_SHEETS: frozenset[str] = frozenset(
+    {"portfolio_summary", "asset_risk_matrix", "municipality_summary", "municipality_risk_matrix"}
+)
 
 #: Sheets the brief requires (by frame key).
 REQUIRED_SHEETS: tuple[str, ...] = (
@@ -77,7 +100,9 @@ _PLAIN_FORMATS: tuple[tuple[str, str], ...] = (  # first match wins: ratios befo
     ("Tmax", '0.0" °C"'),
 )
 #: Columns whose cells get the risk-level colour scale.
-_RISK_COLUMNS: frozenset[str] = frozenset({"Flood", "Typhoon", "Heatwave", "risk_level"})
+_RISK_COLUMNS: frozenset[str] = frozenset(
+    {"Flood", "Typhoon", "Tropical Cyclone", "Heatwave", "risk_level"}
+)
 
 _HEADER_FILL = PatternFill("solid", fgColor="1F3A5F")
 _HEADER_FONT = Font(bold=True, color="FFFFFF")
@@ -89,6 +114,8 @@ _RISK_FILL = {
     "Unavailable": PatternFill("solid", fgColor="EEEEEE"),
     "N/A": PatternFill("solid", fgColor="EEEEEE"),
     "N/A (scenario)": PatternFill("solid", fgColor="EEEEEE"),
+    "No asset value": PatternFill("solid", fgColor="E8E8F0"),
+    "Not ready": PatternFill("solid", fgColor="EEEEEE"),
 }
 
 
@@ -96,17 +123,37 @@ def run_info_frame(output: dict[str, Any]) -> list[dict[str, Any]]:
     """Key/value lines describing the run, read from the worker output."""
     readiness = output.get("readiness") or {}
     summary = readiness.get("summary") or {}
+    target = str(output.get("assessment_target") or "FACILITY")
+    n_points = len({r.get("municipality_id") or r["facility_id"] for r in output.get("rows") or []})
     lines: list[tuple[str, Any]] = [
         ("generated_at_utc", datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")),
         ("status", output.get("status")),
+        ("assessment_target", target),
         ("requested_scenario", output.get("climate_scenario")),
         ("target_year", output.get("target_year")),
         ("baseline_scenario", output.get("baseline_scenario")),
         ("country", output.get("country")),
         ("n_rows", len(output.get("rows") or [])),
-        ("n_facilities", len({r["facility_id"] for r in output.get("rows") or []})),
+        ("n_municipalities" if target == "MUNICIPALITY" else "n_facilities", n_points),
         ("models", ", ".join(m.value for m in ModelId)),
     ]
+    if target == "MUNICIPALITY":
+        from climaterisk.physical_risk.municipalities import REPRESENTATIVE_POINT_WARNING
+
+        lines.append(("representative_point_warning", REPRESENTATIVE_POINT_WARNING))
+        for k, v in (output.get("municipality_dataset") or {}).items():
+            lines.append((f"municipality_dataset.{k}", v))
+        for k, v in (output.get("official_office_dataset") or {}).items():
+            lines.append((f"official_office_dataset.{k}", v))
+    for desc in output.get("adapters") or []:
+        res = desc.get("spatial_resolution") if isinstance(desc, dict) else None
+        if res:
+            lines.append(
+                (
+                    f"spatial_resolution.{desc.get('hazard_type')}.{desc.get('model_id')}",
+                    f"{res.get('value')} {res.get('unit')} ({res.get('unit_type')})",
+                )
+            )
     for model, definition in MODEL_DEFINITIONS.items():
         lines.append((f"definition.{model}", definition))
     for hazard, cells in summary.items():
@@ -119,7 +166,9 @@ def run_info_frame(output: dict[str, Any]) -> list[dict[str, Any]]:
     return [{"key": k, "value": v} for k, v in lines]
 
 
-def _plain_methodology(frame: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _plain_methodology(
+    frame: list[dict[str, Any]], target: str = "FACILITY"
+) -> list[dict[str, Any]]:
     """The Methodology sheet a general reader can follow, in fixed sections.
 
     Sections: What was assessed · Hazards · Data sources · CLIMADA method · Impact Functions ·
@@ -127,6 +176,7 @@ def _plain_methodology(frame: list[dict[str, Any]]) -> list[dict[str, Any]]:
     statuses. The technical key/value lines from ``results_table.methodology_frame`` follow
     under "Technical definitions" so nothing is lost.
     """
+    from climaterisk.physical_risk.coverage import RESOLUTION_NOTE
     from climaterisk.physical_risk.display_copy import (
         HAZARD_COPY,
         HAZARD_LABEL,
@@ -134,14 +184,31 @@ def _plain_methodology(frame: list[dict[str, Any]]) -> list[dict[str, Any]]:
         SCOPE_LABEL,
     )
 
-    lines: list[tuple[str, str]] = [
-        (
-            "What was assessed",
-            "Each selected asset (a point with an asset value) against each selected hazard, "
-            "under each data scope that could run. Every result row names the data scope, the "
-            "impact function and its calculation status.",
-        ),
-    ]
+    if target == "MUNICIPALITY":
+        from climaterisk.physical_risk.display_copy import MUNICIPALITY_COPY
+
+        lines: list[tuple[str, str]] = [
+            (
+                "What was assessed",
+                "Each selected municipality's representative point against each selected "
+                "hazard, under each data scope that could run. Every result row names the data "
+                "scope, the impact function, its calculation status and the spatial resolution "
+                "of the hazard grid it was read from.",
+            ),
+            ("Representative point", MUNICIPALITY_COPY["warning"]),
+            ("Representative point — definition", MUNICIPALITY_COPY["point_definition"]),
+            ("Screening vs financial", MUNICIPALITY_COPY["screening_vs_financial"]),
+            ("Spatial resolution", RESOLUTION_NOTE),
+        ]
+    else:
+        lines = [
+            (
+                "What was assessed",
+                "Each selected asset (a point with an asset value) against each selected hazard, "
+                "under each data scope that could run. Every result row names the data scope, "
+                "the impact function and its calculation status.",
+            ),
+        ]
     for key in ("RF", "TC", "HEAT"):
         lines.append((f"Hazards — {HAZARD_LABEL[key]}", HAZARD_COPY[key]))
     for model, label in SCOPE_LABEL.items():
@@ -190,15 +257,32 @@ def _plain_methodology(frame: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for i, line in enumerate(LIMITATIONS, start=1):
         lines.append((f"Limitations — {i}", line))
     for status, text in STATUS_COPY.items():
+        if target == "MUNICIPALITY":
+            from climaterisk.physical_risk.display_copy import MUNICIPALITY_STATUS_COPY
+
+            text = MUNICIPALITY_STATUS_COPY.get(status, text)
         lines.append((f"Calculation status — {status}", text))
     lines += [(f"Technical definitions — {m['key']}", str(m["value"])) for m in frame]
     return [{"key": k, "value": v} for k, v in lines]
 
 
+def report_filename(output: dict[str, Any] | None, created_at: str | None) -> str:
+    """``Physical_Risk_Report_<N>_Assets_<YYYYMMDD>.xlsx`` or the municipality form."""
+    rows = (output or {}).get("rows") or []
+    n = len({r.get("municipality_id") or r.get("facility_id") for r in rows})
+    stamp = str(created_at or "")[:10].replace("-", "") or "run"
+    if str((output or {}).get("assessment_target") or "FACILITY") == "MUNICIPALITY":
+        return f"Municipality_Physical_Risk_Report_{n}_Municipalities_{stamp}.xlsx"
+    return f"Physical_Risk_Report_{n}_Assets_{stamp}.xlsx"
+
+
 def frames_from_output(output: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
     """Every sheet's frame for a worker output dict, in :data:`SHEET_ORDER`."""
-    frames: dict[str, list[dict[str, Any]]] = dict(export_frames(output.get("rows") or []))
-    frames["methodology"] = _plain_methodology(frames.get("methodology", []))
+    target = str(output.get("assessment_target") or "FACILITY")
+    frames: dict[str, list[dict[str, Any]]] = dict(
+        export_frames(output.get("rows") or [], target=target)
+    )
+    frames["methodology"] = _plain_methodology(frames.get("methodology", []), target)
     frames["run_info"] = run_info_frame(output)
     multipliers = output.get("climate_change_multipliers")
     if multipliers:
@@ -284,7 +368,7 @@ def write_workbook(frames: dict[str, list[dict[str, Any]]], target: str | Path |
         columns = list(HAZARD_RESULTS_COLUMNS) if name == "hazard_results" else _columns(frame)
         if name in ("run_info", "methodology") and not columns:
             columns = ["key", "value"]
-        _write_sheet(ws, frame, columns, plain=name in ("portfolio_summary", "asset_risk_matrix"))
+        _write_sheet(ws, frame, columns, plain=name in _PLAIN_SHEETS)
     wb.save(target)
 
 

@@ -1,0 +1,19 @@
+source_pk,source_dataset,source_modified,source_name,source_address,source_municipality,target_sgis_code,target_sgis_name,mapping_method,mapping_status,lat,lon,inside_sgis_polygon,dist_to_rep_point_km,coord_decimals
+15013603,전남광주통합특별시 신안군_행정기관정보,2025-06-30,신안군청,전라남도 신안군 압해읍 천사로 1004,전라남도 신안군,36680,신안군,"dataset provider + exact office name ""<unit>청""",MATCHED,34.83360218,126.3514253,True,23.47,7
+15013606,경상남도 거제시 관공서 현황,2026-02-09,거제시청,경상남도 거제시 계룡로 125(고현동，거제시청),경상남도 거제시,38090,거제시,"dataset provider + exact office name ""<unit>청""",MATCHED,34.88055359,128.6207681,True,2.97,7
+15013731,강원특별자치도 강릉시_행정기관현황,2025-11-18,강릉시청,강원도 강릉시 강릉대로 33 (홍제동),강원특별자치도 강릉시,32030,강릉시,"dataset provider + exact office name ""<unit>청""",MATCHED,37.75324012,128.8753382,True,4.9,7
+15013800,경상북도 영양군_행정기관 현황,2025-06-16,영양군청,경상북도 영양군 영양읍 군청길 37,경상북도 영양군,37540,영양군,"dataset provider + exact office name ""<unit>청""",MATCHED,36.66735774,129.1126844,True,2.91,7
+15013855,전북특별자치도 무주군_행정기관,(sweep),무주군청,전북특별자치도 무주군 무주읍 주계로 97,전북특별자치도 무주군,35530,무주군,"dataset provider + exact office name ""<unit>청""",MATCHED,36.007034,127.66073,True,10.1,5
+15025564,부산광역시_사상구_공공기관현황,2026-04-13,부산광역시 사상구청,부산광역시 사상구 학감대로 242 (감전동),부산광역시 사상구,21150,사상구,"dataset provider + exact office name ""<unit>청""",MATCHED,35.1525693,128.99147,True,0.92,7
+15034115,대구광역시 남구_행정기관 현황,2026-08-04,남구청,대구광역시 남구 이천로 51,대구광역시 남구,22040,남구,"dataset provider + exact office name ""<unit>청""",MATCHED,35.84601264,128.5976992,True,2.01,7
+15035234,부산광역시 서구_행정기관 현황,2026-06-24,부산광역시 서구청,부산광역시 서구 구덕로 120 (토성동4가),부산광역시 서구,21020,서구,"dataset provider + exact office name ""<unit>청""",MATCHED,35.09753855,129.023424,True,0.4,6
+15039191,부산광역시_동래구_행정기관 현황,2025-11-25,동래구청,부산광역시 동래구 충렬대로237번길 93,부산광역시 동래구,21060,동래구,"dataset provider + exact office name ""<unit>청""",MATCHED,35.205127,129.083706,True,0.34,6
+15043415,경기도 이천시_관공서현황,2026-04-02,이천시청,경기도 이천시 부악로 40,경기도 이천시,31210,이천시,"dataset provider + exact office name ""<unit>청""",MATCHED,37.272374,127.435044,True,8.03,6
+15048439,부산광역시 기장군_행정기관 현황,2026-08-25,기장군청,부산광역시 기장군 기장읍 기장대로 560,부산광역시 기장군,21510,기장군,"dataset provider + exact office name ""<unit>청""",MATCHED,35.2385606,129.2161975,True,5.6,7
+15065168,부산광역시 부산진구_행정기관 현황,2025-08-21,부산광역시 부산진구청,부산광역시 부산진구 시민공원로 30 (부암동),부산광역시 부산진구,21050,부산진구,"dataset provider + exact office name ""<unit>청""",MATCHED,35.163117,129.053038,True,0.79,6
+15074119,경상남도 양산시_청사 현황,2021-08-09,양산시청 본청,경상남도 양산시 중앙로 39,경상남도 양산시,38100,양산시,"dataset provider + exact office name ""<unit>청""",MATCHED,35.334992,129.037061,True,7.64,6
+15100690,경기도 여주시_관공서현황,2026-06-11,여주시청,경기도 여주시 세종로 1,경기도 여주시,31280,여주시,"dataset provider + exact office name ""<unit>청""",MATCHED,37.298,127.637,True,1.32,3
+15137923,대전광역시 유성구_관내 공공기관 현황,2026-07-21,유성구청,대전광역시 유성구 대학로 211(어은동),대전광역시 유성구,25040,유성구,"dataset provider + exact office name ""<unit>청""",MATCHED,36.36258889,127.3567446,True,2.41,7
+3069138,부산광역시 영도구_공공기관 현황,2026-06-04,영도구청,"부산광역시 영도구 태종로 423(청학동, 영도구청)",부산광역시 영도구,21040,영도구,"dataset provider + exact office name ""<unit>청""",MATCHED,35.09121408,129.0679144,True,1.62,7
+15013793,경상남도_남해군_관공서현황,2025-05-27,,,경상남도 남해군,38550,남해군,"dataset provider + exact office name ""<unit>청""",NO_OFFICE_ROW,,,,,
+15026442,부산광역시 북구 관공서 및 공공기관 현황,2026-09-01,,,부산광역시 북구,21080,북구,"dataset provider + exact office name ""<unit>청""",NO_OFFICE_ROW,,,,,

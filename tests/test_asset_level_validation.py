@@ -16,7 +16,6 @@ from __future__ import annotations
 import glob
 import importlib.util
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -140,10 +139,13 @@ def test_heat_is_hazard_only_on_live_data(live_run) -> None:  # type: ignore[no-
 
 def test_return_period_guard_on_the_real_observed_tc_set() -> None:
     """3,890 observed-period events cannot express a 100-year loss; CLIMADA would saturate."""
+    from climaterisk import paths
+
     files = glob.glob(
-        os.path.expanduser(
-            "~/climada/data/hazard/tropical_cyclone/"
-            "tropical_cyclone_0synth_tracks_150arcsec_historical_KOR_1980_2020/*/*.hdf5"
+        str(
+            paths.climada_data_dir()
+            / "hazard/tropical_cyclone"
+            / "tropical_cyclone_0synth_tracks_150arcsec_historical_KOR_1980_2020/*/*.hdf5"
         )
     )
     if not files:

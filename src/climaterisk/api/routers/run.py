@@ -95,6 +95,44 @@ class PhysicalRiskModelsBody(BaseModel):
     country: str | None = None  # ISO3; resolved from the assets when omitted
     baseline_scenario: str | None = None  # e.g. "historical": enables climate_change_multiplier
     facility_ids: list[str] | None = None  # subset of the session's assets; all when omitted
+    # V0.2 — municipality mode: the bundled representative points instead of the assets.
+    assessment_target: str = "FACILITY"  # FACILITY | MUNICIPALITY
+    municipality_ids: list[str] | None = None  # ids from GET /libraries/municipalities
+    asset_values: dict[str, float] | None = None  # municipality id -> user-supplied USD value
+    # V0.3 POC — REPRESENTATIVE_POINT (default) and/or OFFICIAL_OFFICE_POINT
+    anchors: list[str] | None = None
+
+
+def _validated_anchors(anchors: list[str] | None, municipality_ids: list[str]) -> list[str]:
+    """V0.3 POC anchor rules — never a silent fallback to the representative point.
+
+    Official Office alone is refused for a municipality without a government-published
+    office coordinate; with both anchors, such a municipality keeps its representative point
+    and its office cell reads "Not available in V0.3 POC".
+    """
+    from climaterisk.physical_risk.official_offices import (
+        ANCHOR_OFFICIAL_OFFICE,
+        ANCHOR_REPRESENTATIVE,
+        ANCHORS,
+        NOT_AVAILABLE_LABEL,
+        supported_ids,
+    )
+
+    chosen = list(dict.fromkeys(anchors or [ANCHOR_REPRESENTATIVE]))
+    bad = [a for a in chosen if a not in ANCHORS]
+    if bad or not chosen:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, detail=f"anchors must be a subset of {list(ANCHORS)}"
+        )
+    if ANCHOR_OFFICIAL_OFFICE in chosen:
+        supported = set(supported_ids())
+        missing = [m for m in municipality_ids if m not in supported]
+        if ANCHOR_REPRESENTATIVE not in chosen and missing:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail=f"Official Office {NOT_AVAILABLE_LABEL} for: {missing}",
+            )
+    return chosen
 
 
 @router.post("/{session_id}/physical-risk-models", response_model=Run)
@@ -111,6 +149,47 @@ def submit_physical_risk_models(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="session not found")
     if body.country is not None and len(body.country) != 3:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="country must be an ISO3 code")
+    if body.assessment_target not in ("FACILITY", "MUNICIPALITY"):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, detail="assessment_target must be FACILITY or MUNICIPALITY"
+        )
+    if body.assessment_target == "MUNICIPALITY":
+        from climaterisk.physical_risk.municipalities import load_municipalities
+
+        if not body.municipality_ids:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, detail="select at least one municipality"
+            )
+        known_m = {m.municipality_id for m in load_municipalities()}
+        unknown_m = sorted(set(body.municipality_ids) - known_m)
+        if unknown_m:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, detail=f"unknown municipality ids: {unknown_m}"
+            )
+        for mid, value in (body.asset_values or {}).items():
+            if mid not in set(body.municipality_ids):
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    detail=f"asset value given for a municipality not selected: {mid}",
+                )
+            if value is None or float(value) <= 0:
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    detail=f"asset value for {mid} must be a positive USD amount (or omitted)",
+                )
+        anchors = _validated_anchors(body.anchors, body.municipality_ids)
+        return manager.submit_physical_risk_models(
+            portfolio,
+            hazards=body.hazards,
+            models=body.models,
+            target_year=body.target_year,
+            country=body.country.upper() if body.country else None,
+            baseline_scenario=body.baseline_scenario,
+            anchors=anchors,
+            assessment_target="MUNICIPALITY",
+            municipality_ids=body.municipality_ids,
+            asset_values={k: float(v) for k, v in (body.asset_values or {}).items()},
+        )
     if body.facility_ids is not None:
         known = {a.id for a in portfolio.assets}
         unknown = sorted(set(body.facility_ids) - known)
@@ -178,7 +257,7 @@ def export_physical_risk_models_xlsx(session_id: str, run_id: str, manager: Mana
     global_vs_korea_local, climate_change (when a baseline scenario was run), methodology.
     Empty cells are unpriced fields — never zeros.
     """
-    from climaterisk.physical_risk.excel_export import workbook_bytes
+    from climaterisk.physical_risk.excel_export import report_filename, workbook_bytes
 
     run = manager.poll(run_id)
     if run is None or run.session_id != session_id:
@@ -187,9 +266,7 @@ def export_physical_risk_models_xlsx(session_id: str, run_id: str, manager: Mana
         raise HTTPException(
             status.HTTP_409_CONFLICT, detail="run is not a finished physical-risk-models run"
         )
-    n_assets = len({r.get("facility_id") for r in run.output["rows"]})
-    stamp = str(run.created_at or "")[:10].replace("-", "") or "run"
-    filename = f"Physical_Risk_Report_{n_assets}_Assets_{stamp}.xlsx"
+    filename = report_filename(run.output, run.created_at)
     return Response(
         workbook_bytes(run.output),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -231,11 +308,13 @@ def get_physical_risk_table(
     rows = filter_rows(
         run.output["rows"], hazard=hazard, model=model, risk_level=risk_level, scenario=scenario
     )
+    target = str(run.output.get("assessment_target") or "FACILITY")
     return {
         "columns": list(CANONICAL_COLUMNS),
         "rows": table_rows(rows),
         "n_total": len(run.output["rows"]),
-        "frames": export_frames(run.output["rows"]),
+        "assessment_target": target,
+        "frames": export_frames(run.output["rows"], target=target),
         "summary_counts": summary_counts(run.output["rows"], recommended_models()),
     }
 

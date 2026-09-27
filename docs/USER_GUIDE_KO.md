@@ -45,8 +45,8 @@ macOS 때문에 생기는 제약 두 가지가 있습니다.
 
 ## 한국 포트폴리오
 
-- 태풍·하천홍수·산불·지진은 첫 실행 때 CLIMADA Data API에서 자동으로 받아 `data/hazard_db/`에 캐시합니다.
-- 폭염 사망은 기상청 남한상세 1 km 파일이 필요합니다(로그인). 절차와 파일 목록: `KMA_DOWNLOAD_LIST.md` → 파일을 `~/climada/data/kma/`에 넣고 `./.climada-env/bin/python scripts/heat_korea.py register`.
+- 태풍·하천홍수·산불·지진은 첫 실행 때 CLIMADA Data API에서 자동으로 받습니다(CLIMADA 자체 데이터 폴더에 캐시; 사전 캐시한 레이어는 `<DATA_ROOT>/derived/hazard_db/`).
+- 폭염 사망은 기상청 남한상세 1 km 파일이 필요합니다(로그인). 절차와 파일 목록: `KMA_DOWNLOAD_LIST.md` → 파일을 `<DATA_ROOT>/external/kma/`(기본 `~/Data/climaterisk/external/kma/`, 배치 규칙은 `DATA_LAYOUT.md`)에 넣고 `./.climada-env/bin/python scripts/heat_korea.py register`.
 - 홍수위험지도 SHP는 `python3 scripts/fetch_floodmap_kor.py`로 받되 비상업 라이선스입니다.
 - 취약성 곡선은 국내 손실자료로 보정하기 전까지 글로벌 기본값입니다(`RISK_REGISTER.md` C절).
 

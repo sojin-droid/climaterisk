@@ -239,7 +239,9 @@ def test_raster_block_aggregation_preserves_the_total() -> None:
     """Population counts must be SUMMED when coarsening — averaging would destroy them."""
     pytest.importorskip("climada")
     rasterio = pytest.importorskip("rasterio")
-    raster = Path.home() / "climada" / "data" / "esp_ppp_2020_1km_Aggregated.tif"
+    from climaterisk import paths
+
+    raster = paths.climada_data_dir() / "esp_ppp_2020_1km_Aggregated.tif"
     if not raster.is_file():
         pytest.skip("WorldPop ESP raster not downloaded")
     from climaterisk_worker.exposures import _raster_exposure

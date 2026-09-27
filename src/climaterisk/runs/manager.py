@@ -15,6 +15,7 @@ import time
 import uuid
 from pathlib import Path
 
+from climaterisk import paths
 from climaterisk.config import Settings
 from climaterisk.core.entities import Portfolio
 from climaterisk.engines.base import (
@@ -85,6 +86,9 @@ class RunManager:
             # during long multi-peril runs (otherwise it stays empty until the process exits).
             "PYTHONUNBUFFERED": "1",
             "CLIMATERISK_HAZARD_DB": str(self._settings.hazard_db_path),
+            # Same roots as the backend (DATA_ROOT, KMA, CLIMADA data dir), resolved from
+            # env → .env → default in climaterisk.paths — never from the worker's cwd.
+            **paths.worker_env(),
         }
         if self._settings.dem_path:
             env["CLIMATERISK_DEM_PATH"] = str(self._settings.dem_path)
@@ -193,21 +197,44 @@ class RunManager:
         country: str | None = None,
         baseline_scenario: str | None = None,
         facility_ids: list[str] | None = None,
+        assessment_target: str = "FACILITY",
+        municipality_ids: list[str] | None = None,
+        asset_values: dict[str, float] | None = None,
+        anchors: list[str] | None = None,
     ) -> Run:
-        """Create a three-model physical-risk run (global / country / Korea-local hazard)."""
+        """Create a three-model physical-risk run (global / country / Korea-local hazard).
+
+        ``assessment_target="MUNICIPALITY"`` prices the bundled municipality representative
+        points (``municipality_ids``) instead of the portfolio's assets; ``asset_values`` are
+        the only source of a municipality's value.
+        """
         run_id = uuid.uuid4().hex
         run = self._store.create(
             run_id, portfolio.id, portfolio.scenario.climate, ["physical_risk_models"]
         )
-        request = PhysicalRiskModelsRequest.from_portfolio(
-            portfolio,
-            hazards=hazards,
-            models=models,
-            target_year=target_year,
-            country=country,
-            baseline_scenario=baseline_scenario,
-            facility_ids=facility_ids,
-        )
+        if assessment_target == "MUNICIPALITY":
+            request = PhysicalRiskModelsRequest.from_municipalities(
+                portfolio.id,
+                portfolio.scenario.climate,
+                list(municipality_ids or []),
+                asset_values=asset_values,
+                hazards=hazards,
+                models=models,
+                target_year=target_year or (max(portfolio.scenario.anchor_years or [2050])),
+                country=country or "KOR",
+                baseline_scenario=baseline_scenario,
+                anchors=anchors,
+            )
+        else:
+            request = PhysicalRiskModelsRequest.from_portfolio(
+                portfolio,
+                hazards=hazards,
+                models=models,
+                target_year=target_year,
+                country=country,
+                baseline_scenario=baseline_scenario,
+                facility_ids=facility_ids,
+            )
         self._spawn(run_id, self._settings.runs_path / run_id, request.model_dump_json(indent=2))
         run.status = "running"
         return run

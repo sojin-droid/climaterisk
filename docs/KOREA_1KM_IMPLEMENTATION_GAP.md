@@ -444,3 +444,25 @@ TC의 해상도 방법론은 `TropCyclone.from_tracks(centroids)`의 센트로�
 `assets/libraries/perils.json`의 15개 페릴은 **전부 `supported_mvp: true`**다. 그 플래그는 "UI에서 선택 가능"을 뜻하며
 `requires_ingest: true`인 9개는 레이어가 있어야 돈다. 이 문서의 상태 표는 그 플래그를 근거로 쓰지 않는다 — KOR 레이어가
 없는 페릴은 `1km-data-only` 또는 `missing`이며, `supported_mvp`가 `5km-current`나 `1km-ready`를 만들지 않는다.
+
+## KMA 500 m — investigated for V0.2 (2026-09-27)
+
+기후정보포털 다운로드 페이지(`35_download1_ssp.php`)의 파일 목록을 남한상세 기준으로 조회하고, 로컬
+아카이브(`~/climada/data/kma`)의 실제 격자를 읽어 확인했다.
+
+| 항목 | 확인 결과 |
+|---|---|
+| 남한상세 SSP 시나리오 (SSP126/245/370/585, 5ENSMN, TA·TAMAX·TAMIN·RN·RHM·WS, 일/월/년, 2021–2100) | **0.01° (601×751, ≈1 km)** — `kma_scenario.GRID_RES_DEG` |
+| MK-PRISM 관측 (v2.1 포털 제공 / v3.1 보유, 2000–2019) | **0.005° (1201×1501, ≈500 m)**, 짝수 노드가 0.01° 격자와 일치 |
+| 500 m 미래 시나리오 산출물 | **없음** — 500 m는 관측 기간에만 존재 |
+| 라이선스 · 형식 | 국가 기후변화 표준 시나리오, 무료 등록 후 NetCDF/ASCII tar.gz; KMA 출처표시 |
+| 플랫폼 저장 해상도 | 0.05° (블록 평균) → `KOREA_LOCAL` heat row = ≈5 km |
+
+```text
+CURRENT           0.05° catalog layer (heatwave = TAMAX season p95)         HAZARD_ONLY
+FUTURE CANDIDATE  1 km SSP grid (0.01°) at native resolution; 500 m only for observations
+```
+
+V0.2에서는 연결하지 않는다. 연결하더라도 폭염의 금융 손실 가용성은 바뀌지 않으며(CLIMADA heat impact
+function 없음), 더 촘촘한 격자를 "더 정확하다"고 표현하지 않는다
+([`municipality-physical-risk.md`](municipality-physical-risk.md) §5.3).

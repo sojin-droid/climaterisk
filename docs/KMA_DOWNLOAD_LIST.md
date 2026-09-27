@@ -6,7 +6,8 @@
 카드 안의 요소 라디오에서 **평균기온**을 고른다. 아래 표의 `ds`/`file`은 다운로드 버튼의
 `data-dataset-id` / `data-file-id` 값이라 행을 찾는 데 쓸 수 있다.
 
-받은 파일(tar.gz 그대로, 압축 해제하지 말 것)은 `~/climada/data/kma/` 에 넣는다. 그 뒤:
+받은 파일(tar.gz 그대로, 압축 해제하지 말 것)은 `<DATA_ROOT>/external/kma/` 에 넣는다 (`CLIMATERISK_DATA_ROOT`, 기본
+`~/Data/climaterisk`; 또는 `CLIMATERISK_KMA_DIR`. 배치 규칙은 [DATA_LAYOUT.md](DATA_LAYOUT.md)). 그 뒤:
 
 ```bash
 ./.climada-env/bin/python scripts/heat_korea.py files      # 체크 표시 확인
@@ -100,7 +101,7 @@ Gasparrini et al. 2015; Tobías et al. 2021). 근거: `HEAT_MORTALITY_PROVENANCE
 (751×601×3,653일×4바이트)이고 NetCDF 압축이 걸려 있으면 1–3 GB로 줄어든다. 현재 디스크 여유는
 **24 GB**이므로 17개 파일을 한 번에 두는 것은 불가능하다. 권장 운영:
 
-1. 파일을 **한두 개씩** 받아 `~/climada/data/kma/`에 두고 `register`를 돈다.
+1. 파일을 **한두 개씩** 받아 `<DATA_ROOT>/external/kma/`에 두고 `register`를 돈다.
 2. `register`가 끝난 원본 tar.gz/nc는 지우거나 iCloud Drive
    (`~/Library/Mobile Documents/com~apple~CloudDocs/climada-kma/`)로 옮긴다. 카탈로그에 남는
    HDF5는 5 km 블록 평균 기준 수십 MB 수준이다.

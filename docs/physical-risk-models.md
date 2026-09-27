@@ -299,6 +299,17 @@ CSV validation speaks plainly: missing `facility_id` / `lat` / `lon` / `asset_va
 column, non-numeric coordinates or value, coordinates out of range, negative value and
 duplicate `facility_id` are each a one-line error naming the line.
 
+### Municipality target (V0.2)
+
+The same screen, runner, adapters, impact functions and Excel writer accept an official
+municipality representative point as the assessment target
+(`assessment_target = "MUNICIPALITY"`): hazard screening at the point, and financial risk
+only when the user supplies an asset value for that municipality. Every row carries
+`assessment_target`, the municipality fields and the hazard grid's `spatial_resolution`.
+Nothing in §1–§10 changes; the full description, the dataset provenance, the five-hazard
+coverage table, the drought / sea-level-rise / KMA 500 m investigations and the measured
+results are in [`municipality-physical-risk.md`](municipality-physical-risk.md).
+
 ## 12. Measured (this repository, 2026-09-23, 100 M USD office at 37.5 N 127.0 E)
 
 | hazard | scenario / horizon | model | dataset (version) | intensity | EAL | EAL/assets | PML100 | risk | status |
@@ -388,6 +399,12 @@ them is solved by this baseline and none is hidden by it.
    local calibration.
 10. The legacy catalog carries a known scenario-key mismatch (`RF_rcp45_KOR_2050` served as
     rcp60); this engine records requested and served scenarios separately and is unaffected.
+
+V0.2 (municipality target) adds to this list without changing it: a municipality result is a
+**representative-point assessment**, not a municipality-wide aggregation; the representative
+point is a boundary interior point, not the city hall; municipalities carry no asset value
+unless supplied; drought and sea-level rise are `NOT_READY`; spatial resolution is the
+hazard grid size, not model accuracy ([`municipality-physical-risk.md`](municipality-physical-risk.md) §7).
 
 ## 16. Completion
 

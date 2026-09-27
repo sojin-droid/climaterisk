@@ -637,6 +637,14 @@ class FacilitySpec(BaseModel):
     asset_value_usd: float | None = None
     asset_value_currency: str = "USD"
     property_type: str | None = None
+    # V0.2 — a municipality representative point (hazard screening; priced only with a
+    # user-supplied asset value). Absent for portfolio assets.
+    assessment_target: str = "FACILITY"
+    municipality_id: str | None = None
+    municipality_name: str | None = None
+    municipality_level: str | None = None
+    province_name: str | None = None
+    point_type: str | None = None
 
 
 class PhysicalRiskModelsRequest(BaseModel):
@@ -659,6 +667,64 @@ class PhysicalRiskModelsRequest(BaseModel):
     # Optional same-model baseline run (e.g. "historical"); the only source of a
     # climate_change_multiplier. Baseline rows are returned separately.
     baseline_scenario: str | None = None
+    # FACILITY (portfolio assets) or MUNICIPALITY (official representative points).
+    assessment_target: str = "FACILITY"
+
+    @classmethod
+    def from_municipalities(
+        cls,
+        session_id: str,
+        climate_scenario: str,
+        municipality_ids: list[str],
+        *,
+        asset_values: dict[str, float] | None = None,
+        hazards: list[str] | None = None,
+        models: list[str] | None = None,
+        target_year: int | None = None,
+        country: str | None = "KOR",
+        baseline_scenario: str | None = None,
+        anchors: list[str] | None = None,
+    ) -> PhysicalRiskModelsRequest:
+        """A municipality run: the bundled representative points as the exposure points.
+
+        ``asset_values`` maps a municipality id to a user-supplied USD value; a municipality
+        without one is screened (hazard only) — no value is ever assumed for it.
+
+        ``anchors`` (V0.3 POC) chooses the spatial anchors: ``REPRESENTATIVE_POINT`` (default,
+        V0.2) and/or ``OFFICIAL_OFFICE_POINT`` — the government-published office point, added
+        only for municipalities that have one (``official_offices.supported_ids``). The same
+        user-supplied value, or none, is placed at each anchor; the two stay separate points.
+        """
+        from climaterisk.physical_risk.municipalities import by_id
+        from climaterisk.physical_risk.official_offices import (
+            ANCHOR_OFFICIAL_OFFICE,
+            ANCHOR_REPRESENTATIVE,
+            office_facility,
+            offices_by_id,
+        )
+
+        values = asset_values or {}
+        chosen = list(anchors or [ANCHOR_REPRESENTATIVE])
+        offices = offices_by_id() if ANCHOR_OFFICIAL_OFFICE in chosen else {}
+        facilities: list[FacilitySpec] = []
+        for m in by_id(municipality_ids):
+            value = values.get(m.municipality_id)
+            if ANCHOR_REPRESENTATIVE in chosen:
+                facilities.append(FacilitySpec(**m.as_facility(value)))
+            office = offices.get(m.municipality_id)
+            if office is not None and office.available:
+                facilities.append(FacilitySpec(**office_facility(m, office, value)))
+        return cls(
+            session_id=session_id,
+            facilities=facilities,
+            climate_scenario=climate_scenario,
+            target_year=int(target_year or 2050),
+            hazards=hazards or ["RF", "TC", "HEAT"],
+            models=models or ["GLOBAL_BASELINE", "DATA_API_COUNTRY", "KOREA_LOCAL"],
+            country=country,
+            baseline_scenario=baseline_scenario,
+            assessment_target="MUNICIPALITY",
+        )
 
     @classmethod
     def from_portfolio(

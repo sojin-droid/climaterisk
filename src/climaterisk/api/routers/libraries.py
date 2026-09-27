@@ -65,6 +65,48 @@ def get_physical_risk_models() -> dict[str, Any]:
     return {**readiness(), "display": display_bundle()}
 
 
+@router.get("/municipalities")
+def get_municipalities(level: str | None = None) -> dict[str, Any]:
+    """The bundled Korea municipality representative points (V0.2), with provenance.
+
+    Each point is an interior point of the official boundary (Statistics Korea SGIS), used
+    as a spatial anchor for hazard screening — not a city hall, not an area aggregate, and
+    never carrying an asset value of its own. ``level`` filters (e.g. ``METROPOLITAN``).
+    """
+    from climaterisk.physical_risk.municipalities import (
+        LEVELS,
+        dataset_summary,
+        load_municipalities,
+    )
+
+    if level is not None and level not in LEVELS:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, detail=f"unknown level {level!r}; expected one of {LEVELS}"
+        )
+    items = [
+        m.to_dict() for m in load_municipalities() if level is None or m.municipality_level == level
+    ]
+    from climaterisk.physical_risk.official_offices import (
+        NOT_AVAILABLE_LABEL,
+        PROVENANCE_LABEL,
+        load_offices,
+    )
+    from climaterisk.physical_risk.official_offices import dataset_summary as office_summary
+
+    return {
+        "municipalities": items,
+        "summary": dataset_summary(),
+        "levels": list(LEVELS),
+        # V0.3 POC — the 7 metropolitan city halls; coordinates only where government-published
+        "official_offices": [o.to_dict() for o in load_offices()],
+        "official_office_summary": {
+            **office_summary(),
+            "not_available_label": NOT_AVAILABLE_LABEL,
+            "provenance_label": PROVENANCE_LABEL,
+        },
+    }
+
+
 @router.get("/{name}")
 def get_library(name: str) -> dict[str, Any]:
     """Return a single named library, or 404 if it does not exist."""

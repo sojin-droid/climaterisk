@@ -101,7 +101,7 @@ def _rows_for(
             )
             for f in facilities
         ]
-        return rows, desc.to_dict()
+        return rows, {**desc.to_dict(), "spatial_resolution": None}
 
     try:
         hazard = adapter.load(bbox)
@@ -118,12 +118,24 @@ def _rows_for(
             )
             for f in facilities
         ]
-        return rows, {**desc.to_dict(), "load_error": detail}
+        return rows, {**desc.to_dict(), "spatial_resolution": None, "load_error": detail}
 
     desc = adapter.describe()  # the version is known only after the load
     common["hazard_data_version"] = desc.hazard_data_version
-    rows = [engine.calculate(f, hazard, tag, **common) for f in facilities]
-    return rows, desc.to_dict()
+    resolution_error: str | None = None
+    try:
+        resolution = adapter.spatial_resolution(hazard)
+    except Exception as exc:  # resolution is metadata; never a reason to lose the result
+        resolution = None
+        resolution_error = f"{type(exc).__name__}: {exc}"
+    rows = [
+        engine.calculate(f, hazard, tag, spatial_resolution=resolution, **common)
+        for f in facilities
+    ]
+    record = {**desc.to_dict(), "spatial_resolution": resolution}
+    if resolution_error:
+        record["spatial_resolution_error"] = resolution_error
+    return rows, record
 
 
 def compute_physical_risk_models(request: dict[str, Any]) -> dict[str, Any]:
@@ -137,6 +149,9 @@ def compute_physical_risk_models(request: dict[str, Any]) -> dict[str, Any]:
     ``climate_change_multiplier``; its rows are returned separately as ``baseline_rows``).
     """
     facilities: list[dict[str, Any]] = list(request.get("facilities") or [])
+    target = str(request.get("assessment_target") or "FACILITY")
+    for f in facilities:
+        f.setdefault("assessment_target", target)
     scenario = str(request.get("climate_scenario") or "rcp45")
     year = int(request.get("target_year") or 2050)
     hazards = [h for h in (request.get("hazards") or list(HAZARD_TAGS)) if h in HAZARD_TAGS]
@@ -181,8 +196,31 @@ def compute_physical_risk_models(request: dict[str, Any]) -> dict[str, Any]:
         ModelId.DATA_API_COUNTRY.value,
         ModelId.KOREA_LOCAL.value,
     )
+    municipality_dataset: dict[str, Any] | None = None
+    if target == "MUNICIPALITY":
+        try:
+            from climaterisk.physical_risk.municipalities import dataset_summary
+
+            municipality_dataset = dataset_summary()
+        except Exception as exc:  # the dataset file is a library asset; report, don't abort
+            municipality_dataset = {"error": f"{type(exc).__name__}: {exc}"}
+
+    out_extra: dict[str, Any] = {}
+    if any(f.get("point_type") == "OFFICIAL_OFFICE_POINT" for f in facilities):
+        try:  # V0.3 POC provenance — present only when an office point was assessed
+            from climaterisk.physical_risk.official_offices import (
+                dataset_summary as office_summary,
+            )
+
+            out_extra["official_office_dataset"] = office_summary()
+        except Exception as exc:
+            out_extra["official_office_dataset"] = {"error": f"{type(exc).__name__}: {exc}"}
+
     return {
+        **out_extra,
         "status": "ok",
+        "assessment_target": target,
+        "municipality_dataset": municipality_dataset,
         "climate_scenario": scenario,
         "target_year": year,
         "baseline_scenario": str(baseline_scenario) if baseline_rows else None,
