@@ -7,7 +7,7 @@
     {
       "id": "litpop",
       "label": "Modeled exposure (LitPop)",
-      "note": "GPW is the one file CLIMADA LitPop cannot auto-download — get it, unzip the .tif into ~/climada/data, then 'Model exposure' on the Map works. WorldPop / GHSL are no-login drop-ins."
+      "note": "GPW is the one file CLIMADA LitPop cannot auto-download — get it, unzip the .tif into CLIMADA's data directory (CLIMATERISK_CLIMADA_DATA_DIR), then 'Model exposure' on the Map works. WorldPop / GHSL are no-login drop-ins."
     },
     {
       "id": "hazard",
@@ -37,7 +37,7 @@
       "access": "free (NASA Earthdata login)",
       "license": "open, no restriction",
       "for": "LitPop population layer (required)",
-      "place_at": "~/climada/data",
+      "place_at": "CLIMADA data directory (CLIMATERISK_CLIMADA_DATA_DIR)",
       "required": true,
       "fetch": {
         "mode": "needs_login"
@@ -57,7 +57,7 @@
       },
       "download_url": "https://data.worldpop.org/GIS/Population/Global_2000_2020_1km/2020/{iso3}/{iso3_lower}_ppp_2020_1km_Aggregated.tif",
       "dest": "climada",
-      "notes": "Per-country 1 km population GeoTIFF (login-free) → ~/climada/data for LitPop from_raster."
+      "notes": "Per-country 1 km population GeoTIFF (login-free) → CLIMADA's data directory for LitPop from_raster."
     },
     {
       "id": "naturalearth",
@@ -342,7 +342,7 @@
       },
       "download_url": "https://knmi-ecad-assets-prd.s3.amazonaws.com/ensembles/data/Grid_0.25deg_reg_ensemble/tg_ens_mean_0.25deg_reg_v31.0e.nc",
       "dest": "climada",
-      "notes": "~0.8 GB, one file for the whole domain, no login. Daily MEAN temperature (tg): the metric every citable minimum-mortality threshold is expressed in (docs/HEAT_MORTALITY_PROVENANCE.md). The 0.1° product works too — eobs.py globs tg_ens_mean_*deg_reg_*.nc under ~/climada/data, or set CLIMATERISK_EOBS_TG."
+      "notes": "~0.8 GB, one file for the whole domain, no login. Daily MEAN temperature (tg): the metric every citable minimum-mortality threshold is expressed in (docs/HEAT_MORTALITY_PROVENANCE.md). The 0.1° product works too — eobs.py globs tg_ens_mean_*deg_reg_*.nc in CLIMADA's data directory, or set CLIMATERISK_EOBS_TG."
     },
     {
       "id": "kma_skorea_1km",
@@ -356,7 +356,7 @@
         "mode": "manual"
       },
       "dest": "kma",
-      "notes": "로그인 + 소속/활용목적 설문 후 tar.gz. 남한상세 › 격자 › 기후요소 › 평균기온 › 일자료. 관측(MK-PRISM v3.1)은 nc, AR6 SSP 시나리오는 asc만 제공된다. 압축을 풀지 말고 ~/climada/data/kma/ 에 두면 kma_scenario.py 가 nc는 풀고 asc는 스트리밍한다 (ASCII 한 해 1.3 GB). 파일 ID는 docs/KMA_DOWNLOAD_LIST.md."
+      "notes": "로그인 + 소속/활용목적 설문 후 tar.gz. 남한상세 › 격자 › 기후요소 › 평균기온 › 일자료. 관측(MK-PRISM v3.1)은 nc, AR6 SSP 시나리오는 asc만 제공된다. 압축을 풀지 말고 <DATA_ROOT>/external/kma/ (CLIMATERISK_DATA_ROOT, 기본 ~/Data/climaterisk; 또는 CLIMATERISK_KMA_DIR) 에 두면 kma_scenario.py 가 nc는 풀고 asc는 스트리밍한다 (ASCII 한 해 1.3 GB). 파일 ID는 docs/KMA_DOWNLOAD_LIST.md."
     },
     {
       "id": "ecmwf_open",

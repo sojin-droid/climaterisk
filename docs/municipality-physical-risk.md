@@ -264,7 +264,7 @@ To unblock, one of these is needed from the user:
    to the SGIS codes; the portal's "최종 업데이트 2021-12-15" label (data.go.kr says 2025-01-27)
    must be checked against the files before use.
 2. **Most authoritative:** apply on juso.go.kr (menu DT04) for the *민원행정기관 전자지도* and place the
-   downloaded point files under `~/climada/data/municipality_src/`. Office rows can then be added
+   downloaded point files under `<DATA_ROOT>/external/municipality/source/` (docs/DATA_LAYOUT.md). Office rows can then be added
    as `point_type = OFFICE_LOCATION` with `office_name` / `address` filled, joined to the SGIS
    codes, without a schema change; the representative points stay as they are.
 3. Apply for the *위치정보 요약DB* and supply an authoritative nationwide office address list

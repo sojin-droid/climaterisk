@@ -25,11 +25,9 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from climaterisk.config import REPO_ROOT, get_settings
+from climaterisk import paths
+from climaterisk.config import get_settings
 from climaterisk.data.hazard_catalog import read_catalog
-
-#: Default drop folder of the KMA loader (mirrors ``kma_scenario._HOME_KMA``).
-_HOME_KMA = Path.home() / "climada" / "data" / "kma"
 
 #: Discovery-only grammar for KMA archive/member names. Looser than the loader's on purpose:
 #: this lists what is present; it does not decide what can be read.
@@ -63,9 +61,9 @@ _KMA_DATA_ONLY: tuple[str, ...] = (
 
 
 def kma_dir() -> Path:
-    """The KMA drop folder: ``CLIMATERISK_KMA_DIR`` when set, else ``~/climada/data/kma``."""
-    env = os.environ.get("CLIMATERISK_KMA_DIR")
-    return Path(env) if env else _HOME_KMA
+    """The KMA drop folder — ``climaterisk.paths.kma_dir`` (``CLIMATERISK_KMA_DIR`` or
+    ``<DATA_ROOT>/external/kma``), the same resolution the worker loader uses."""
+    return paths.kma_dir()
 
 
 def _kma_files(directory: Path) -> list[dict[str, Any]]:
@@ -139,7 +137,7 @@ def _kor_layers(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def env_file() -> Path:
     """The project ``.env`` the launcher sources; a backend started bare will not have it."""
-    return REPO_ROOT / ".env"
+    return paths.env_file()
 
 
 def _env_file_values() -> dict[str, str]:
@@ -197,6 +195,24 @@ def _git_branch(repo: Path) -> str | None:
         return None
 
 
+def _kma_legacy(directory: Path, files: list[dict[str, Any]]) -> dict[str, Any]:
+    """Report (never read) KMA archives left in the pre-DATA_ROOT location."""
+    legacy = paths.legacy_locations()["kma"]
+    if files or legacy == directory or not legacy.is_dir():
+        return {}
+    n = sum(1 for f in legacy.iterdir() if f.is_file() and _KMA_NAME.match(f.name))
+    if not n:
+        return {}
+    return {
+        "legacy_dir": str(legacy),
+        "legacy_file_count": n,
+        "migration_hint": (
+            f"{n} KMA files sit in the legacy folder {legacy}, which is no longer read. "
+            f"Move or link them to {directory} (see `python scripts/migrate_data_root.py`)."
+        ),
+    }
+
+
 def korea_status() -> dict[str, Any]:
     """Everything the 현황 체크 card shows, as one JSON-serialisable dict."""
     settings = get_settings()
@@ -223,6 +239,7 @@ def korea_status() -> dict[str, Any]:
             "variables_offered": list(KMA_VARIABLES),
             "variables_consumed_by_code": list(CONSUMED_VARIABLES),
             "note": "discovery by file name only; reading is done by the CLIMADA worker",
+            **_kma_legacy(directory, files),
         },
         "catalog": {
             "dir": catalog["dir"],
@@ -248,6 +265,6 @@ def korea_status() -> dict[str, Any]:
         "environment": {
             "worker_env_present": (settings.worker_env_dir / "bin" / "python").is_file()
             or (Path(settings._abspath(settings.worker_env_dir)) / "bin" / "python").is_file(),
-            "git_branch": _git_branch(Path(__file__).resolve().parents[3]),
+            "git_branch": _git_branch(paths.REPO_ROOT),
         },
     }

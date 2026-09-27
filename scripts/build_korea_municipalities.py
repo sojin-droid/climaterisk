@@ -20,8 +20,11 @@ locations; released only after an application on juso.go.kr) becomes available, 
 Runs in the CLIMADA worker environment (needs geopandas)::
 
     ./.climada-env/bin/python scripts/build_korea_municipalities.py \\
-        --source ~/climada/data/municipality_src/extracted --version 2025_2Q \\
-        --output assets/libraries/korea_municipalities.csv
+        [--source <DATA_ROOT>/external/municipality/sgis] --version 2025_2Q \\
+        [--output assets/libraries/korea_municipalities.csv]
+
+``--source`` defaults to ``climaterisk.paths.municipality_sgis_dir()`` — the unzipped
+``bnd_sido_00_<ver>.*`` / ``bnd_sigungu_00_<ver>.*`` files (raw government download).
 
 The output is small (a few hundred rows) and is committed as a library asset; the source
 package (~270 MB) stays outside the repository.
@@ -39,6 +42,7 @@ REPO = Path(__file__).resolve().parents[1]
 if str(REPO / "src") not in sys.path:
     sys.path.insert(0, str(REPO / "src"))
 
+from climaterisk import paths  # noqa: E402
 from climaterisk.physical_risk.municipalities import (  # noqa: E402
     COLUMNS,
     POINT_TYPE_BOUNDARY_INTERIOR,
@@ -104,7 +108,11 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    ap.add_argument("--source", required=True, help="directory holding the bnd_*.shp files")
+    ap.add_argument(
+        "--source",
+        default=str(paths.municipality_sgis_dir()),
+        help="directory of the bnd_*.shp files (default: <DATA_ROOT>/external/municipality/sgis)",
+    )
     ap.add_argument("--version", default="2025_2Q", help="boundary version token in the file names")
     ap.add_argument(
         "--output", default=str(REPO / "assets" / "libraries" / "korea_municipalities.csv")

@@ -12,8 +12,10 @@ from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Repo root = three levels up from this file: src/climaterisk/config.py -> repo root.
-REPO_ROOT = Path(__file__).resolve().parents[2]
+from climaterisk import paths
+from climaterisk.paths import REPO_ROOT
+
+__all__ = ["REPO_ROOT", "Settings", "get_settings"]
 
 
 class Settings(BaseSettings):
@@ -21,7 +23,8 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(
         env_prefix="CLIMATERISK_",
-        env_file=".env",
+        # The repo's .env, located from this file — not from the working directory.
+        env_file=str(REPO_ROOT / ".env"),
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -36,10 +39,13 @@ class Settings(BaseSettings):
     # Storage (paths relative to the repo root unless absolute)
     data_dir: Path = Path("data")
     library_dir: Path = Path("assets/libraries")
-    # Local hazard catalog (HDF5 + catalog.json). Defaults to ``<data_dir>/hazard_db``;
-    # set CLIMATERISK_HAZARD_DB to relocate. The backend injects this into the worker
-    # env on spawn, so both sides resolve the catalog to the same single location.
+    # Local hazard catalog (HDF5 + catalog.json). Canonical: <DATA_ROOT>/derived/hazard_db
+    # (climaterisk.paths); set CLIMATERISK_HAZARD_DB to relocate. The backend injects the
+    # resolved path into the worker env on spawn, so both sides use one location.
     hazard_db_dir: Path | None = None
+    # External data root (KMA, municipality sources, derived products). Resolved by
+    # climaterisk.paths — declared here only so it is documented with the other settings.
+    data_root: Path | None = None
 
     # CLIMADA worker (Phase 2).
     # The worker runs in a PROJECT-LOCAL conda env (a prefix env inside the repo) —
@@ -102,15 +108,22 @@ class Settings(BaseSettings):
 
     @property
     def hazard_db_path(self) -> Path:
-        """Absolute path to the local hazard catalog (``<data_dir>/hazard_db`` by default).
+        """Absolute path to the local hazard catalog.
 
-        Single source of truth for the catalog directory: the backend reads the
-        manifest here and injects this path into the worker (``CLIMATERISK_HAZARD_DB``)
-        so both processes agree even when ``data_dir`` is relocated.
+        ``CLIMATERISK_HAZARD_DB`` wins; otherwise ``<DATA_ROOT>/derived/hazard_db`` once it
+        holds a catalogue; until then an existing ``<data_dir>/hazard_db`` keeps serving
+        (transitional — ``scripts/migrate_data_root.py`` moves it). The backend injects the
+        result into the worker (``CLIMATERISK_HAZARD_DB``) so both processes agree.
         """
         if self.hazard_db_dir is not None:
             return self._abspath(self.hazard_db_dir)
-        return self.data_path / "hazard_db"
+        canonical = paths.canonical_hazard_db()
+        if (canonical / "catalog.json").is_file():
+            return canonical
+        legacy = self._abspath(self.data_dir) / "hazard_db"
+        if (legacy / "catalog.json").is_file():
+            return legacy
+        return canonical
 
     @property
     def worker_dir(self) -> Path:

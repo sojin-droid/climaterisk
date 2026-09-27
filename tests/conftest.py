@@ -14,11 +14,15 @@ if TYPE_CHECKING:
 
 @pytest.fixture(scope="session", autouse=True)
 def _isolate_data(tmp_path_factory: pytest.TempPathFactory) -> Iterator[None]:
-    """Point the data dir at a temp location and clear cached singletons.
+    """Point the data dir and the external data root at temp locations; clear singletons.
 
-    No-op when the backend package is not importable (e.g. the CLIMADA worker env
-    running the engine regression test) — there is no backend data dir to isolate.
+    ``CLIMATERISK_DATA_ROOT`` is isolated in **both** environments (backend and CLIMADA
+    worker) so no test can write into the real ``~/Data/climaterisk``. Tests that read the
+    real cached hazard layers still find them through the transitional repo-local
+    catalogue (``climaterisk.paths.hazard_db_dir``). The backend data dir is isolated only
+    when the backend package is importable.
     """
+    os.environ["CLIMATERISK_DATA_ROOT"] = str(tmp_path_factory.mktemp("climaterisk-dataroot"))
     try:
         from climaterisk.api.deps import get_session_store
         from climaterisk.config import get_settings

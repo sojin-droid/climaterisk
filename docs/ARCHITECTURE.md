@@ -39,6 +39,7 @@ server-side in `data/app.db` (SQLite, WAL). Edits are synced back with a debounc
 |---|---|
 | `core/` | Domain entities + enums (pure data, no I/O) |
 | `data/` | SQLite session store, bundled-library loaders |
+| `paths.py` | the single path authority: repo root, `CLIMATERISK_DATA_ROOT` layout, CLIMADA data dir — see [DATA_LAYOUT.md](DATA_LAYOUT.md) |
 | `engines/` | The physical-engine request/result JSON contract |
 | `transition/` | Light transition-risk math (Phase 3) |
 | `api/` | FastAPI app + routers (thin) |
@@ -47,7 +48,7 @@ server-side in `data/app.db` (SQLite, WAL). Edits are synced back with a debounc
 
 The platform can build and use its **own** CLIMADA-ready hazard library instead of
 depending only on the live CLIMADA Data API (which lacks coastal flood / heat /
-drought and only has historical wildfire). The catalog lives in `data/hazard_db/`
+drought and only has historical wildfire). The catalog lives in `<DATA_ROOT>/derived/hazard_db/` (transitionally the repo-local `data/hazard_db/`)
 (git-ignored; rebuilt from real sources) with a `catalog.json` manifest indexing
 HDF5 hazards by `(peril, climate_scenario, region, year)`.
 

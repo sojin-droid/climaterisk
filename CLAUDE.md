@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 Scientific modelling project (data science / energy / finance / economic).
-Docs: `docs/ARCHITECTURE.md` (structure), `docs/METHODOLOGY.md` + `docs/CLIMADA_METHODS.md` (methods, native-vs-custom audit), `docs/CLIMADA_COVERAGE.md`, `docs/GAP_ANALYSIS_KO.md`, `docs/RISK_REGISTER.md`, `docs/USER_GUIDE.md`.
+Docs: `docs/ARCHITECTURE.md` (structure), `docs/DATA_LAYOUT.md` (repo vs `CLIMATERISK_DATA_ROOT`, path inventory; `src/climaterisk/paths.py` is the only path authority), `docs/METHODOLOGY.md` + `docs/CLIMADA_METHODS.md` (methods, native-vs-custom audit), `docs/CLIMADA_COVERAGE.md`, `docs/GAP_ANALYSIS_KO.md`, `docs/RISK_REGISTER.md`, `docs/USER_GUIDE.md`.
 
 ## Commands
 

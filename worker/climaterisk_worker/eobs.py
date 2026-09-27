@@ -16,7 +16,8 @@ Daily **mean** temperature is deliberate: every citable minimum-mortality thresh
 exposure-response estimate this platform uses is expressed in daily mean temperature
 (Kim 2020 for Korea; Gasparrini et al. 2015; Tobías et al. 2021) — see
 ``docs/HEAT_MORTALITY_PROVENANCE.md``.
-Drop it under ``~/climada/data/`` (or point ``CLIMATERISK_EOBS_TG`` at it) and every heat
+Drop it in CLIMADA's data directory (``climaterisk.paths.climada_data_dir``) or point
+``CLIMATERISK_EOBS_TG`` at it, and every heat
 run picks it up. The 0.1° product works too and is resolved by the same glob.
 
 Why the file is not subset server-side: the KNMI OPeNDAP endpoint is not reliably
@@ -32,7 +33,13 @@ from pathlib import Path
 
 import numpy as np
 
-_HOME_CLIMADA = Path.home() / "climada" / "data"
+
+def _climada_dir() -> Path:
+    """CLIMADA's data directory — the single definition lives in ``climaterisk.paths``."""
+    from climaterisk_worker._paths import paths
+
+    return paths.climada_data_dir()
+
 
 # Jun 1 - Sep 30 warm season. Always 122 days, leap year or not (30+31+31+30).
 SEASON_START = (6, 1)
@@ -45,15 +52,15 @@ class EobsUnavailable(Exception):
 
     HELP = (
         "No E-OBS daily-mean-temperature NetCDF found. Download the open ECA&D ensemble-mean file "
-        "(no login) into ~/climada/data/, e.g.\n"
-        "  curl -sSfL -o ~/climada/data/tg_ens_mean_0.25deg_reg_v31.0e.nc \\\n"
+        "(no login) into CLIMADA's data directory ({climada_dir}), e.g.\n"
+        "  curl -sSfL -o {climada_dir}/tg_ens_mean_0.25deg_reg_v31.0e.nc \\\n"
         "    https://knmi-ecad-assets-prd.s3.amazonaws.com/ensembles/data/"
         "Grid_0.25deg_reg_ensemble/tg_ens_mean_0.25deg_reg_v31.0e.nc\n"
         "or set CLIMATERISK_EOBS_TG to an existing file."
     )
 
     def __init__(self, detail: str | None = None) -> None:
-        self.detail = detail or self.HELP
+        self.detail = detail or self.HELP.format(climada_dir=_climada_dir())
         super().__init__(self.detail)
 
 
@@ -61,14 +68,15 @@ def resolve_tg_file() -> Path | None:
     """Locate the E-OBS daily-mean-temperature NetCDF, or None.
 
     Resolution order: ``CLIMATERISK_EOBS_TG`` → the newest ``tg_ens_mean_*deg_reg_*.nc``
-    under ``~/climada/data`` (so a fresher version wins automatically).
+    in CLIMADA's data directory (so a fresher version wins automatically).
     """
     explicit = os.environ.get("CLIMATERISK_EOBS_TG")
     if explicit and Path(explicit).is_file():
         return Path(explicit)
-    if not _HOME_CLIMADA.is_dir():
+    home = _climada_dir()
+    if not home.is_dir():
         return None
-    candidates = sorted(_HOME_CLIMADA.glob("tg_ens_mean_*deg_reg_*.nc"))
+    candidates = sorted(home.glob("tg_ens_mean_*deg_reg_*.nc"))
     return candidates[-1] if candidates else None
 
 

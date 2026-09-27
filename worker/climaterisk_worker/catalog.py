@@ -1,6 +1,6 @@
 """Local hazard catalog — the platform's CLIMADA-ready perils database.
 
-A catalog is a directory (default ``data/hazard_db/``) with a ``catalog.json``
+A catalog is a directory (``<DATA_ROOT>/derived/hazard_db`` — see ``climaterisk.paths``) with a ``catalog.json``
 manifest indexing HDF5 hazard files by ``(peril, climate_scenario, region, year)``.
 Entries are produced by ``scripts/build_hazard.py`` (converting standardized grids
 from real ingestion, or caching Data-API hazards for offline/reproducible runs).
@@ -13,22 +13,20 @@ does not cover (custom or locally-ingested sources).
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 from typing import Any
 
 
 def catalog_dir() -> Path:
-    """Resolve the hazard-catalog directory (env override, else ``data/hazard_db``).
+    """Resolve the hazard-catalog directory via ``climaterisk.paths.hazard_db_dir``.
 
-    The catalog holds large HDF5 binaries and is rebuilt from real sources via
-    ``scripts/build_hazard.py``, so it lives under ``data/`` (git-ignored), not in
-    the committed product structure.
+    ``CLIMATERISK_HAZARD_DB`` (the backend always injects it) → ``<DATA_ROOT>/derived/hazard_db``
+    → the transitional repo-local ``data/hazard_db``. The catalog holds large HDF5 binaries
+    rebuilt from real sources via ``scripts/build_hazard.py``; it never lives in Git.
     """
-    env = os.environ.get("CLIMATERISK_HAZARD_DB")
-    if env:
-        return Path(env)
-    return Path(__file__).resolve().parents[2] / "data" / "hazard_db"
+    from climaterisk_worker._paths import paths
+
+    return paths.hazard_db_dir()
 
 
 def _manifest_path() -> Path:

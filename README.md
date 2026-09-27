@@ -110,7 +110,12 @@ Backend defaults to `http://127.0.0.1:8099`, frontend to `http://localhost:5174`
 CLIMADA needs `Hazard` / `Exposures` objects, not raw downloads — so the platform has an **import
 layer** that converts each source into a CLIMADA-ready hazard and files it in a **local catalog**.
 
-- **Local catalog** — `data/hazard_db/` with a `catalog.json` manifest keyed by
+- **Data root** — large inputs, derived products and caches live outside the checkout under
+  `CLIMATERISK_DATA_ROOT` (default `~/Data/climaterisk`); layout, resolution rules, migration and
+  the full path inventory: **[docs/DATA_LAYOUT.md](docs/DATA_LAYOUT.md)**. Nothing depends on the
+  working directory or on where the repository sits.
+- **Local catalog** — `<DATA_ROOT>/derived/hazard_db/` (a pre-migration repo-local `data/hazard_db/`
+  keeps serving until `scripts/migrate_data_root.py` moves it) with a `catalog.json` manifest keyed by
   `(peril, climate_scenario, region, year)`. Physical runners resolve hazards from here **first** and
   fall back to the live CLIMADA Data API. Add data with `scripts/build_hazard.py` or the UI's
   *Data → Fetch & ingest* — both write the HDF5 **and** register it, so the matching runner picks it
@@ -120,8 +125,10 @@ layer** that converts each source into a CLIMADA-ready hazard and files it in a 
   coastal flood), Copernicus DEM (for TC surge) and IBTrACS TCTracks; a TCRain refiner exists in
   the worker but is not yet accepted by the API. New formats map onto the standardized-grid
   on-ramp (`hazard_convert.py`).
-- **CLIMADA's own cache** — `~/climada/data/` (managed by CLIMADA). The only manual drop-in is the
-  GPW population raster for LitPop (login-gated). See `assets/libraries/data_sources.json`.
+- **CLIMADA's own data directory** — managed by CLIMADA (`climada.conf`; CLIMADA's default is
+  `~/climada/data/`; set `CLIMATERISK_CLIMADA_DATA_DIR` if you relocated it). It holds CLIMADA's
+  Data API cache and the LitPop / WorldPop / E-OBS drop-ins; the only login-gated one is the GPW
+  population raster. See `assets/libraries/data_sources.json`.
 
 ## Data sources
 
@@ -141,8 +148,9 @@ uv sync --all-extras && npm --prefix frontend/climaterisk install
 conda env create -f worker/climaterisk_worker/env_climada.yml --prefix ./.climada-env
 
 # 1. Observed climate for the heat perils: E-OBS daily Tmax, 0.25° ensemble mean (843 MB, no login)
-mkdir -p ~/climada/data
-curl -sSfL -o ~/climada/data/tg_ens_mean_0.25deg_reg_v31.0e.nc \
+#    into CLIMADA's data directory (CLIMADA's default shown; match CLIMATERISK_CLIMADA_DATA_DIR if set)
+CLIMADA_DIR="${CLIMATERISK_CLIMADA_DATA_DIR:-$HOME/climada/data}"; mkdir -p "$CLIMADA_DIR"
+curl -sSfL -o "$CLIMADA_DIR/tg_ens_mean_0.25deg_reg_v31.0e.nc" \
   https://knmi-ecad-assets-prd.s3.amazonaws.com/ensembles/data/Grid_0.25deg_reg_ensemble/tg_ens_mean_0.25deg_reg_v31.0e.nc
 
 # 2. Country boundaries + population (both login-free). Either use the app's Data tab
@@ -152,7 +160,7 @@ curl -sSfL -o ~/climada/data/tg_ens_mean_0.25deg_reg_v31.0e.nc \
 mkdir -p data/downloads && curl -sSfL -o data/downloads/ne_110m_admin_0_countries.geojson \
   https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_admin_0_countries.geojson
 for iso in ESP KOR; do lo=$(echo $iso | tr A-Z a-z); \
-  curl -sSfL -o ~/climada/data/${lo}_ppp_2020_1km_Aggregated.tif \
+  curl -sSfL -o "$CLIMADA_DIR/${lo}_ppp_2020_1km_Aggregated.tif" \
   https://data.worldpop.org/GIS/Population/Global_2000_2020_1km/2020/${iso}/${lo}_ppp_2020_1km_Aggregated.tif; done
 
 # 3. Spain heat mortality, one run (~4 min, reads E-OBS): files the observed hazard
@@ -185,17 +193,17 @@ What each step reproduces:
 |---|---|---|
 | Spain heat mortality on observed summers (3,522 deaths/yr, 2022 ranked first) | step 3, `--register`, then a `heat_mortality` run in the app on a population exposure | yes (observed input) |
 | Reference-city figure, comfort bands, 2020→2050 warming/ageing split (baseline 2,117 → 6,065 deaths/yr: +1,620 warming, +1,318 ageing, +1,010 joint) | step 3, `--decompose --warming-c 1.5 --demography-year 2050` + `heatwave_poster_figure.py` | yes (seed 42) |
-| Korean typhoon / river flood / wildfire / earthquake runs | no step needed — runners fetch from the CLIMADA Data API when the local catalog has no entry (CLIMADA keeps its own download cache under `~/climada/data/`); to run offline, pre-cache into `data/hazard_db/` via `scripts/build_hazard.py cache …` or the Data tab | yes |
+| Korean typhoon / river flood / wildfire / earthquake runs | no step needed — runners fetch from the CLIMADA Data API when the local catalog has no entry (CLIMADA keeps its own download cache in its data directory); to run offline, pre-cache into the local catalog (`<DATA_ROOT>/derived/hazard_db/`) via `scripts/build_hazard.py cache …` or the Data tab | yes |
 | Supply-chain (WIOD16, ~900 MB), uncertainty, cost-benefit, finance, transition | first run downloads what it needs | yes (seeded) |
 
 Not reproducible without a human step (all free, but gated):
 
 | Data | Gate | Where it plugs in |
 |---|---|---|
-| KMA 남한상세 1 km scenarios (Korean heat) | 기후변화 상황지도 account | drop under `~/climada/data/kma/`, then `scripts/heat_korea.py register` — file list in `docs/KMA_DOWNLOAD_LIST.md` |
-| GPW v4 population (LitPop) | NASA Earthdata login | `~/climada/data/` — WorldPop above is the login-free alternative |
+| KMA 남한상세 1 km scenarios (Korean heat) | 기후변화 상황지도 account | drop under `<DATA_ROOT>/external/kma/` (default `~/Data/climaterisk/external/kma/`), then `scripts/heat_korea.py register` — file list in `docs/KMA_DOWNLOAD_LIST.md` |
+| GPW v4 population (LitPop) | NASA Earthdata login | CLIMADA's data directory — WorldPop above is the login-free alternative |
 | 재해연보 loss statistics, KOSIS age structure | 공공데이터포털 / KOSIS API key | vulnerability calibration (`docs/RISK_REGISTER.md` §C) |
-| 홍수위험지도 SHP (4.9 GB) | none, but non-commercial licence | `scripts/fetch_floodmap_kor.py` |
+| 홍수위험지도 SHP (4.9 GB) | none, but non-commercial licence | `scripts/fetch_floodmap_kor.py` → `<DATA_ROOT>/external/other/floodmap/`; no code path reads it |
 
 Run results themselves (`data/app.db`, `data/runs/`) are not committed: re-run them; they come out the same.
 

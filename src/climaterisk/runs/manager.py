@@ -15,6 +15,7 @@ import time
 import uuid
 from pathlib import Path
 
+from climaterisk import paths
 from climaterisk.config import Settings
 from climaterisk.core.entities import Portfolio
 from climaterisk.engines.base import (
@@ -85,6 +86,9 @@ class RunManager:
             # during long multi-peril runs (otherwise it stays empty until the process exits).
             "PYTHONUNBUFFERED": "1",
             "CLIMATERISK_HAZARD_DB": str(self._settings.hazard_db_path),
+            # Same roots as the backend (DATA_ROOT, KMA, CLIMADA data dir), resolved from
+            # env → .env → default in climaterisk.paths — never from the worker's cwd.
+            **paths.worker_env(),
         }
         if self._settings.dem_path:
             env["CLIMATERISK_DEM_PATH"] = str(self._settings.dem_path)
