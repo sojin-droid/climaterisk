@@ -315,6 +315,40 @@ Decision: **C. BLOCKED** at 16 / 269 (5.9 %). Unlocking the three reachable-but-
 would give at most 72 / 269 (26.8 %), still with no coordinates for seven 시도 and for any
 시도청 row.
 
+### 9.3 Fifth pass — official office address + existing project geocoder, 2026-09-27
+
+Source model tested: `OFFICE_SOURCE` = government office name + address; `COORDINATE_SOURCE` =
+the project's own address → coordinate geocoder, `coordinate_method = ADDRESS_GEOCODING`.
+
+**Existing geocoder: not found.** No address geocoder, geocoding audit or geocoder key exists in
+this repository, in `project-Ragnarok`, in `Agrivoltaic-Feasibility` (its V-World calls are
+land-register / parcel-geometry endpoints — NED `ladfrlList`, `getLandCharacteristics`,
+`req/data LP_PA_CBND_BUBUN` — not address geocoding) or in this machine's environment. The only
+geocoding in this repo is the Map tab's interactive OSM Nominatim place search. The described
+V5 audit (~5 m median error, 읍면동 fallback rejected) is not present on this machine; the
+Agrivoltaic scripts point at `C:\Users\user\새 폴더\pipeline_out`, i.e. the previous Windows PC.
+If that geocoder was V-World's, its results may not be stored (data.go.kr 15101106: "별도의
+저장장치나 데이터베이스에 저장할 수 없습니다"; V-World 이용약관 제19조).
+
+**Official office addresses** ([`evidence/v03_office_address_matrix.csv`](evidence/v03_office_address_matrix.csv)),
+matched by exact office name **and** an address naming the unit, one row per unit:
+
+| status | units |
+|---|---|
+| OFFICIAL_ADDRESS_AVAILABLE | 107 (경북 22, 경남 22, 충북 15, 경기 12, 인천 8, 대구 8, 부산 7, 대전 4, 전북 4, 강원 3, 충남 1, 전남 1) |
+| AMBIGUOUS_OFFICE | 3 — 대구광역시청 (동인 / 산격청사), 남양주시청 (제1 / 제2청사), 통영시청 (two different addresses in two sources) |
+| ADMINISTRATIVE_VINTAGE_MISMATCH | 5 — 광주광역시, 전라남도, 인천 중구 / 동구 / 서구 |
+| SOURCE_NOT_AVAILABLE | 154 — incl. all of 서울 (26), 울산, 광주 구, 세종, 제주, most of 경기 (portal blocked), 부산 (API not activated), 충남, 전남, 강원 |
+| GEOCODE_SUCCESS / GEOCODE_FAILED | 0 / 0 — no geocoder to run |
+
+16 of the 107 also have government-published coordinates (§9.2), all inside their SGIS polygon.
+Kept unchanged from the source: "층창북도" (상당구청) and "충청북도 충청북도" (충북도청) typos;
+옹진군청's address lies in 미추홀구 (the county office is on the mainland) — its point would
+legitimately fall outside the 옹진군 polygon.
+
+Decision: **B — address layer partial (107 / 269), geocoder not available** (absent from this
+machine; if it is V-World's, its terms forbid a stored layer). No coordinates were generated.
+
 Boundary currency: data.go.kr now lists providers such as 전남광주통합특별시 and 인천광역시
 영종구 / 서해구, i.e. administrative reorganisations after the SGIS `2025_2Q` boundaries used
 for the V0.2 points. Office points and representative points must come from the same
