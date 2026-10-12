@@ -371,7 +371,7 @@ def test_build_takes_only_the_exactly_named_row_of_the_checksummed_file(tmp_path
         "부산광역시청 별관,addr2,3.0,4.0\n"
     )
     f = tmp_path / "src.csv"
-    f.write_text(body, encoding="utf-8")
+    f.write_bytes(body.encode("utf-8"))  # exact bytes: no newline translation on Windows
     source = {
         "file": "src.csv",
         "encoding": "utf-8",

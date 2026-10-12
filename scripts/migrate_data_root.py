@@ -54,6 +54,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+import _console  # noqa: F401  (UTF-8 console; see scripts/_console.py)
+
 REPO = Path(__file__).resolve().parents[1]
 if str(REPO / "src") not in sys.path:
     sys.path.insert(0, str(REPO / "src"))
@@ -244,8 +246,13 @@ def _copy_file(src: Path, dst: Path, method: str) -> str:
     """Physical copy of one file (``dst`` must not exist). Returns the mode actually used."""
     dst.parent.mkdir(parents=True, exist_ok=True)
     if method == "clone":
-        r = subprocess.run(["/bin/cp", "-c", "-p", str(src), str(dst)], capture_output=True)
-        if r.returncode == 0:
+        # APFS copy-on-write clone (macOS `cp -c`). Elsewhere /bin/cp is absent (Windows)
+        # or refuses -c (Linux): both fall through to a plain physical copy.
+        try:
+            r = subprocess.run(["/bin/cp", "-c", "-p", str(src), str(dst)], capture_output=True)
+        except OSError:
+            r = None
+        if r is not None and r.returncode == 0:
             return "clone"
     shutil.copy2(src, dst)
     return "copy"
@@ -412,7 +419,13 @@ def apply(it: Item, method: str) -> None:
         if action == "link":
             if dst.exists():
                 dst.rmdir()  # an empty real directory only (checked above)
-            os.symlink(src, dst, target_is_directory=src.is_dir())
+            try:
+                os.symlink(src, dst, target_is_directory=src.is_dir())
+            except OSError as exc:  # Windows: needs Developer Mode or admin rights
+                raise SystemExit(
+                    f"cannot create symlink {dst} -> {src}: {exc}. "
+                    "Enable Developer Mode (Windows) or use --method copy / clone."
+                ) from exc
             print(f"  linked {dst} -> {src}")
         elif action == "copytree":
             shutil.copytree(src, dst, dirs_exist_ok=True)

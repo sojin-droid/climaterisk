@@ -20,6 +20,7 @@ import json
 import sys
 from pathlib import Path
 
+import _console  # noqa: F401  (UTF-8 console; see scripts/_console.py)
 import numpy as np
 
 REPO = Path(__file__).resolve().parents[1]
@@ -318,8 +319,10 @@ def main(argv: list[str] | None = None) -> int:
             f"decomposition: baseline {d['baseline']:,.0f} → {d['both_total']:,.0f}; "
             f"climate +{d['climate_effect']:,.0f}, ageing +{d['ageing_effect']:,.0f}, interaction +{d['interaction']:,.0f}"
         )
-    decomposition = json.loads(args.decomposition.read_text())
-    stats = make_poster_figure(json.loads(args.results.read_text()), decomposition, args.out)
+    decomposition = json.loads(args.decomposition.read_text(encoding="utf-8"))
+    stats = make_poster_figure(
+        json.loads(args.results.read_text(encoding="utf-8")), decomposition, args.out
+    )
     print(f"wrote {args.out}  r_age={stats['r_age']:+.2f}")
     return 0
 

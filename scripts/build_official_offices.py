@@ -30,6 +30,8 @@ import json
 import sys
 from pathlib import Path
 
+import _console  # noqa: F401  (UTF-8 console; see scripts/_console.py)
+
 REPO = Path(__file__).resolve().parents[1]
 if str(REPO / "src") not in sys.path:
     sys.path.insert(0, str(REPO / "src"))

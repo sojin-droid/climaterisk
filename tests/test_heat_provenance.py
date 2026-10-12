@@ -139,9 +139,11 @@ def test_the_provenance_document_exists_and_lists_every_parameter() -> None:
 
 
 def test_the_ui_shows_the_model_status() -> None:
-    view = (REPO / "frontend" / "climaterisk" / "src" / "views" / "ResultsView.tsx").read_text()
+    view = (REPO / "frontend" / "climaterisk" / "src" / "views" / "ResultsView.tsx").read_text(
+        encoding="utf-8"
+    )
     assert "parameter_status" in view and "Model status" in view
-    types = (REPO / "frontend" / "climaterisk" / "src" / "types.ts").read_text()
+    types = (REPO / "frontend" / "climaterisk" / "src" / "types.ts").read_text(encoding="utf-8")
     assert "parameter_status" in types
 
 

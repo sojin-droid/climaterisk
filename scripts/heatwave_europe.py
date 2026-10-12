@@ -63,6 +63,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+import _console  # noqa: F401  (UTF-8 console; see scripts/_console.py)
 import numpy as np
 
 REPO = Path(__file__).resolve().parents[1]

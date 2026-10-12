@@ -23,6 +23,11 @@ os.environ["CLIMATERISK_DATA_ROOT"] = _TEST_DATA_ROOT
 _WORKER = str(Path(__file__).resolve().parents[1] / "worker")
 if _WORKER not in sys.path:
     sys.path.insert(0, _WORKER)
+# Tests load scripts as modules by file path; the scripts import their sibling helper
+# ``_console`` by bare name (``python scripts/x.py`` puts scripts/ first on sys.path).
+_SCRIPTS = str(Path(__file__).resolve().parents[1] / "scripts")
+if _SCRIPTS not in sys.path:
+    sys.path.insert(0, _SCRIPTS)
 import climaterisk_worker  # noqa: E402,F401  (CLIMADA bootstrap; no-op without CLIMADA)
 
 if TYPE_CHECKING:

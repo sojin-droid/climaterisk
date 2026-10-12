@@ -34,6 +34,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import _console  # noqa: F401  (UTF-8 console; see scripts/_console.py)
+
 REPO = Path(__file__).resolve().parents[1]
 for extra in (REPO / "worker", REPO / "src"):
     if str(extra) not in sys.path:

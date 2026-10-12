@@ -79,7 +79,7 @@ def test_exactly_three_canonical_model_ids_and_no_stray_strings() -> None:
     known = {m.value for m in ModelId}
     for path in (REPO / "src" / "climaterisk").rglob("*.py"):
         for found in re.findall(
-            r'"([A-Z_]*(?:BASELINE|COUNTRY|LOCAL|HAZARD)[A-Z_]*)"', path.read_text()
+            r'"([A-Z_]*(?:BASELINE|COUNTRY|LOCAL|HAZARD)[A-Z_]*)"', path.read_text(encoding="utf-8")
         ):
             if found.endswith(("_BASELINE", "_COUNTRY", "_LOCAL")):
                 assert found in known, f"{path.name} spells an unknown model id {found!r}"
