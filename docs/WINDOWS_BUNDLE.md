@@ -42,8 +42,13 @@ not an import.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\make_windows_bundle.ps1 -SkipZip
-$env:CLIMATERISK_BACKEND_PORT = "8299"; & build\bundle\start.ps1      # opens the browser on 8299
+$env:CLIMATERISK_BACKEND_PORT = "8299"; $env:CLIMATERISK_NO_BROWSER = "1"
+& build\bundle\start.ps1          # then: curl http://127.0.0.1:8299/api/health and /
 ```
+
+The build needs about 6 GB of scratch space (3 GB when `build\pkg-env` already exists); the
+packaging env is deleted right after `conda-pack` unless `-KeepPkgEnv`. The script refuses
+to start below that free space instead of failing half-way with a full disk.
 
 `tests/test_ui_serving.py` checks the backend serves a built UI under the API and that the
 launcher sets only settings the backend reads.

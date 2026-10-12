@@ -1,8 +1,8 @@
-# climaterisk Windows bundle launcher — started by "Start climaterisk.bat".
+# climaterisk Windows bundle launcher - started by "Start climaterisk.bat".
 #
 # Layout (next to this file): app\ (the program), ui\ (built web UI), env\ (one Python env
 # with CLIMADA and the backend's dependencies). Starts the backend from env\python.exe, which
-# serves the UI itself and spawns the CLIMADA worker from the same env — no uv, Node or
+# serves the UI itself and spawns the CLIMADA worker from the same env - no uv, Node or
 # conda on this machine. Closing this window stops the server.
 #
 # Settings: edit app\.env (copied from app\.env.example on first run). CLIMATERISK_BACKEND_PORT
@@ -24,14 +24,14 @@ if ($Root.Length -gt 60) {
     Write-Host ("!  This folder's path is long ({0} characters). Windows limits paths to 260 and the " -f $Root.Length) -ForegroundColor Yellow
     Write-Host "   Python environment is deep; if anything fails to start, move the folder to e.g. C:\climaterisk" -ForegroundColor Yellow
 }
-if (-not (Test-Path $Python)) { Fail "env\python.exe is missing — the bundle is incomplete; unzip it again" }
-if (-not (Test-Path (Join-Path $Ui "index.html"))) { Fail "ui\index.html is missing — the bundle is incomplete" }
-if (-not (Test-Path (Join-Path $App "src\climaterisk\api\main.py"))) { Fail "app\ is missing — the bundle is incomplete" }
+if (-not (Test-Path $Python)) { Fail "env\python.exe is missing - the bundle is incomplete; unzip it again" }
+if (-not (Test-Path (Join-Path $Ui "index.html"))) { Fail "ui\index.html is missing - the bundle is incomplete" }
+if (-not (Test-Path (Join-Path $App "src\climaterisk\api\main.py"))) { Fail "app\ is missing - the bundle is incomplete" }
 
 # conda-pack relocation fix-up: once per location (paths inside env\ are rewritten).
 $Marker = Join-Path $EnvDir ".unpacked-at"
 if (-not (Test-Path $Marker) -or ((Get-Content $Marker -Raw).Trim() -ne $EnvDir)) {
-    Write-Host "> first start in this folder: fixing up the Python environment (conda-unpack)…"
+    Write-Host "> first start in this folder: fixing up the Python environment (conda-unpack)..."
     $Unpack = Join-Path $EnvDir "Scripts\conda-unpack.exe"
     if (Test-Path $Unpack) { & $Unpack; if ($LASTEXITCODE -ne 0) { Fail "conda-unpack failed" } }
     Set-Content -Path $Marker -Value $EnvDir -Encoding ascii
@@ -40,10 +40,15 @@ if (-not (Test-Path $Marker) -or ((Get-Content $Marker -Raw).Trim() -ne $EnvDir)
 # app\.env from the example on first run; then load it.
 $EnvFile = Join-Path $App ".env"
 if (-not (Test-Path $EnvFile)) { Copy-Item (Join-Path $App ".env.example") $EnvFile }
+# Precedence as in the backend itself: process environment > app\.env > defaults, so a
+# variable set in the shell (e.g. a test port) is never overridden by the file.
 foreach ($line in Get-Content $EnvFile) {
     if ($line -match '^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$') {
+        $name = $Matches[1]
         $val = $Matches[2].Trim().Trim('"').Trim("'")
-        if ($val -ne "") { [Environment]::SetEnvironmentVariable($Matches[1], $val, "Process") }
+        if ($val -ne "" -and -not [Environment]::GetEnvironmentVariable($name, "Process")) {
+            [Environment]::SetEnvironmentVariable($name, $val, "Process")
+        }
     }
 }
 
@@ -53,6 +58,11 @@ $env:CLIMATERISK_UI_DIR = $Ui
 $env:PYTHONPATH = (Join-Path $App "src")      # the backend package, un-installed (repo root = app\)
 $env:PYTHONUTF8 = "1"
 $env:MPLBACKEND = "Agg"
+# What `conda activate` would set for the geospatial stack (GDAL / PROJ data files).
+$GdalData = Join-Path $EnvDir "Library\share\gdal"
+$ProjLib = Join-Path $EnvDir "Library\share\proj"
+if (Test-Path $GdalData) { $env:GDAL_DATA = $GdalData }
+if (Test-Path $ProjLib) { $env:PROJ_LIB = $ProjLib }
 if (-not $env:CLIMATERISK_BACKEND_PORT) { $env:CLIMATERISK_BACKEND_PORT = "8099" }
 $Port = $env:CLIMATERISK_BACKEND_PORT
 $Url = "http://127.0.0.1:$Port/"
@@ -63,14 +73,14 @@ Get-NetTCPConnection -LocalPort ([int]$Port) -State Listen -ErrorAction Silently
     ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }
 Start-Sleep -Milliseconds 300
 
-Write-Host "> starting climaterisk → $Url"
+Write-Host "> starting climaterisk -> $Url"
 $proc = Start-Process -FilePath $Python -PassThru -NoNewWindow -ArgumentList @(
     "-m", "uvicorn", "climaterisk.api.main:app", "--host", "127.0.0.1", "--port", $Port
 )
 try {
     $ok = $false
     for ($i = 0; $i -lt 120; $i++) {
-        if ($proc.HasExited) { Fail "the server stopped right after starting — see the messages above" }
+        if ($proc.HasExited) { Fail "the server stopped right after starting - see the messages above" }
         try {
             Invoke-WebRequest -Uri "${Url}api/health" -UseBasicParsing -TimeoutSec 2 | Out-Null
             $ok = $true; break
@@ -78,7 +88,8 @@ try {
     }
     if (-not $ok) { Fail "the server did not answer within 60 s" }
     Write-Host "> open $Url   (close this window to stop)"
-    Start-Process $Url
+    # CLIMATERISK_NO_BROWSER=1: do not open a browser (smoke tests, remote sessions).
+    if (-not $env:CLIMATERISK_NO_BROWSER) { Start-Process $Url }
     Wait-Process -Id $proc.Id
 } finally {
     if ($proc -and -not $proc.HasExited) { & taskkill /PID $proc.Id /T /F 2>$null | Out-Null }

@@ -56,9 +56,11 @@ def test_bundle_launcher_only_sets_settings_the_backend_knows() -> None:
 
     text = (BUNDLE / "start.ps1").read_text(encoding="utf-8")
     used = set(re.findall(r"CLIMATERISK_([A-Z0-9_]+)", text))
-    known = {name.upper() for name in Settings.model_fields} | {
-        v.removeprefix("CLIMATERISK_") for v in paths.WORKER_ENV_VARS
-    }
+    known = (
+        {name.upper() for name in Settings.model_fields}
+        | {v.removeprefix("CLIMATERISK_") for v in paths.WORKER_ENV_VARS}
+        | {"NO_BROWSER"}  # launcher-only: skip opening the browser (smoke tests)
+    )
     unknown = sorted(used - known)
     assert not unknown, f"start.ps1 sets settings the backend does not read: {unknown}"
     # the launcher relies on these exact mechanisms
