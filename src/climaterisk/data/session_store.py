@@ -11,6 +11,7 @@ concurrent access from FastAPI's threadpool and the future CLIMADA worker).
 from __future__ import annotations
 
 import sqlite3
+import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -18,6 +19,10 @@ from pathlib import Path
 
 from climaterisk.core.entities import Portfolio
 from climaterisk.logger import get_logger
+
+#: Serialises schema initialisation across the stores that share ``app.db`` (session and
+#: run store) when first requests arrive concurrently in the threadpool.
+_SCHEMA_LOCK = threading.Lock()
 
 logger = get_logger(__name__)
 
@@ -39,7 +44,6 @@ class SessionStore:
         conn = sqlite3.connect(self._db_path, timeout=30.0)
         conn.row_factory = sqlite3.Row
         try:
-            conn.execute("PRAGMA journal_mode=WAL;")
             conn.execute("PRAGMA foreign_keys=ON;")
             yield conn
             conn.commit()
@@ -47,7 +51,12 @@ class SessionStore:
             conn.close()
 
     def _init_schema(self) -> None:
-        with self._connect() as conn:
+        # The journal mode is a property of the file, set once here under a process-wide
+        # lock — never per connection: switching to WAL fails with "database is locked"
+        # (the busy timeout does not apply) when another connection is open, which is
+        # exactly what two first requests on a fresh database do.
+        with _SCHEMA_LOCK, self._connect() as conn:
+            conn.execute("PRAGMA journal_mode=WAL;")
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS sessions (

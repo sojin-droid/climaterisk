@@ -15,6 +15,10 @@ frontend/climaterisk/dist/
 
 # Runtime data (sessions, jobs, run results) — not committed
 data/sessions/
+# Browser-test backend state (playwright.config.ts points CLIMATERISK_DATA_DIR here)
+data/e2e/
+frontend/climaterisk/test-results/
+frontend/climaterisk/playwright-report/
 data/*.db
 data/*.db-wal
 data/*.db-shm

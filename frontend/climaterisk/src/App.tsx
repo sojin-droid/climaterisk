@@ -27,6 +27,11 @@ export function App() {
   const [sync, setSync] = useState<"idle" | "saving" | "error">("idle");
   const initialLoad = useRef(true);
   const saveTimer = useRef<number | undefined>(undefined);
+  // The JSON the server is known to hold. Autosave only when the model differs from it, so
+  // a model that merely arrived from the server (a second bootstrap under React StrictMode,
+  // a reload) never schedules a PUT. A stale PUT of an unchanged model could otherwise land
+  // after a server-side change — e.g. the asset import endpoint — and silently wipe it.
+  const lastSynced = useRef<string | null>(null);
 
   // Bootstrap: load libraries + the session model, dropping any unsupported perils
   // that a previous session may have persisted (e.g. river_flood before Phase 2+).
@@ -43,8 +48,15 @@ export function App() {
         ? { ...portfolio, run_config: { ...portfolio.run_config, perils } }
         : portfolio;
       setLibraries(libs);
+      lastSynced.current = JSON.stringify(changed ? portfolio : model);
       setModel(model);
-      if (changed) saveModel(model).catch(() => {});
+      if (changed) {
+        saveModel(model)
+          .then(() => {
+            lastSynced.current = JSON.stringify(model);
+          })
+          .catch(() => {});
+      }
     })().catch((e) => {
       console.error("bootstrap failed", e);
     });
@@ -57,11 +69,16 @@ export function App() {
       initialLoad.current = false;
       return;
     }
+    const json = JSON.stringify(model);
+    if (json === lastSynced.current) return; // nothing the server does not already hold
     window.clearTimeout(saveTimer.current);
     setSync("saving");
     saveTimer.current = window.setTimeout(() => {
       saveModel(model)
-        .then(() => setSync("idle"))
+        .then(() => {
+          lastSynced.current = json;
+          setSync("idle");
+        })
         .catch(() => setSync("error"));
     }, 600);
     return () => window.clearTimeout(saveTimer.current);
