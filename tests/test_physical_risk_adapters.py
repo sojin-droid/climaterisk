@@ -352,7 +352,7 @@ def test_ten_assets_times_three_hazards_batch_under_korea_local(tmp_path) -> Non
     assert statuses["HW"] in ("HAZARD_ONLY", "NO_HAZARD_DATA")
     import json
 
-    prog = json.loads((tmp_path / "progress.json").read_text())
+    prog = json.loads((tmp_path / "progress.json").read_text(encoding="utf-8"))
     assert prog["total"] == 30 and prog["done"] == 30
 
 

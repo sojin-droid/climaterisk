@@ -226,7 +226,8 @@ def test_scripts_run_from_a_foreign_working_directory(tmp_path: Path) -> None:
         cwd=tmp_path,
         env=env,
         capture_output=True,
-        text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=120,
     )
     assert out.returncode == 0, out.stderr
@@ -237,7 +238,8 @@ def test_scripts_run_from_a_foreign_working_directory(tmp_path: Path) -> None:
         cwd=tmp_path,
         env=env,
         capture_output=True,
-        text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=120,
     )
     assert help_.returncode == 0, help_.stderr
@@ -281,7 +283,7 @@ def test_no_runtime_file_names_an_obsolete_path() -> None:
 def test_only_the_paths_module_spells_the_climada_default() -> None:
     pat = re.compile(r'Path\.home\(\)\s*/\s*"climada"')
     hits = [
-        str(p.relative_to(REPO))
+        p.relative_to(REPO).as_posix()
         for p in _runtime_files()
         if pat.search(p.read_text(encoding="utf-8", errors="ignore"))
     ]
@@ -301,9 +303,29 @@ def _load_migrator():  # type: ignore[no-untyped-def]
     return mod
 
 
+def _require_symlinks(tmp_path: Path) -> None:
+    """Skip when the OS refuses symlinks (Windows without Developer Mode / admin rights).
+
+    The ``symlink`` migration method is then unavailable by design — the migrator reports
+    it and ``copy`` / ``clone`` still work — so these two tests have nothing to verify.
+    """
+    probe_target = tmp_path / "_symlink_probe_target"
+    probe_target.mkdir(exist_ok=True)
+    probe = tmp_path / "_symlink_probe"
+    try:
+        os.symlink(probe_target, probe, target_is_directory=True)
+    except OSError as exc:  # WinError 1314: a required privilege is not held
+        pytest.skip(f"symlinks not permitted on this host: {exc}")
+    finally:
+        if probe.is_symlink():
+            probe.unlink()
+        probe_target.rmdir()
+
+
 def test_migrator_links_and_copies_without_touching_the_legacy_tree(
     isolated: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    _require_symlinks(tmp_path)
     monkeypatch.setenv(paths.ENV_DATA_ROOT, str(isolated))
     old = tmp_path / "old"
     kma = old / "kma"
@@ -366,6 +388,7 @@ def test_migrator_clone_replaces_symlinks_with_verified_physical_files(
     download ledger is copied with its absolute paths rewritten; a manifest is written."""
     import sqlite3
 
+    _require_symlinks(tmp_path)
     monkeypatch.setenv(paths.ENV_DATA_ROOT, str(isolated))
     old = tmp_path / "climada_data"
     kma = old / "kma"

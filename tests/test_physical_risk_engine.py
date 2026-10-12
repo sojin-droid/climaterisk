@@ -289,7 +289,7 @@ def test_legacy_and_direct_climada_flood_curves_differ_and_the_reason_is_the_cur
     assert np.asarray(direct.intensity).size == 11
 
     presets = json.loads(
-        (REPO / "assets" / "libraries" / "impact_function_presets.json").read_text()
+        (REPO / "assets" / "libraries" / "impact_function_presets.json").read_text(encoding="utf-8")
     )
     items = presets.get("presets", presets)
     items = items if isinstance(items, list) else list(items.values())

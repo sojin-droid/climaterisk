@@ -1,0 +1,56 @@
+# Backend + frontend checks on Linux and Windows — the gate CLAUDE.md's
+# "feature branch → PR → CI green → merge" workflow assumes.
+#
+# The CLIMADA worker env (conda, several GB) is NOT built here: every CLIMADA-dependent
+# test skips itself (pytest.importorskip), exactly as in `uv run pytest` locally.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: backend (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install (pyproject + uv.lock are the single source of truth)
+        run: uv sync --all-extras --locked
+      - name: Lint
+        run: uv run ruff check .
+      - name: Format
+        run: uv run ruff format --check .
+      - name: Type-check
+        run: uv run mypy src/
+      - name: Test (CLIMADA-free; worker tests skip themselves)
+        run: uv run pytest -q -p no:cacheprovider -W error::SyntaxWarning
+
+  frontend:
+    name: frontend (tsc)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend/climaterisk
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/climaterisk/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build

@@ -54,6 +54,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+import _console  # noqa: F401  (UTF-8 console; see scripts/_console.py)
+
 REPO = Path(__file__).resolve().parents[1]
 if str(REPO / "src") not in sys.path:
     sys.path.insert(0, str(REPO / "src"))
@@ -412,7 +414,13 @@ def apply(it: Item, method: str) -> None:
         if action == "link":
             if dst.exists():
                 dst.rmdir()  # an empty real directory only (checked above)
-            os.symlink(src, dst, target_is_directory=src.is_dir())
+            try:
+                os.symlink(src, dst, target_is_directory=src.is_dir())
+            except OSError as exc:  # Windows: needs Developer Mode or admin rights
+                raise SystemExit(
+                    f"cannot create symlink {dst} -> {src}: {exc}. "
+                    "Enable Developer Mode (Windows) or use --method copy / clone."
+                ) from exc
             print(f"  linked {dst} -> {src}")
         elif action == "copytree":
             shutil.copytree(src, dst, dirs_exist_ok=True)

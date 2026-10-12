@@ -40,7 +40,9 @@ def test_risk_bands_come_from_config_not_from_code() -> None:
     import ast
 
     cfg = load_config()
-    tree = ast.parse((REPO / "src" / "climaterisk" / "physical_risk" / "metrics.py").read_text())
+    tree = ast.parse(
+        (REPO / "src" / "climaterisk" / "physical_risk" / "metrics.py").read_text(encoding="utf-8")
+    )
     literals = {
         node.value
         for node in ast.walk(tree)

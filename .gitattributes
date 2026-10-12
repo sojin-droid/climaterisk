@@ -1,0 +1,17 @@
+# One checkout, every OS: LF in the repository and in the working tree, so checksums,
+# string comparisons and diffs do not depend on core.autocrlf. Exceptions below.
+* text=auto eol=lf
+
+# The csv module writes RFC-4180 CRLF; keep these byte-exact as generated.
+*.csv -text
+
+# Windows launchers must stay CRLF for cmd.exe.
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary assets — never normalised.
+*.png binary
+*.jpg binary
+*.hdf5 binary
+*.tif binary
+*.zip binary

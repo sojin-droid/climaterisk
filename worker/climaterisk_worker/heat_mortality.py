@@ -288,7 +288,7 @@ def heat_onset_percentile(country: str | None) -> tuple[float, bool]:
 def heat_onset_from_distribution(
     daily_temperature: np.ndarray, country: str | None = None
 ) -> np.ndarray:
-    """Heat-onset threshold per cell, read off each cell's own summer distribution.
+    r"""Heat-onset threshold per cell, read off each cell's own summer distribution.
 
     Algorithm:
         $$ H_c = Q_{p}\bigl(\{T_{c,y,d}\}_{y,d}\bigr) $$
@@ -1082,7 +1082,7 @@ def build_hazard(
 
 @lru_cache(maxsize=1)
 def adaptation_fit() -> tuple[float, float]:
-    """Heat-onset threshold as a function of local climate, with a **published** slope.
+    r"""Heat-onset threshold as a function of local climate, with a **published** slope.
 
     The slope is not fitted here. It is the observed spatial adaptation of the
     minimum-mortality temperature reported by Tobías et al. (2021, *Environ Epidemiol*
