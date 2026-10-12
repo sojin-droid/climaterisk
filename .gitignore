@@ -17,6 +17,8 @@ frontend/climaterisk/dist/
 data/sessions/
 # Browser-test backend state (playwright.config.ts points CLIMATERISK_DATA_DIR here)
 data/e2e/
+# Windows bundle scratch + output (scripts/make_windows_bundle.ps1): multi-GB, machine-built
+build/
 frontend/climaterisk/test-results/
 frontend/climaterisk/playwright-report/
 data/*.db

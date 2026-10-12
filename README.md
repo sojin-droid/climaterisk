@@ -98,7 +98,14 @@ checkout's path, so rebuild it if you move the repository, and keep the checkout
 `~/Downloads`, `~/Desktop` and `~/Documents`** — macOS blocks app access to those folders, and
 the servers then fail with `Operation not permitted`. Log: `~/Library/Logs/PhysicalRisk.log`.
 
-On Windows, double-click `run.bat` (or run `powershell -ExecutionPolicy Bypass -File run.ps1`
+**Windows: a no-install bundle.** `scripts\make_windows_bundle.ps1` builds
+`build\climaterisk-win64-<version>.zip` — one conda-pack environment (CLIMADA + the backend's
+dependencies), the program, the built UI served by the backend, and a double-clickable
+launcher; the target machine needs neither uv, Node nor conda. Unzip into a **short path**
+(e.g. `C:\climaterisk`) and start `Start climaterisk.bat`. Details and constraints:
+[docs/WINDOWS_BUNDLE.md](docs/WINDOWS_BUNDLE.md).
+
+On Windows (developer checkout), double-click `run.bat` (or run `powershell -ExecutionPolicy Bypass -File run.ps1`
 from a terminal) — same behavior: stops stale servers, installs missing deps, starts both
 servers, waits for the backend health check, then opens the app. On Windows the worker env
 check looks for `.climada-env\python.exe`.

@@ -86,6 +86,15 @@ def create_app() -> FastAPI:
     api.include_router(data.router)
     app.include_router(api)
 
+    # The built single-page UI, served by the backend itself (Windows bundle; any run without
+    # the Vite dev server). Mounted last so /api/* keeps precedence over the static files.
+    ui = settings.resolve_ui_dir()
+    if ui is not None:
+        from fastapi.staticfiles import StaticFiles
+
+        app.mount("/", StaticFiles(directory=str(ui), html=True), name="ui")
+        logger.info("serving the built UI from %s", ui)
+
     logger.info("climaterisk API ready on %s:%d", settings.backend_host, settings.backend_port)
     return app
 

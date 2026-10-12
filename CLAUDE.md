@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 Scientific modelling project (data science / energy / finance / economic).
-Docs: `docs/ARCHITECTURE.md` (structure), `docs/DATA_LAYOUT.md` (repo vs `CLIMATERISK_DATA_ROOT`, path inventory; `src/climaterisk/paths.py` is the only path authority), `docs/METHODOLOGY.md` + `docs/CLIMADA_METHODS.md` (methods, native-vs-custom audit), `docs/CLIMADA_COVERAGE.md`, `docs/GAP_ANALYSIS_KO.md`, `docs/RISK_REGISTER.md`, `docs/SCOPE.md` (use tier per peril), `docs/ADDING_A_PERIL.md` (checklist for a new peril), `docs/USER_GUIDE.md`.
+Docs: `docs/ARCHITECTURE.md` (structure), `docs/DATA_LAYOUT.md` (repo vs `CLIMATERISK_DATA_ROOT`, path inventory; `src/climaterisk/paths.py` is the only path authority), `docs/METHODOLOGY.md` + `docs/CLIMADA_METHODS.md` (methods, native-vs-custom audit), `docs/CLIMADA_COVERAGE.md`, `docs/GAP_ANALYSIS_KO.md`, `docs/RISK_REGISTER.md`, `docs/SCOPE.md` (use tier per peril), `docs/ADDING_A_PERIL.md` (checklist for a new peril), `docs/WINDOWS_BUNDLE.md` (no-install zip), `docs/USER_GUIDE.md`.
 
 ## Commands
 
