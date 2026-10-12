@@ -179,6 +179,7 @@ def test_non_expert_views_read_the_evidence_the_way_the_ui_does(evidence) -> Non
 def test_excel_from_the_evidence_keeps_zero_blank_and_status_apart(evidence) -> None:  # type: ignore[no-untyped-def]
     wb = load_workbook(io.BytesIO(xl.workbook_bytes(evidence)))
     assert wb.sheetnames == [
+        "Portfolio Totals",
         "Portfolio Summary",
         "Asset Risk Matrix",
         "Hazard Results",

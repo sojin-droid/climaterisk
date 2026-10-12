@@ -232,6 +232,66 @@ def test_writer_refuses_frames_without_the_identity_columns() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# Aggregate tier — Portfolio Totals                                            #
+# --------------------------------------------------------------------------- #
+def test_portfolio_totals_sums_only_priced_eal_and_never_a_return_period_loss() -> None:
+    out = _output()  # two facilities; the recommended scope for RF and TC is DATA_API_COUNTRY
+    wb = _book(out)
+    assert wb.sheetnames[0] == "Portfolio Totals"
+    totals = {r["Hazard"]: r for r in _sheet_rows(wb["Portfolio Totals"])}
+    header = set(totals["Flood"])
+    assert not any("Potential" in c or "100" in c for c in header)  # never summed
+    assert "Baseline EAL" not in header  # no baseline scenario was run
+    flood = totals["Flood"]
+    assert flood["Assets Assessed"] == 2 and flood["Priced"] == 2
+    assert flood["Total EAL"] == pytest.approx(90_000.0 + 180_000.0)  # country rows, not global
+    assert flood["Priced Asset Value"] == pytest.approx(200_000_000.0)
+    assert flood["Total EAL / Assets"] == pytest.approx(270_000.0 / 200_000_000.0 * 100.0)
+    heat = totals["Heatwave"]
+    assert heat["Priced"] == 0 and heat["Hazard Only"] == 2
+    assert heat["Total EAL"] is None and heat["Priced Asset Value"] is None  # empty, never 0
+    overall = totals["All priced hazards"]
+    assert overall["Assets Assessed"] == 2 and overall["Priced"] == 2  # a point counts once
+    assert overall["Hazard Only"] == 0  # both points are priced for another hazard
+    assert overall["Total EAL"] == pytest.approx(270_000.0 + 2 * 3_576.18)
+    assert overall["Priced Asset Value"] == pytest.approx(200_000_000.0)
+    assert list(totals) == ["Flood", "Typhoon", "Heatwave", "All priced hazards"]
+
+
+def test_portfolio_totals_pairs_present_and_future_within_the_same_scope_only() -> None:
+    fut = {"scenario": "rcp85", "requested_scenario": "rcp85", "served_scenario": "rcp85"}
+    hist = {
+        "scenario": "historical",
+        "requested_scenario": "historical",
+        "served_scenario": "historical",
+    }
+    rows = [
+        _priced("F1", "TC", C, 150.0, 1000.0, **fut),
+        _priced("F2", "TC", C, 300.0, 1000.0, **fut),
+    ]
+    baseline = [
+        _priced("F1", "TC", C, 100.0, 900.0, **hist),
+        _priced("F2", "TC", G, 100.0, 900.0, **hist),  # another scope: never paired with C
+    ]
+    out = _output(0)
+    out["rows"] = [r.to_dict() for r in rows]
+    out["baseline_rows"] = [r.to_dict() for r in baseline]
+    out["baseline_scenario"] = "historical"
+    totals = {r["Hazard"]: r for r in _sheet_rows(_book(out)["Portfolio Totals"])}
+    tc = totals["Typhoon"]
+    assert tc["Total EAL"] == pytest.approx(450.0)  # both future points
+    assert tc["Pairs Compared"] == 1
+    assert tc["Baseline EAL"] == pytest.approx(100.0)
+    assert tc["Future EAL (paired)"] == pytest.approx(150.0)  # F2 left out of both paired sums
+    assert tc["EAL Change %"] == pytest.approx(50.0)
+    flood = totals["Flood"]
+    assert flood["Pairs Compared"] == 0
+    assert flood["Baseline EAL"] is None and flood["EAL Change %"] is None  # empty, never 0
+    overall = totals["All priced hazards"]
+    assert overall["Pairs Compared"] == 1 and overall["EAL Change %"] == pytest.approx(50.0)
+
+
+# --------------------------------------------------------------------------- #
 # Same-model climate multipliers                                               #
 # --------------------------------------------------------------------------- #
 def test_attach_climate_multipliers_pairs_within_a_model_only() -> None:

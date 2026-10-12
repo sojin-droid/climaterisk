@@ -496,12 +496,40 @@ def _output(rows: list[ResultRow], target: str = "MUNICIPALITY") -> dict:  # typ
     }
 
 
+def test_province_summary_counts_bands_and_adds_no_money() -> None:
+    frames = xl.frames_from_output(_output(_run_rows()))
+    prov = {r["Province"]: r for r in frames["province_summary"]}
+    header = set(next(iter(prov.values())))
+    assert not any("EAL" in c or "Asset" in c or "Loss" in c for c in header)  # counts only
+    gwangju = prov[mu.by_id([GWANGJU])[0].province_name]
+    assert gwangju["Municipalities Assessed"] == 1
+    assert gwangju["Includes Province Point"] == "Yes"  # the 시도 point counts under itself
+    assert gwangju["Flood High"] == 1 and gwangju["Flood Highest Risk"] == "High"
+    assert gwangju["Tropical Cyclone Highest Risk"] == "Low"
+    assert gwangju["Heatwave Assessed"] == 1
+    assert gwangju["Heatwave Tmax p95 max (°C)"] == pytest.approx(37.8)
+    seoul = prov[mu.by_id([SEOUL])[0].province_name]
+    assert seoul["Flood Not Priced"] == 1 and seoul["Flood Highest Risk"] is None  # no value
+    assert seoul["Flood High"] == 0 and seoul["Flood Low"] == 0
+    busan = prov[mu.by_id([BUSAN])[0].province_name]
+    assert busan["Flood Low"] == 1 and busan["Flood Highest Risk"] == "Low"  # computed zero
+    # Portfolio Totals in municipality mode: counts over municipalities, money only where valued
+    totals = {r["Hazard"]: r for r in frames["portfolio_totals"]}
+    flood = totals["Flood"]
+    assert flood["Municipalities Assessed"] == 3 and flood["Priced"] == 2
+    assert flood["Not Available"] == 1  # Seoul: no asset value supplied
+    assert flood["Total EAL"] == pytest.approx(597_066.6 + 0.0)
+    assert flood["Priced Asset Value"] == pytest.approx(140e6)
+
+
 def test_municipality_workbook_has_the_required_sheets_and_blank_unpriced_cells() -> None:
     out = _output(_run_rows())
     frames = xl.frames_from_output(out)
-    assert list(frames)[:5] == [
+    assert list(frames)[:7] == [
+        "portfolio_totals",
         "municipality_summary",
         "municipality_risk_matrix",
+        "province_summary",
         "hazard_results",
         "spatial_resolution",
         "hazard_coverage",
@@ -574,8 +602,14 @@ def test_facility_workbook_is_unchanged_by_v02() -> None:
         served_scenario="rcp85",
     ).finalise()
     frames = xl.frames_from_output(_output([row], "FACILITY"))
-    assert list(frames)[:3] == ["portfolio_summary", "asset_risk_matrix", "hazard_results"]
+    assert list(frames)[:4] == [
+        "portfolio_totals",
+        "portfolio_summary",
+        "asset_risk_matrix",
+        "hazard_results",
+    ]
     assert "municipality_summary" not in frames and "spatial_resolution" not in frames
+    assert "province_summary" not in frames  # the 시도 tier is a municipality view
     assert frames["hazard_results"][0]["assessment_target"] == "FACILITY"
 
 

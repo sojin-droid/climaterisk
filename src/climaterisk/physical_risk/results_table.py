@@ -20,7 +20,9 @@ from climaterisk.physical_risk.metrics import (
     MODEL_DEFINITIONS,
     ModelId,
     ResultRow,
+    change_pct,
     compare_models,
+    eal_as_pct_of_assets,
     load_config,
     relabel_comparison,
 )
@@ -291,17 +293,21 @@ def export_frames(
     rows: Iterable[ResultRow | dict[str, Any]],
     config: dict[str, Any] | None = None,
     target: str = "FACILITY",
+    baseline_rows: Iterable[ResultRow | dict[str, Any]] | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
-    """Every export frame, keyed by frame name (the two non-expert views first).
+    """Every export frame, keyed by frame name (the aggregate tier and non-expert views first).
 
     ``target = "MUNICIPALITY"`` swaps the two non-expert sheets for their municipality
-    forms and adds *Spatial Resolution* and *Hazard Coverage*; the Global comparison sheets
-    are kept only when a Global run actually exists in ``rows``.
+    forms and adds *Province Summary*, *Spatial Resolution* and *Hazard Coverage*; the
+    Global comparison sheets are kept only when a Global run actually exists in ``rows``.
+    ``baseline_rows`` (the same-model baseline run, when one was made) gives *Portfolio
+    Totals* its paired present-vs-future columns.
     """
     rs = _as_rows(rows)
     from climaterisk.physical_risk.display_copy import recommended_models
 
     preferred = recommended_models()
+    totals = portfolio_totals_frame(rs, baseline_rows, preferred, target=target)
     comparisons = {
         "global_vs_country": comparison_frame(
             rs, ModelId.GLOBAL_BASELINE.value, ModelId.DATA_API_COUNTRY.value, "country"
@@ -312,8 +318,10 @@ def export_frames(
     }
     if target == "MUNICIPALITY":
         frames: dict[str, list[dict[str, Any]]] = {
+            "portfolio_totals": totals,
             "municipality_summary": municipality_summary_frame(rs, preferred),
             "municipality_risk_matrix": municipality_risk_matrix_frame(rs, preferred),
+            "province_summary": province_summary_frame(rs, preferred),
             "hazard_results": hazard_results_frame(rs),
             "spatial_resolution": spatial_resolution_frame(rs),
             "hazard_coverage": hazard_coverage_frame(),
@@ -325,6 +333,7 @@ def export_frames(
         frames["methodology"] = methodology_frame(config)
         return frames
     return {
+        "portfolio_totals": totals,
         "portfolio_summary": portfolio_summary_frame(rs, preferred),
         "asset_risk_matrix": asset_risk_matrix_frame(rs, preferred),
         "hazard_results": hazard_results_frame(rs),
@@ -847,3 +856,166 @@ def hazard_coverage_frame() -> list[dict[str, Any]]:
         {k: v for k, v in row.items() if k not in ("hazard_key", "models")}
         for row in coverage_table()
     ]
+
+
+# --------------------------------------------------------------------------- #
+# Aggregate tiers — portfolio totals (top) and province summary (middle)       #
+# --------------------------------------------------------------------------- #
+#: Statuses that mean "assessed, hazard present, nothing priced" (never a data defect).
+_HAZARD_ONLY_STATUSES = frozenset({"HAZARD_ONLY"})
+
+#: Municipality levels of the 시도 tier (their representative point is one of the points
+#: counted under their own province).
+_SIDO_LEVELS = frozenset({"METROPOLITAN", "PROVINCE"})
+
+
+def _sum_or_none(values: list[float]) -> float | None:
+    return float(sum(values)) if values else None
+
+
+def portfolio_totals_frame(
+    rows: Iterable[ResultRow | dict[str, Any]],
+    baseline_rows: Iterable[ResultRow | dict[str, Any]] | None = None,
+    preferred: dict[str, str] | None = None,
+    *,
+    target: str = "FACILITY",
+) -> list[dict[str, Any]]:
+    """The top tier: one line per hazard, then one for all priced hazards together.
+
+    Only **expected annual loss adds across points** (expectation is linear), so it is the
+    only money summed. A return-period loss is deliberately absent: per-point 100-year
+    losses come from different events, and their sum is not a portfolio 100-year loss.
+    Every line says how many points the sum covers (``Priced``) out of how many were
+    assessed, and ``Priced Asset Value`` is the value behind it, so a total over 3 of 30
+    points cannot read as a total over 30. Counts are per point, one primary row per
+    point × hazard (:func:`primary_rows`); the all-hazards line counts a point once.
+
+    With a baseline run the paired columns compare the *same* points under the *same*
+    model in both scenarios — a pair needs both rows priced — and ``EAL Change %`` is
+    ``future / baseline - 1``. Points without a baseline pair are left out of both paired
+    sums, which is why ``Future EAL (paired)`` can be smaller than ``Total EAL``.
+    """
+    rs = _as_rows(rows)
+    prim = primary_rows(rs, preferred)
+    base_prim = primary_rows(_as_rows(baseline_rows or []), preferred)
+    paired = bool(base_prim)
+    point_label = "Municipalities" if target == "MUNICIPALITY" else "Assets"
+    hazards = MUNICIPALITY_HAZARDS if target == "MUNICIPALITY" else PORTFOLIO_HAZARDS
+
+    lines: list[dict[str, Any]] = []
+    all_points: set[str] = set()
+    priced_points: dict[str, float | None] = {}  # point -> its asset value
+    hazard_only_points: set[str] = set()
+    all_eal: list[float] = []
+    all_pairs: list[tuple[float, float]] = []
+    for tag, label in hazards:
+        cells = {fid: r for (fid, h), r in prim.items() if h == tag}
+        priced = {fid: r for fid, r in cells.items() if r.eal_usd is not None}
+        hazard_only = [
+            fid
+            for fid, r in cells.items()
+            if r.eal_usd is None and r.calculation_status in _HAZARD_ONLY_STATUSES
+        ]
+        not_available = len(cells) - len(priced) - len(hazard_only)
+        eal = _sum_or_none([float(r.eal_usd) for r in priced.values() if r.eal_usd is not None])
+        value = _sum_or_none([float(r.asset_value_usd or 0.0) for r in priced.values()])
+        pairs: list[tuple[float, float]] = []
+        for fid, r in priced.items():
+            b = base_prim.get((fid, tag))
+            if b is not None and b.eal_usd is not None and b.model_id == r.model_id:
+                pairs.append((float(b.eal_usd), float(r.eal_usd or 0.0)))
+        line: dict[str, Any] = {
+            "Hazard": label,
+            f"{point_label} Assessed": len(cells),
+            "Priced": len(priced),
+            "Hazard Only": len(hazard_only),
+            "Not Available": not_available,
+            "Priced Asset Value": value,
+            "Total EAL": eal,
+            "Total EAL / Assets": eal_as_pct_of_assets(eal, value),
+        }
+        if paired:
+            b_sum = _sum_or_none([b for b, _ in pairs])
+            f_sum = _sum_or_none([f for _, f in pairs])
+            line |= {
+                "Pairs Compared": len(pairs),
+                "Baseline EAL": b_sum,
+                "Future EAL (paired)": f_sum,
+                "EAL Change %": change_pct(f_sum, b_sum),
+            }
+        lines.append(line)
+        all_points |= set(cells)
+        for fid, r in priced.items():
+            priced_points.setdefault(fid, r.asset_value_usd)
+        hazard_only_points |= set(hazard_only)
+        all_eal += [float(r.eal_usd) for r in priced.values() if r.eal_usd is not None]
+        all_pairs += pairs
+
+    all_value = _sum_or_none([float(v or 0.0) for v in priced_points.values()])
+    all_total = _sum_or_none(all_eal)
+    overall: dict[str, Any] = {
+        "Hazard": "All priced hazards",
+        f"{point_label} Assessed": len(all_points),
+        "Priced": len(priced_points),
+        "Hazard Only": len(hazard_only_points - set(priced_points)),
+        "Not Available": len(all_points - set(priced_points) - hazard_only_points),
+        "Priced Asset Value": all_value,
+        "Total EAL": all_total,
+        "Total EAL / Assets": eal_as_pct_of_assets(all_total, all_value),
+    }
+    if paired:
+        b_sum = _sum_or_none([b for b, _ in all_pairs])
+        f_sum = _sum_or_none([f for _, f in all_pairs])
+        overall |= {
+            "Pairs Compared": len(all_pairs),
+            "Baseline EAL": b_sum,
+            "Future EAL (paired)": f_sum,
+            "EAL Change %": change_pct(f_sum, b_sum),
+        }
+    lines.append(overall)
+    return lines
+
+
+def province_summary_frame(
+    rows: Iterable[ResultRow | dict[str, Any]], preferred: dict[str, str] | None = None
+) -> list[dict[str, Any]]:
+    """The middle tier of a municipality workbook: one line per 시도, counts only.
+
+    A municipality result is a representative-point screening, never an area aggregate,
+    so this sheet adds **no money** across municipalities. Per hazard it says how many of
+    the province's assessed municipalities fall in each band, the highest band among
+    them, how many were not priced, and for heat the highest indicator read. The
+    province's own representative point (a 시도-tier municipality) is one of the points
+    counted under it, flagged in ``Includes Province Point``.
+    """
+    rs = _as_rows(rows)
+    prim = primary_rows(rs, preferred)
+    first = _municipalities(rs)
+    by_province: dict[str, list[str]] = {}
+    for fid, r in first.items():
+        by_province.setdefault(r.province_name or "(unknown)", []).append(fid)
+    out = []
+    for province, fids in sorted(by_province.items()):
+        line: dict[str, Any] = {
+            "Province": province,
+            "Municipalities Assessed": len({first[f].municipality_id or f for f in fids}),
+            "Includes Province Point": "Yes"
+            if any(first[f].municipality_level in _SIDO_LEVELS for f in fids)
+            else "No",
+        }
+        for tag, label in MUNICIPALITY_HAZARDS:
+            cells = [prim[(f, tag)] for f in fids if (f, tag) in prim]
+            if tag == "HW":
+                reads = [c.hazard_intensity for c in cells if c.hazard_intensity is not None]
+                line["Heatwave Assessed"] = len(cells)
+                line["Heatwave Tmax p95 max (°C)"] = max(reads) if reads else None
+                continue
+            levels = [c.risk_level for c in cells if c.risk_level]
+            for level in ("High", "Medium", "Low"):
+                line[f"{label} {level}"] = sum(1 for lv in levels if lv == level)
+            line[f"{label} Highest Risk"] = (
+                max(levels, key=lambda s: _LEVEL_ORDER.get(s, -1)) if levels else None
+            )
+            line[f"{label} Not Priced"] = sum(1 for c in cells if c.risk_level is None)
+        out.append(line)
+    return out

@@ -134,9 +134,10 @@ model) exactly once; **6 adapters** loaded — one per hazard × model, not one 
 
 ## 9. Excel evidence
 
-Workbook from the same rows (`excel_export.workbook_bytes`): sheets **Portfolio Summary,
-Asset Risk Matrix, Hazard Results, Global vs Country, Global vs Korea Local, Methodology,
-Run Info** — no *Climate Change* sheet because no baseline scenario was run.
+Workbook from the same rows (`excel_export.workbook_bytes`): sheets **Portfolio Totals,
+Portfolio Summary, Asset Risk Matrix, Hazard Results, Global vs Country, Global vs Korea
+Local, Methodology, Run Info** — no *Climate Change* sheet because no baseline scenario was
+run (*Portfolio Totals* was added 2026-10-12; the per-row evidence below is unchanged).
 Checked cell by cell (`test_excel_from_the_evidence_keeps_zero_blank_and_status_apart`):
 
 | case | cell | value |

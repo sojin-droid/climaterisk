@@ -202,8 +202,10 @@ would not be reported as "more accurate".
   `GET /api/libraries/physical-risk-models` now also carries `coverage_table`, `coverage_lines`,
   `why_unavailable`, `resolution`, `resolution_note` and the `municipality` copy + dataset summary.
 * **Excel** — `Municipality_Physical_Risk_Report_<N>_Municipalities_<YYYYMMDD>.xlsx` with, in
-  order, *Municipality Summary*, *Municipality Risk Matrix*, *Hazard Results*, *Spatial
-  Resolution*, *Hazard Coverage*, (*Global vs Country* / *Global vs Korea Local* only when a
+  order, *Portfolio Totals* (counts per hazard; EAL summed over municipalities with a
+  supplied value only), *Municipality Summary*, *Municipality Risk Matrix*, *Province
+  Summary* (per 시도: band counts, highest band, heat indicator maximum — no money added
+  across municipalities), *Hazard Results*, *Spatial Resolution*, *Hazard Coverage*, (*Global vs Country* / *Global vs Korea Local* only when a
   Global scope was actually run, *Climate Change* only with a baseline), *Methodology*, *Run Info*.
   Empty cells are unpriced fields; a computed zero is `0`.
 * **CLI** — `scripts/municipality_physical_risk.py` (`municipalities.csv` with `municipality_id`
