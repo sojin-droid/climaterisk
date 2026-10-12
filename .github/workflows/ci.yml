@@ -24,6 +24,8 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # a doc test traces a ramp to its commit with `git log -S`
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true

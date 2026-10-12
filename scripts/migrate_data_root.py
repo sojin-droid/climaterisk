@@ -246,8 +246,13 @@ def _copy_file(src: Path, dst: Path, method: str) -> str:
     """Physical copy of one file (``dst`` must not exist). Returns the mode actually used."""
     dst.parent.mkdir(parents=True, exist_ok=True)
     if method == "clone":
-        r = subprocess.run(["/bin/cp", "-c", "-p", str(src), str(dst)], capture_output=True)
-        if r.returncode == 0:
+        # APFS copy-on-write clone (macOS `cp -c`). Elsewhere /bin/cp is absent (Windows)
+        # or refuses -c (Linux): both fall through to a plain physical copy.
+        try:
+            r = subprocess.run(["/bin/cp", "-c", "-p", str(src), str(dst)], capture_output=True)
+        except OSError:
+            r = None
+        if r is not None and r.returncode == 0:
             return "clone"
     shutil.copy2(src, dst)
     return "copy"
