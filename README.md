@@ -243,7 +243,9 @@ defaults, missing bands, sub-peril combination) with severity and fixes:
 plan and source licences: **[docs/RISK_REGISTER.md](docs/RISK_REGISTER.md)**. **Which results may be
 used for what** — a use tier per peril (S screening / I indicative / D decision-grade; today no
 peril is D), the acute/chronic boundary and the promotion conditions:
-**[docs/SCOPE.md](docs/SCOPE.md)** (한국어, 2026-10-12).
+**[docs/SCOPE.md](docs/SCOPE.md)** (한국어, 2026-10-12). Adding a peril — every file to touch, the
+five design decisions to make first, and the definition of done:
+**[docs/ADDING_A_PERIL.md](docs/ADDING_A_PERIL.md)** (한국어).
 
 
 ## Conference poster
