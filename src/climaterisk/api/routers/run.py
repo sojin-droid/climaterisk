@@ -488,6 +488,25 @@ def submit_ingest(session_id: str, body: IngestBody, store: StoreDep, manager: M
     return manager.submit_ingest(portfolio, body.source, body.peril, scenario, year)
 
 
+@router.post("/{session_id}/dataapi-index", response_model=Run)
+def submit_dataapi_index(session_id: str, store: StoreDep, manager: ManagerDep) -> Run:
+    """Cache the CLIMADA Data API dataset listing for offline reference (worker job).
+
+    Refused in offline mode — the index can only be refreshed while online.
+    """
+    if store.get(session_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="session not found")
+    if get_settings().offline:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "offline mode (CLIMATERISK_OFFLINE=1): the Data API index can only be "
+                "refreshed while online"
+            ),
+        )
+    return manager.submit_dataapi_index(session_id)
+
+
 @router.get("/{session_id}/latest-runs", response_model=dict[str, Run])
 def get_latest_runs(session_id: str, store: StoreDep, manager: ManagerDep) -> dict[str, Run]:
     """The most recent finished run of each kind, so a reloaded page can re-attach.

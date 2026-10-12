@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { CircleMarker, MapContainer, TileLayer, Tooltip, useMap } from "react-leaflet";
+import { useOffline } from "../lib/offline";
 import { LatLngBounds } from "leaflet";
 import type { AssetImpact } from "../types";
 import { money } from "../lib/format";
@@ -51,16 +52,19 @@ export function ResultsMap({
   /** Overrides currency formatting — health/index perils are not money. */
   format?: (value: number) => string;
 }) {
+  const offline = useOffline();
   const fmt = format ?? ((v: number) => money(v, currency));
   const maxEai = Math.max(1, ...impacts.map((a) => a.eai));
 
   return (
     <div style={{ height: 320, borderRadius: 8, overflow: "hidden", border: "1px solid var(--border)" }}>
       <MapContainer center={[20, 15]} zoom={2} scrollWheelZoom style={{ height: "100%" }}>
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        />
+        {!offline && (
+          <TileLayer
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          />
+        )}
         <FitBounds impacts={impacts} />
         {impacts.map((a) => {
           const frac = a.eai / maxEai;

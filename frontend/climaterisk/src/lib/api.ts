@@ -11,6 +11,7 @@ import type {
   Libraries,
   MeasureSpec,
   MunicipalitiesResponse,
+  OfflineStatus,
   OpenDataFetchResult,
   PhysicalRiskModelsBody,
   PhysicalRiskReadiness,
@@ -104,6 +105,20 @@ export async function getLibraries(): Promise<Libraries> {
 
 export async function getKoreaStatus(): Promise<KoreaStatus> {
   return http<KoreaStatus>("/api/status/korea");
+}
+
+/** The backend's mode flag (``offline``) from the liveness probe. */
+export async function getHealth(): Promise<{ status: string; version: string; offline: boolean }> {
+  return http<{ status: string; version: string; offline: boolean }>("/api/health");
+}
+
+export async function getOfflineStatus(): Promise<OfflineStatus> {
+  return http<OfflineStatus>("/api/status/offline");
+}
+
+/** Refresh the cached Data API listing (a worker job; refused by the server when offline). */
+export async function submitDataApiIndex(sessionId: string): Promise<Run> {
+  return http<Run>(`/api/session/${sessionId}/dataapi-index`, { method: "POST" });
 }
 
 export async function getHazardCatalog(): Promise<HazardCatalog> {

@@ -13,6 +13,8 @@ Base path: `/api` (the Vite dev server proxies it to the backend on port 8099).
 | GET | `/api/libraries/asset-templates` | The three asset templates (columns, required, notes, download URL) |
 | GET | `/api/libraries/asset-templates/{kind}.xlsx` | Download a template (README + `assets` sheet with example rows) |
 | POST | `/api/session/{id}/run` | Submit a physical-risk run (spawns the CLIMADA worker; poll `GET …/run/{run_id}`) |
+| GET | `/api/status/offline` | Offline readiness: local catalog layers per peril, drop-in files, the cached Data API index, online-only features with their offline behaviour |
+| POST | `/api/session/{id}/dataapi-index` | Cache the CLIMADA Data API dataset listing (metadata only; a worker job, refused when `CLIMATERISK_OFFLINE=1`) |
 | GET | `/api/libraries` | All bundled libraries (sectors, perils, scenarios, impact_functions) |
 | GET | `/api/libraries/{name}` | A single named library (404 if unknown) |
 

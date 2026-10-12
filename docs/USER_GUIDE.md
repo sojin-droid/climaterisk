@@ -163,6 +163,27 @@ directory is CLIMADA's own (default `~/climada/data`). Details: [DATA_LAYOUT.md]
 Vulnerability curves are global defaults until calibrated on national loss records; results for a
 new country should be read as *relative* until then (`RISK_REGISTER.md` §C).
 
+## 7a. Offline / closed network
+
+Set `CLIMATERISK_OFFLINE=1` in `.env` (or the shell) on a machine without network access.
+Then:
+
+- the worker uses the **local hazard catalog only** — a peril without a layer for your region
+  and scenario fails at once with "cache it first" instead of a network timeout;
+- *Download here* and *Fetch & ingest* on the Data tab are refused with a message;
+- maps draw assets, municipalities and results on a plain background (OpenStreetMap's tile
+  policy does not allow bundling tiles), and *Search location* is disabled.
+
+**Prepare while online** — Data tab → *Offline readiness* lists what is present:
+
+1. Ingest the hazards you need (*Fetch & ingest*, or `scripts/build_hazard.py cache|ingest`).
+2. Download the drop-ins the card lists (WorldPop, E-OBS, Natural Earth, GPW if you have the
+   login; KMA archives for Korean heat).
+3. *Refresh* the Data API index (`scripts/build_hazard.py index`) so the card can still tell
+   you what the API offers.
+4. Copy the data root (`CLIMATERISK_DATA_ROOT`, see `docs/DATA_LAYOUT.md`) to the offline
+   machine and set the flag.
+
 ## 8. Troubleshooting
 
 | Symptom | Cause / fix |

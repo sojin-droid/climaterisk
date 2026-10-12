@@ -96,6 +96,15 @@ def cmd_ingest(args: argparse.Namespace) -> None:
     print(result.get("detail") or result.get("status"))
 
 
+def cmd_index(args: argparse.Namespace) -> None:
+    from climaterisk_worker.dataapi_index import DEFAULT_TYPES, build_index
+
+    index = build_index(tuple(args.data_type) if args.data_type else DEFAULT_TYPES)
+    print(f"cached Data API index: {index['n_datasets']} datasets -> {index['path']}")
+    for dt, err in index["errors"].items():
+        print(f"  {dt}: {err}")
+
+
 def cmd_list(_args: argparse.Namespace) -> None:
     entries = catalog.load_manifest()
     print(f"{len(entries)} catalog entries in {catalog.catalog_dir()}")
@@ -143,6 +152,12 @@ def main() -> None:
     pi.add_argument("--year", type=int, required=True)
     pi.add_argument("--point", action="append", required=True, help="lat,lon (repeatable)")
     pi.set_defaults(func=cmd_ingest)
+
+    px = sub.add_parser(
+        "index", help="cache the Data API dataset listing (metadata) for offline reference"
+    )
+    px.add_argument("--data-type", action="append", help="limit to these types (repeatable)")
+    px.set_defaults(func=cmd_index)
 
     pl = sub.add_parser("list", help="list catalog entries")
     pl.set_defaults(func=cmd_list)

@@ -84,6 +84,15 @@ def _download(url: str, dest_dir: Path, unzip: bool) -> dict[str, Any]:
 
 def fetch_source(source_id: str, country: str | None = None) -> dict[str, Any]:
     """Download a curated open-data source by id, placing it at its declared destination."""
+    if get_settings().offline:
+        return {
+            "status": "error",
+            "source": source_id,
+            "detail": (
+                "offline mode (CLIMATERISK_OFFLINE=1): downloads are refused — copy the file in "
+                "from an online machine (Data tab → Offline readiness lists where it goes)"
+            ),
+        }
     sources = load_libraries()["data_sources"]["sources"]
     src = next((s for s in sources if s.get("id") == source_id), None)
     if src is None:

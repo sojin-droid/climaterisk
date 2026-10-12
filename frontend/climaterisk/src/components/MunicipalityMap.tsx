@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { CircleMarker, MapContainer, TileLayer, Tooltip, useMap } from "react-leaflet";
+import { useOffline } from "../lib/offline";
 import { LatLngBounds } from "leaflet";
 import type { Municipality } from "../types";
 
@@ -102,14 +103,17 @@ export function MunicipalityMap({
   /** Legend text for the office marker. */
   officeLabel?: string;
 }) {
+  const offline = useOffline();
   return (
     <div>
       <div style={{ height, borderRadius: 8, overflow: "hidden", border: "1px solid var(--border)" }}>
         <MapContainer center={KOREA_CENTER} zoom={7} scrollWheelZoom style={{ height: "100%" }}>
-          <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          />
+          {!offline && (
+            <TileLayer
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            />
+          )}
           <FitTo points={points} offices={offices} activeId={activeId} />
           {points.map((m) => {
             const s = statusOf(m);

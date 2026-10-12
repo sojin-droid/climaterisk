@@ -25,7 +25,7 @@ from __future__ import annotations
 from typing import Any, NamedTuple
 
 from climaterisk_worker import catalog
-from climaterisk_worker._params import MASK_BUFFER_DEG
+from climaterisk_worker._params import MASK_BUFFER_DEG, offline
 from climaterisk_worker._params import (
     RF_SCENARIO_MAP as _RF_SCENARIO_MAP,
 )
@@ -592,6 +592,15 @@ _REFINERS = {
 def run_ingest(request: dict[str, Any]) -> dict[str, Any]:
     """Dispatch an ingest request, register hazard entries in the catalog, and report it."""
     source = request.get("source", "")
+    if offline():
+        return {
+            "status": "error",
+            "source": source,
+            "detail": (
+                "offline mode (CLIMATERISK_OFFLINE): ingestion downloads from the network and "
+                "is refused — run it while online, the result is a file in the catalog"
+            ),
+        }
     refiner = _REFINERS.get(source)
     if refiner is None:
         return {"status": "error", "source": source, "detail": f"unknown ingest source '{source}'"}

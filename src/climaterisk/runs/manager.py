@@ -90,6 +90,8 @@ class RunManager:
             # env → .env → default in climaterisk.paths — never from the worker's cwd.
             **paths.worker_env(),
         }
+        if self._settings.offline:
+            env["CLIMATERISK_OFFLINE"] = "1"  # the worker then never consults the Data API
         if self._settings.dem_path:
             env["CLIMATERISK_DEM_PATH"] = str(self._settings.dem_path)
         if self._settings.emdat_path:
@@ -173,6 +175,19 @@ class RunManager:
             bbox=bbox,
         )
         self._spawn(run_id, self._settings.runs_path / run_id, request.model_dump_json(indent=2))
+        run.status = "running"
+        return run
+
+    def submit_dataapi_index(self, session_id: str, data_types: list[str] | None = None) -> Run:
+        """Refresh the cached CLIMADA Data API listing (metadata only; needs the network)."""
+        run_id = uuid.uuid4().hex
+        run = self._store.create(run_id, session_id, "n/a", ["dataapi_index"])
+        request = {
+            "mode": "dataapi_index",
+            "session_id": session_id,
+            "data_types": list(data_types) if data_types else None,
+        }
+        self._spawn(run_id, self._settings.runs_path / run_id, json.dumps(request, indent=2))
         run.status = "running"
         return run
 
