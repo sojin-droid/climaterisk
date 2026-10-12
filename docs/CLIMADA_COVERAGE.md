@@ -127,6 +127,13 @@ Native runners (`physical.py`):
 
 ## G. Perils database (custom hazard ingestion)  (DONE, growing)
 
+- [x] **Country mask for cached global sets** — `hazard_mask.mask_hazard_to_country`
+      (CLIMADA `get_country_geometries` + shapely `contains_xy`; buffer
+      `_params.MASK_BUFFER_DEG`; events/frequencies untouched), applied by
+      `ingest.ingest_dataapi` when the global product is cached under a country key
+      and by `build_hazard.py cache --mask-country`; recorded in the catalog entry
+      (`tests/test_hazard_mask.py`, 2026-10-12)
+
 - [x] Standardized-grid → CLIMADA HDF5 converter · catalog · resolver · build CLI ·
       `/api/hazard-catalog` — `hazard_convert.py`, `catalog.py`, `scripts/build_hazard.py`
 - [x] Korea onramps: KMA SSP south-Korea 1 km adapter (tests pass on spec-conformant

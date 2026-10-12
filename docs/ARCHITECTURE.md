@@ -69,8 +69,17 @@ real source ──ingest──▶ standardized grid (cells × years × intensity
 - **Catalog** (`worker/climaterisk_worker/catalog.py`): manifest lookup + `from_hdf5`.
 - **Resolver:** each worker peril runner calls `catalog.load_hazard(...)` first and
   falls back to the Data API. Result `detail` reports which source was used.
+- **Country mask** (`worker/climaterisk_worker/hazard_mask.py`): a *global* Data-API set
+  cached under a country key is first cut to that country's land plus a buffer
+  (`_params.MASK_BUFFER_DEG`, 0.1° ≈ 10 km; 0 = strict polygon), so the neighbours'
+  centroids never leak into a `KOR` entry. Geometry is CLIMADA's own
+  `get_country_geometries` (Natural Earth 10m); only centroid columns are selected —
+  events and frequencies are untouched. The catalog entry records the mask
+  (`mask.n_centroids_before/after`, `spatial_coverage`). Country-coverage products
+  from the API are already cut and are left as served.
 - **CLI** (`scripts/build_hazard.py`): `convert <grid.json>` (real ingestion output)
-  or `cache --data-type … --props …` (cache a Data-API hazard); `list` shows entries.
+  or `cache --data-type … --props …` (cache a Data-API hazard; `--mask-country ISO3`
+  applies the country mask); `list` shows entries.
 - **API:** `GET /api/hazard-catalog` exposes the manifest to the UI.
 
 This is the on-ramp for filling Data-API gaps: produce a standardized grid from any
