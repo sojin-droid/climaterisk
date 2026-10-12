@@ -75,6 +75,8 @@ real source ──ingest──▶ standardized grid (cells × years × intensity
 
 This is the on-ramp for filling Data-API gaps: produce a standardized grid from any
 real source and `convert` it; the platform then serves that peril/region locally.
+Every file a new peril touches — enum, library, runner, ingest, frontend, docs, tests —
+is listed in [ADDING_A_PERIL.md](ADDING_A_PERIL.md).
 
 ## Dimensional model
 
