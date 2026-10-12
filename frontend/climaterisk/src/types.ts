@@ -820,6 +820,32 @@ export interface PhysicalRiskReadiness {
   display: PhysicalRiskDisplay;
 }
 
+/** Asset import (xlsx / csv templates): what the server did with the file. */
+export interface AssetImportReport {
+  kind: string;
+  mode: string;
+  rows_read: number;
+  added: string[];
+  replaced: string[];
+  removed: string[];
+  warnings: string[];
+  errors: string[];
+}
+
+export interface AssetImportResult {
+  portfolio: Portfolio;
+  report: AssetImportReport;
+}
+
+export interface AssetTemplate {
+  kind: string;
+  title: string;
+  columns: string[];
+  required: string[];
+  notes: string[];
+  download: string;
+}
+
 export interface PhysicalRiskModelsBody {
   hazards?: string[];
   models?: string[];

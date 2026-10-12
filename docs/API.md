@@ -9,6 +9,9 @@ Base path: `/api` (the Vite dev server proxies it to the backend on port 8099).
 | GET | `/api/session/{id}` | Return the portfolio for a session (404 if unknown) |
 | PUT | `/api/session/{id}` | Replace the whole portfolio (full-model sync); returns it |
 | DELETE | `/api/session/{id}` | Delete a session (204; 404 if unknown) |
+| POST | `/api/session/{id}/assets/import` | Multipart `file` (xlsx or csv) in a template; `?kind=latlon|sigungu|sido&mode=merge|replace`. Returns `{portfolio, report}`; 422 with line-numbered `errors` refuses the whole file |
+| GET | `/api/libraries/asset-templates` | The three asset templates (columns, required, notes, download URL) |
+| GET | `/api/libraries/asset-templates/{kind}.xlsx` | Download a template (README + `assets` sheet with example rows) |
 | POST | `/api/session/{id}/run` | Submit a physical-risk run (spawns the CLIMADA worker; poll `GET …/run/{run_id}`) |
 | GET | `/api/libraries` | All bundled libraries (sectors, perils, scenarios, impact_functions) |
 | GET | `/api/libraries/{name}` | A single named library (404 if unknown) |

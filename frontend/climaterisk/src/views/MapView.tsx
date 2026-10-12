@@ -22,7 +22,7 @@ import type {
   Run,
 } from "../types";
 import { AssetEditor } from "../components/AssetEditor";
-import { getHazardCatalog, getRun, hazardPreviewImageUrl, submitHazardPreview } from "../lib/api";
+import { getHazardCatalog, getRun, hazardPreviewImageUrl, importAssets, submitHazardPreview } from "../lib/api";
 import { formatScenario, money } from "../lib/format";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -179,6 +179,32 @@ export function MapView({
 
   // Place search (Nominatim) — pans the map to the picked result.
   const [searchQ, setSearchQ] = useState("");
+  const [importKind, setImportKind] = useState("latlon");
+  const [importMode, setImportMode] = useState<"merge" | "replace">("merge");
+  const [importBusy, setImportBusy] = useState(false);
+  const [importMsg, setImportMsg] = useState<string | null>(null);
+  const [importErr, setImportErr] = useState(false);
+
+  async function doImport(file: File) {
+    setImportBusy(true);
+    setImportMsg(null);
+    setImportErr(false);
+    try {
+      const res = await importAssets(model.id, file, importKind, importMode);
+      patchModel({ assets: res.portfolio.assets });
+      const r = res.report;
+      setImportMsg(
+        `${file.name}: ${r.rows_read} rows — ${r.added.length} added, ${r.replaced.length} replaced` +
+          (r.removed.length ? `, ${r.removed.length} removed` : "") +
+          (r.warnings.length ? ` · ${r.warnings.join(" · ")}` : ""),
+      );
+    } catch (e) {
+      setImportErr(true);
+      setImportMsg(e instanceof Error ? e.message : String(e));
+    } finally {
+      setImportBusy(false);
+    }
+  }
   const [searchHits, setSearchHits] = useState<PlaceHit[]>([]);
   const [searchBusy, setSearchBusy] = useState(false);
   const [searchErr, setSearchErr] = useState<string | null>(null);
@@ -440,6 +466,51 @@ export function MapView({
           />
         ) : (
           <>
+            <div style={{ marginBottom: 10 }}>
+              <div className="section-title">Import assets (xlsx / csv)</div>
+              <div className="hint" style={{ marginTop: 4 }}>
+                Download a template, fill it, upload it. Three granularities: coordinates, 시군구, 시도 (the
+                last two are placed at the official representative point).{" "}
+                {(["latlon", "sigungu", "sido"] as const).map((k, i) => (
+                  <span key={k}>
+                    {i > 0 ? " · " : ""}
+                    <a href={`/api/libraries/asset-templates/${k}.xlsx`} download>
+                      {k}
+                    </a>
+                  </span>
+                ))}
+              </div>
+              <div className="form-row" style={{ marginTop: 6, gap: 6, flexWrap: "wrap" }}>
+                <select className="field-inline" value={importKind} onChange={(e) => setImportKind(e.target.value)}>
+                  <option value="latlon">coordinates</option>
+                  <option value="sigungu">시군구</option>
+                  <option value="sido">시도</option>
+                </select>
+                <select
+                  className="field-inline"
+                  value={importMode}
+                  onChange={(e) => setImportMode(e.target.value as "merge" | "replace")}
+                >
+                  <option value="merge">merge (same ids replaced)</option>
+                  <option value="replace">replace whole portfolio</option>
+                </select>
+                <input
+                  type="file"
+                  accept=".xlsx,.csv"
+                  disabled={importBusy}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) void doImport(f);
+                    e.target.value = "";
+                  }}
+                />
+              </div>
+              {importMsg && (
+                <p className="hint" style={{ marginTop: 4, color: importErr ? "var(--danger)" : undefined }}>
+                  {importMsg}
+                </p>
+              )}
+            </div>
             <div style={{ marginBottom: 4 }}>
               <div className="section-title">Search location</div>
               <div className="form-row" style={{ marginTop: 6 }}>

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Response, status
 from fastapi.responses import FileResponse
 
 from climaterisk.config import get_settings
@@ -49,6 +49,40 @@ def get_method_figure(peril: str) -> FileResponse:
             detail=f"figure not generated yet — run `{script}` to produce {rel}",
         )
     return FileResponse(png, media_type="image/png")
+
+
+@router.get("/asset-templates")
+def list_asset_templates() -> dict[str, Any]:
+    """The asset import templates: kind, title, columns, which are required, notes."""
+    from climaterisk.physical_risk.asset_import import TEMPLATES
+
+    return {
+        "templates": [
+            {
+                "kind": kind,
+                "title": spec["title"],
+                "columns": list(spec["columns"]),
+                "required": list(spec["required"]),
+                "notes": list(spec["notes"]),
+                "download": f"/api/libraries/asset-templates/{kind}.xlsx",
+            }
+            for kind, spec in TEMPLATES.items()
+        ]
+    }
+
+
+@router.get("/asset-templates/{kind}.xlsx")
+def download_asset_template(kind: str) -> Response:
+    """An xlsx template (README + ``assets`` sheet with example rows) for ``kind``."""
+    from climaterisk.physical_risk.asset_import import TEMPLATE_KINDS, template_workbook
+
+    if kind not in TEMPLATE_KINDS:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"no template {kind!r}")
+    return Response(
+        content=template_workbook(kind),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="climaterisk_assets_{kind}.xlsx"'},
+    )
 
 
 @router.get("/physical-risk-models")
