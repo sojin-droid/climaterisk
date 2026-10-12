@@ -240,7 +240,10 @@ platform-custom, and which is missing — per peril and per component, with a do
 consistency audit: **[docs/CLIMADA_METHODS.md](docs/CLIMADA_METHODS.md)** (2026-09-07). Known methodology gaps (uncalibrated
 defaults, missing bands, sub-peril combination) with severity and fixes:
 **[docs/GAP_ANALYSIS_KO.md](docs/GAP_ANALYSIS_KO.md)** (한국어). Korea data localization
-plan and source licences: **[docs/RISK_REGISTER.md](docs/RISK_REGISTER.md)**.
+plan and source licences: **[docs/RISK_REGISTER.md](docs/RISK_REGISTER.md)**. **Which results may be
+used for what** — a use tier per peril (S screening / I indicative / D decision-grade; today no
+peril is D), the acute/chronic boundary and the promotion conditions:
+**[docs/SCOPE.md](docs/SCOPE.md)** (한국어, 2026-10-12).
 
 
 ## Conference poster
