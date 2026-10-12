@@ -72,6 +72,12 @@ explicit message telling you to build the env.
   login-gated). Pick the country code, then *Model exposure*.
 - **Map layer (preview)** colours the map with a peril's hazard footprint before any run, so you can
   see what data exists where.
+- **Import assets (xlsx / csv)** loads a whole portfolio from a template: *coordinates* (one
+  located asset per row, value required), *시군구* or *시도* (one administrative unit per row,
+  placed at its official representative point; value optional → screening only). Download the
+  template, fill the `assets` sheet, upload. *merge* replaces rows with the same id and keeps the
+  rest (a quarterly re-upload is idempotent); *replace* swaps the whole portfolio. Any bad row
+  refuses the whole file with its line number — nothing is half-imported.
 - *Search location* finds a place by name.
 
 **Scenarios** — pick the climate pathway (RCP2.6/4.5/6.0/8.5, mapped to SSP where a source needs

@@ -2,6 +2,8 @@
 // is synced back to the backend (which owns it).
 
 import type {
+  AssetImportResult,
+  AssetTemplate,
   FinanceResult,
   HazardCatalog,
   IngestSource,
@@ -31,6 +33,46 @@ async function http<T>(url: string, init?: RequestInit): Promise<T> {
   }
   if (resp.status === 204) return undefined as T;
   return (await resp.json()) as T;
+}
+
+/** The asset import templates (kind, columns, notes, download URL). */
+export async function getAssetTemplates(): Promise<{ templates: AssetTemplate[] }> {
+  return http<{ templates: AssetTemplate[] }>("/api/libraries/asset-templates");
+}
+
+/**
+ * Upload an xlsx / csv in one of the templates. The server refuses the whole file on any bad
+ * row (422 with line-numbered errors); the thrown Error then carries those lines.
+ */
+export async function importAssets(
+  sessionId: string,
+  file: File,
+  kind: string,
+  mode: "merge" | "replace",
+): Promise<AssetImportResult> {
+  const form = new FormData();
+  form.append("file", file, file.name);
+  const qs = new URLSearchParams({ kind, mode });
+  const resp = await fetch(`/api/session/${sessionId}/assets/import?${qs}`, {
+    method: "POST",
+    body: form, // no Content-Type header: the browser sets the multipart boundary
+  });
+  if (!resp.ok) {
+    let detail = `${resp.status}`;
+    try {
+      const body = (await resp.json()) as { detail?: unknown };
+      const d = body.detail;
+      if (typeof d === "string") detail = d;
+      else if (d && typeof d === "object" && Array.isArray((d as { errors?: unknown }).errors)) {
+        const e = d as { message?: string; errors: string[] };
+        detail = `${e.message ?? "file refused"}: ${e.errors.join(" · ")}`;
+      }
+    } catch {
+      /* keep the status */
+    }
+    throw new Error(detail);
+  }
+  return (await resp.json()) as AssetImportResult;
 }
 
 /** Fetch the existing session (from localStorage) or create a fresh one. */

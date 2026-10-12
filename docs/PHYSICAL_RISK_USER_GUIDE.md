@@ -8,7 +8,8 @@ Everything below explains what you will see; nothing here changes how the number
 ## The screen (Models tab)
 
 1. **Select assets** — tick the assets to assess. Search by name, id or type; *Select all* /
-   *Clear*; the pill says "n of m assets selected". Assets come from the Map tab.
+   *Clear*; the pill says "n of m assets selected". Assets come from the Map tab — placed by
+   hand, or imported there from a template (coordinates / 시군구 / 시도; *Import assets*).
 2. **Select hazards** — Flood, Tropical Cyclone, Heatwave. One line under each says what is
    modeled. Heatwave is *hazard only*: it reports how hot, not how much money.
 3. **Analysis** — leave **Recommended**. The tool picks, for each hazard, the most local data
