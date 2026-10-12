@@ -294,6 +294,7 @@ def export_frames(
     config: dict[str, Any] | None = None,
     target: str = "FACILITY",
     baseline_rows: Iterable[ResultRow | dict[str, Any]] | None = None,
+    growth: dict[str, Any] | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     """Every export frame, keyed by frame name (the aggregate tier and non-expert views first).
 
@@ -301,13 +302,14 @@ def export_frames(
     forms and adds *Province Summary*, *Spatial Resolution* and *Hazard Coverage*; the
     Global comparison sheets are kept only when a Global run actually exists in ``rows``.
     ``baseline_rows`` (the same-model baseline run, when one was made) gives *Portfolio
-    Totals* its paired present-vs-future columns.
+    Totals* its paired present-vs-future columns; ``growth`` (the worker's
+    ``exposure_growth`` record) adds the economic-growth step to the same sheet.
     """
     rs = _as_rows(rows)
     from climaterisk.physical_risk.display_copy import recommended_models
 
     preferred = recommended_models()
-    totals = portfolio_totals_frame(rs, baseline_rows, preferred, target=target)
+    totals = portfolio_totals_frame(rs, baseline_rows, preferred, target=target, growth=growth)
     comparisons = {
         "global_vs_country": comparison_frame(
             rs, ModelId.GLOBAL_BASELINE.value, ModelId.DATA_API_COUNTRY.value, "country"
@@ -879,6 +881,7 @@ def portfolio_totals_frame(
     preferred: dict[str, str] | None = None,
     *,
     target: str = "FACILITY",
+    growth: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """The top tier: one line per hazard, then one for all priced hazards together.
 
@@ -894,12 +897,39 @@ def portfolio_totals_frame(
     model in both scenarios — a pair needs both rows priced — and ``EAL Change %`` is
     ``future / baseline - 1``. Points without a baseline pair are left out of both paired
     sums, which is why ``Future EAL (paired)`` can be smaller than ``Total EAL``.
+
+    With a ``growth`` record (``exposure_growth_record``) every line also carries the
+    economic-growth step of the ECA decomposition. ``Target-year EAL`` is ``Total EAL``
+    times the growth factor; with a baseline the three-step chain is ``Baseline EAL``
+    (today's hazard, today's exposure) → ``Growth-step EAL`` (today's hazard, grown
+    exposure) → ``Climate-step EAL`` (future hazard, grown exposure), with the two deltas
+    spelled out so they add up to the whole change. The scaling is exact: impact is linear
+    in exposure value. ``EAL Change %`` stays the pure climate ratio.
     """
     rs = _as_rows(rows)
     prim = primary_rows(rs, preferred)
     base_prim = primary_rows(_as_rows(baseline_rows or []), preferred)
     paired = bool(base_prim)
+    factor = float(growth["factor"]) if growth else None
     point_label = "Municipalities" if target == "MUNICIPALITY" else "Assets"
+
+    def growth_cells(line: dict[str, Any]) -> None:
+        """Add the economic-growth columns to one line (the engine's numbers × factor)."""
+        if factor is None:
+            return
+        total = line["Total EAL"]
+        line["Growth Factor"] = factor
+        line["Target-year EAL"] = None if total is None else total * factor
+        if not paired:
+            return
+        b_sum, f_sum = line["Baseline EAL"], line["Future EAL (paired)"]
+        line["Growth-step EAL"] = None if b_sum is None else b_sum * factor
+        line["Climate-step EAL"] = None if f_sum is None else f_sum * factor
+        line["Δ Economic Growth EAL"] = None if b_sum is None else b_sum * (factor - 1.0)
+        line["Δ Climate Change EAL"] = (
+            None if b_sum is None or f_sum is None else (f_sum - b_sum) * factor
+        )
+
     hazards = MUNICIPALITY_HAZARDS if target == "MUNICIPALITY" else PORTFOLIO_HAZARDS
 
     lines: list[dict[str, Any]] = []
@@ -943,6 +973,7 @@ def portfolio_totals_frame(
                 "Future EAL (paired)": f_sum,
                 "EAL Change %": change_pct(f_sum, b_sum),
             }
+        growth_cells(line)
         lines.append(line)
         all_points |= set(cells)
         for fid, r in priced.items():
@@ -972,6 +1003,7 @@ def portfolio_totals_frame(
             "Future EAL (paired)": f_sum,
             "EAL Change %": change_pct(f_sum, b_sum),
         }
+    growth_cells(overall)
     lines.append(overall)
     return lines
 

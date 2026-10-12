@@ -201,6 +201,8 @@ class RunManager:
         municipality_ids: list[str] | None = None,
         asset_values: dict[str, float] | None = None,
         anchors: list[str] | None = None,
+        annual_growth_pct: float | None = None,
+        valuation_year: int | None = None,
     ) -> Run:
         """Create a three-model physical-risk run (global / country / Korea-local hazard).
 
@@ -224,6 +226,8 @@ class RunManager:
                 country=country or "KOR",
                 baseline_scenario=baseline_scenario,
                 anchors=anchors,
+                annual_growth_pct=annual_growth_pct,
+                valuation_year=valuation_year,
             )
         else:
             request = PhysicalRiskModelsRequest.from_portfolio(
@@ -234,6 +238,8 @@ class RunManager:
                 country=country,
                 baseline_scenario=baseline_scenario,
                 facility_ids=facility_ids,
+                annual_growth_pct=annual_growth_pct,
+                valuation_year=valuation_year,
             )
         self._spawn(run_id, self._settings.runs_path / run_id, request.model_dump_json(indent=2))
         run.status = "running"

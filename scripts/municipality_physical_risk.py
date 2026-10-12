@@ -126,6 +126,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--country", default="KOR", help="ISO3 (municipalities are Korean)")
     ap.add_argument("--baseline-scenario", default=None)
     ap.add_argument(
+        "--annual-growth-pct", type=float, default=None, help="economic-growth step, %% per year"
+    )
+    ap.add_argument(
+        "--valuation-year", type=int, default=None, help="year the values are stated in"
+    )
+    ap.add_argument(
         "--anchors",
         nargs="+",
         default=["REPRESENTATIVE_POINT"],
@@ -213,6 +219,8 @@ def main(argv: list[str] | None = None) -> int:
             "models": models,
             "country": args.country,
             "baseline_scenario": args.baseline_scenario,
+            "annual_growth_pct": args.annual_growth_pct,
+            "valuation_year": args.valuation_year,
         }
     )
     if args.json:

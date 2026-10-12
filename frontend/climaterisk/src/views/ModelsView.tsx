@@ -169,6 +169,9 @@ export function ModelsView({ model }: { model: Portfolio }) {
   const [mode, setMode] = useState<"recommended" | "custom">("recommended");
   const [scopes, setScopes] = useState<Set<string>>(() => new Set(["DATA_API_COUNTRY", "KOREA_LOCAL"]));
   const [baseline, setBaseline] = useState(false);
+  const [growthPct, setGrowthPct] = useState(""); // "" = no economic-growth step
+  const growthValue = growthPct.trim() === "" ? null : Number(growthPct);
+  const growthValid = growthValue === null || (Number.isFinite(growthValue) && growthValue > -100);
   // run
   const [status, setStatus] = useState<"idle" | "running" | "done" | "error">("idle");
   const [msg, setMsg] = useState<string | null>(null);
@@ -315,6 +318,7 @@ export function ModelsView({ model }: { model: Portfolio }) {
         hazards: [...hazards],
         models: [...modelsToRun],
         ...(mode === "custom" && baseline ? { baseline_scenario: "historical" } : {}),
+        ...(mode === "custom" && growthValue !== null && growthValid ? { annual_growth_pct: growthValue } : {}),
       };
       const body =
         target === "MUNICIPALITY"
@@ -883,10 +887,31 @@ export function ModelsView({ model }: { model: Portfolio }) {
                 </div>
               </span>
             </label>
+            <label style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+              <input
+                type="number"
+                step="0.1"
+                min={-99}
+                max={25}
+                value={growthPct}
+                onChange={(e) => setGrowthPct(e.target.value)}
+                placeholder="e.g. 2"
+                style={{ width: 90 }}
+              />
+              <span>
+                <b>Annual exposure growth (% per year)</b>
+                <div className="hint">
+                  Economic-growth step: asset values grow from the valuation year to the target year. Reported on the
+                  Excel Portfolio Totals and Methodology sheets as a scalar on EAL — rows keep today's values and the
+                  climate change multiplier stays a pure climate signal. Leave empty for none.
+                  {!growthValid && <b> Enter a rate above −100.</b>}
+                </div>
+              </span>
+            </label>
           </div>
         )}
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 12 }}>
-          <button className="btn" onClick={runAssessment} disabled={status === "running" || nCalc === 0 || !!anchorProblem}>
+          <button className="btn" onClick={runAssessment} disabled={status === "running" || nCalc === 0 || !!anchorProblem || !growthValid}>
             {status === "running" ? "Analyzing…" : "RUN ASSESSMENT"}
           </button>
           <span className="hint">

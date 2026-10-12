@@ -235,6 +235,60 @@ def change_pp(comparison_pct: float | None, baseline_pct: float | None) -> float
 
 
 # --------------------------------------------------------------------------- #
+# Exposure growth — the economic-growth step of the ECA decomposition          #
+# --------------------------------------------------------------------------- #
+def exposure_growth_factor(
+    annual_growth_pct: float, valuation_year: int, target_year: int
+) -> float:
+    r"""Compound growth of exposure value from ``valuation_year`` to ``target_year``.
+
+    Algorithm:
+        $$ f = \left(1 + \frac{g}{100}\right)^{T - t_0} $$
+        ASCII: f = (1 + g/100) ** (T - t0)
+
+    ``g`` is the annual growth rate in percent per year, ``t_0`` the calendar year the
+    asset values are stated in and ``T`` the target year; the exponent is in years. A
+    target before the valuation year is refused (exposure is not grown backwards), and so
+    is ``g <= -100`` (a non-positive factor).
+    """
+    if target_year < valuation_year:
+        raise ValueError(f"target_year {target_year} precedes valuation_year {valuation_year}")
+    if annual_growth_pct <= -100.0:
+        raise ValueError(f"annual_growth_pct must exceed -100, got {annual_growth_pct}")
+    return (1.0 + float(annual_growth_pct) / 100.0) ** (int(target_year) - int(valuation_year))
+
+
+def exposure_growth_record(
+    annual_growth_pct: float,
+    target_year: int,
+    valuation_year: int | None = None,
+    config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """The growth assumption as a self-describing record for outputs and reports.
+
+    ``valuation_year`` defaults to the configured one (``exposure_growth.valuation_year``).
+    EAL and the return-period loss scale with the factor exactly, because CLIMADA's
+    ``impact = value × MDD × PAA`` is linear in value and this engine sets no deductible or
+    cover; risk bands (EAL as a share of value) are unchanged by growth.
+    """
+    cfg = (config or load_config())["exposure_growth"]
+    t0 = int(valuation_year if valuation_year is not None else cfg["valuation_year"])
+    factor = exposure_growth_factor(annual_growth_pct, t0, int(target_year))
+    return {
+        "annual_growth_pct": float(annual_growth_pct),
+        "valuation_year": t0,
+        "target_year": int(target_year),
+        "years": int(target_year) - t0,
+        "factor": factor,
+        "applies_to": (
+            "EAL and potential loss scale linearly with exposure value; risk bands "
+            "(EAL / assets) are unchanged"
+        ),
+        "definition": cfg["definition"],
+    }
+
+
+# --------------------------------------------------------------------------- #
 # The canonical row                                                            #
 # --------------------------------------------------------------------------- #
 @dataclass

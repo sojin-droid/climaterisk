@@ -212,6 +212,19 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="run the same models for this scenario too and fill climate_change_multiplier",
     )
+    ap.add_argument(
+        "--annual-growth-pct",
+        type=float,
+        default=None,
+        help="economic-growth step: asset values grow this many %% per year from the valuation "
+        "year to --year (reported as a scalar on EAL; rows stay at today's values)",
+    )
+    ap.add_argument(
+        "--valuation-year",
+        type=int,
+        default=None,
+        help="year the asset values are stated in (default: physical_risk_config.json)",
+    )
     args = ap.parse_args(argv)
     src = args.facilities or args.csv
     if not src:
@@ -243,6 +256,8 @@ def main(argv: list[str] | None = None) -> int:
             "models": models,
             "country": args.country,
             "baseline_scenario": args.baseline_scenario,
+            "annual_growth_pct": args.annual_growth_pct,
+            "valuation_year": args.valuation_year,
         }
     )
     if args.json:

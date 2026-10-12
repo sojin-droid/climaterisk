@@ -35,6 +35,7 @@ from climaterisk.physical_risk.metrics import (  # noqa: E402
     ModelId,
     ResultRow,
     attach_climate_multipliers,
+    exposure_growth_record,
 )
 from climaterisk.physical_risk.models import readiness  # noqa: E402
 from climaterisk.physical_risk.results_table import comparison_frame  # noqa: E402
@@ -191,6 +192,14 @@ def compute_physical_risk_models(request: dict[str, Any]) -> dict[str, Any]:
         used.extend({**d, "role": "baseline"} for d in used_base)
         multipliers = attach_climate_multipliers(rows, baseline_rows)
 
+    # Economic-growth step: a scalar record, never a change to the rows (impact is linear
+    # in value, so EAL and potential loss scale exactly; the report applies it).
+    growth: dict[str, Any] | None = None
+    if request.get("annual_growth_pct") is not None:
+        growth = exposure_growth_record(
+            float(request["annual_growth_pct"]), year, request.get("valuation_year")
+        )
+
     g, c, k = (
         ModelId.GLOBAL_BASELINE.value,
         ModelId.DATA_API_COUNTRY.value,
@@ -228,6 +237,7 @@ def compute_physical_risk_models(request: dict[str, Any]) -> dict[str, Any]:
         "rows": [r.to_dict() for r in rows],
         "baseline_rows": [r.to_dict() for r in baseline_rows],
         "climate_change_multipliers": multipliers,
+        "exposure_growth": growth,
         "comparisons": {
             "global_vs_country": comparison_frame(rows, g, c, "country"),
             "global_vs_korea_local": comparison_frame(rows, g, k, "korea_local"),

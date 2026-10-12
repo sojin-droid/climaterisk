@@ -216,6 +216,36 @@ User portfolio only: `lat`, `lon`, `asset_value_usd`, `asset_value_currency`,
 `property_type` (mapped to a JRC sector by configuration). A zero or missing value is
 `NO_EXPOSURE_DATA`. No Korean asset-value dataset is fabricated; WorldPop is not used.
 
+## 10a. Exposure growth — the economic-growth step (2026-10-12)
+
+The ECA decomposition reads *today's risk → + economic growth → + climate change*. The
+platform already had the climate step (`baseline_scenario`, §9). The growth step is the
+request fields `annual_growth_pct` and `valuation_year` (`PhysicalRiskModelsBody`,
+`PhysicalRiskModelsRequest`; CLI `--annual-growth-pct`, `--valuation-year`; the Models tab's
+*Custom* mode). The configuration `exposure_growth` in `physical_risk_config.json` holds the
+default valuation year and the ceiling the API enforces.
+
+```text
+f = (1 + annual_growth_pct / 100) ** (target_year - valuation_year)      metrics.exposure_growth_factor
+```
+
+**Rows are never rescaled.** CLIMADA's `impact = value × MDD × PAA` is linear in value and
+this engine sets no deductible or cover, so EAL and the return-period loss scale with `f`
+exactly; the worker only records the assumption (`output["exposure_growth"]`,
+`metrics.exposure_growth_record`) and the report applies it. Consequences, all deliberate:
+
+* `risk_level` (EAL as a share of assets) is unchanged by growth.
+* `climate_change_multiplier` (future ÷ baseline EAL at the same exposure) stays a pure
+  climate signal — growth never leaks into it.
+* *Portfolio Totals* carries the chain per hazard: `Baseline EAL` (today's hazard, today's
+  exposure) → `Growth-step EAL` (= Baseline × f) → `Climate-step EAL` (= Future (paired) × f),
+  with `Δ Economic Growth EAL` and `Δ Climate Change EAL` adding up to the whole change;
+  without a baseline only `Growth Factor` and `Target-year EAL` (= Total EAL × f) appear.
+* *Run Info* lists `exposure_growth.*`; *Methodology* carries the definition.
+
+A target year before the valuation year, or a rate at or below −100 %, is refused by the
+API (HTTP 400) and by the worker (`ValueError`) — exposure is not grown backwards.
+
 ## 11. Where results live
 
 * Worker mode `physical_risk_models` → `runs/<id>/result.json`

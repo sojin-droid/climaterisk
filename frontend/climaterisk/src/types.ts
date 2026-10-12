@@ -827,6 +827,10 @@ export interface PhysicalRiskModelsBody {
   country?: string;
   baseline_scenario?: string;
   facility_ids?: string[];
+  // Economic-growth step: asset values grow from the valuation year (config default) to the
+  // target year; reported as a scalar in the Excel Portfolio Totals, rows stay unscaled.
+  annual_growth_pct?: number;
+  valuation_year?: number;
   // V0.2 — municipality mode
   assessment_target?: "FACILITY" | "MUNICIPALITY";
   municipality_ids?: string[];

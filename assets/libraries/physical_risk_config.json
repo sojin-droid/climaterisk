@@ -1,16 +1,31 @@
 {
   "_meta": {
     "purpose": "Physical-risk engine configuration. Thresholds and mappings live here, not buried in code, so they can be changed without touching the calculation (docs/physical-risk-methodology.md).",
-    "version": "1.0.0",
-    "updated": "2026-09-22"
+    "version": "1.1.0",
+    "updated": "2026-10-12"
   },
   "risk_levels": {
     "metric": "eal_as_pct_of_assets",
     "attribution": "climaterisk custom methodology, GRESB-informed framework. NOT an official GRESB threshold.",
     "bands": [
-      { "level": "Low",    "min_pct": null, "max_pct": 0.10, "criteria": "EAL/Asset < 0.10%" },
-      { "level": "Medium", "min_pct": 0.10, "max_pct": 0.50, "criteria": "0.10% <= EAL/Asset < 0.50%" },
-      { "level": "High",   "min_pct": 0.50, "max_pct": null, "criteria": "EAL/Asset >= 0.50%" }
+      {
+        "level": "Low",
+        "min_pct": null,
+        "max_pct": 0.1,
+        "criteria": "EAL/Asset < 0.10%"
+      },
+      {
+        "level": "Medium",
+        "min_pct": 0.1,
+        "max_pct": 0.5,
+        "criteria": "0.10% <= EAL/Asset < 0.50%"
+      },
+      {
+        "level": "High",
+        "min_pct": 0.5,
+        "max_pct": null,
+        "criteria": "EAL/Asset >= 0.50%"
+      }
     ]
   },
   "potential_loss": {
@@ -43,5 +58,10 @@
     "frequency": "CLIMADA Hazard.frequency, events per year (frequency_unit '1/year').",
     "eal": "Expected Annual Loss = Impact.aai_agg = sum(at_event * frequency). Verified identity, not a re-implementation.",
     "potential_loss": "Loss at the configured return period, read from Impact.calc_freq_curve."
+  },
+  "exposure_growth": {
+    "valuation_year": 2026,
+    "max_annual_growth_pct": 25.0,
+    "definition": "Economic-growth step of the ECA decomposition (today's risk -> + economic growth -> + climate change). Asset values are stated in valuation_year and grow to target_year: value_T = value_t0 x (1 + annual_growth_pct/100)^(target_year - valuation_year). Reported as a scalar on EAL and potential loss after the CLIMADA run - exact because impact = value x MDD x PAA is linear in value and this engine sets no deductible or cover - so rows keep the valuation-year values, risk bands (EAL / assets) are unchanged, and climate_change_multiplier (future / baseline EAL at the same exposure) stays a pure climate signal."
   }
 }
