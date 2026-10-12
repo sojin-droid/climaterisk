@@ -229,7 +229,12 @@ def _output() -> dict:  # type: ignore[type-arg]
 
 def test_excel_first_sheets_are_plain_and_formatted() -> None:
     wb = load_workbook(io.BytesIO(xl.workbook_bytes(_output())))
-    assert wb.sheetnames[:3] == ["Portfolio Summary", "Asset Risk Matrix", "Hazard Results"]
+    assert wb.sheetnames[:4] == [
+        "Portfolio Totals",
+        "Portfolio Summary",
+        "Asset Risk Matrix",
+        "Hazard Results",
+    ]
     ws = wb["Portfolio Summary"]
     header = [c.value for c in ws[1]]
     for wanted in (

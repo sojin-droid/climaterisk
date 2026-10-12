@@ -233,7 +233,11 @@ User portfolio only: `lat`, `lon`, `asset_value_usd`, `asset_value_currency`,
   `hazard_results`, `asset_summary`, `global_vs_country`, `global_vs_korea_local`,
   `methodology` — lists of dicts.
 * **Excel (Phase 5 → 6)** — [`excel_export.py`](../src/climaterisk/physical_risk/excel_export.py)
-  renders the frames with openpyxl. Sheets, in order: **Portfolio Summary** (non-expert:
+  renders the frames with openpyxl. Sheets, in order: **Portfolio Totals** (top tier: per
+  hazard and overall — points assessed / priced / hazard-only / not available, priced asset
+  value, EAL summed as the only additive money, no summed return-period loss; paired
+  Baseline EAL / Future EAL / EAL Change % when a baseline scenario was run),
+  **Portfolio Summary** (non-expert:
   one line per facility — Asset Value, per-hazard Status / Risk / EAL / EAL ÷ Assets / Data
   Source, Heatwave Tmax p95, Overall EAL as a plain sum), **Asset Risk Matrix** (facility ×
   hazard risk level or status label; "Overall" counts calculated hazards — no score),

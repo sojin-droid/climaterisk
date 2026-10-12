@@ -3,8 +3,14 @@
 The workbook is a *rendering* of the frames that :mod:`results_table` already produces;
 nothing is computed here. Sheet order (titles as the reader sees them)::
 
-    Portfolio Summary      non-expert first sheet: one line per facility, plain words
+    Portfolio Totals       top tier: per hazard and overall — counts, priced asset value,
+                           EAL summed (the only additive money); paired present vs future
+                           columns when a baseline scenario was run
+    Portfolio Summary      non-expert sheet: one line per facility, plain words
     Asset Risk Matrix      facility x hazard risk levels (or a status label)
+    Municipality Summary / Municipality Risk Matrix   the municipality forms of the two
+    Province Summary       middle tier of a municipality workbook: per 시도, counts and
+                           highest band only — no money added across municipalities
     Hazard Results         every (facility x hazard x model) row, full provenance
     Global vs Country      GLOBAL_BASELINE vs DATA_API_COUNTRY, same impact function
     Global vs Korea Local  GLOBAL_BASELINE vs KOREA_LOCAL (not available today, said so)
@@ -43,10 +49,12 @@ from climaterisk.physical_risk.results_table import HAZARD_RESULTS_COLUMNS, expo
 #: non-expert sheets, a municipality workbook the next two plus Spatial Resolution and
 #: Hazard Coverage; the rest are shared.
 SHEET_TITLES: dict[str, str] = {
+    "portfolio_totals": "Portfolio Totals",
     "portfolio_summary": "Portfolio Summary",
     "asset_risk_matrix": "Asset Risk Matrix",
     "municipality_summary": "Municipality Summary",
     "municipality_risk_matrix": "Municipality Risk Matrix",
+    "province_summary": "Province Summary",
     "hazard_results": "Hazard Results",
     "spatial_resolution": "Spatial Resolution",
     "hazard_coverage": "Hazard Coverage",
@@ -61,8 +69,10 @@ SHEET_ORDER: tuple[str, ...] = tuple(SHEET_TITLES)
 
 #: Sheets a municipality workbook must have (spec §26), by frame key, in order.
 REQUIRED_MUNICIPALITY_SHEETS: tuple[str, ...] = (
+    "portfolio_totals",
     "municipality_summary",
     "municipality_risk_matrix",
+    "province_summary",
     "hazard_results",
     "spatial_resolution",
     "hazard_coverage",
@@ -70,11 +80,19 @@ REQUIRED_MUNICIPALITY_SHEETS: tuple[str, ...] = (
     "run_info",
 )
 _PLAIN_SHEETS: frozenset[str] = frozenset(
-    {"portfolio_summary", "asset_risk_matrix", "municipality_summary", "municipality_risk_matrix"}
+    {
+        "portfolio_totals",
+        "portfolio_summary",
+        "asset_risk_matrix",
+        "municipality_summary",
+        "municipality_risk_matrix",
+        "province_summary",
+    }
 )
 
 #: Sheets the brief requires (by frame key).
 REQUIRED_SHEETS: tuple[str, ...] = (
+    "portfolio_totals",
     "portfolio_summary",
     "asset_risk_matrix",
     "hazard_results",
@@ -95,6 +113,7 @@ _FORMATS: tuple[tuple[str, str], ...] = (
 #: Formats for the two non-expert sheets, by column title.
 _PLAIN_FORMATS: tuple[tuple[str, str], ...] = (  # first match wins: ratios before money
     ("EAL / Assets", '0.000"%"'),
+    ("Change %", '0.00"%"'),
     ("Asset Value", '"$"#,##0'),
     (" EAL", '"$"#,##0'),
     ("Tmax", '0.0" °C"'),
@@ -241,6 +260,29 @@ def _plain_methodology(
     ]
     for level, text in risk_level_copy().items():
         lines.append((f"Risk Level — {level}", text))
+    lines.append(
+        (
+            "Portfolio Totals",
+            "One line per hazard and one for all priced hazards: how many points were assessed, "
+            "priced, hazard-only or not available; the asset value behind the priced points; "
+            "and their EAL added up. Expected annual loss is the only money that adds across "
+            "points. Return-period (100-year) losses are not summed: each point's comes from "
+            "different events, so their sum would not be a portfolio 100-year loss. With a "
+            "baseline scenario, the paired columns compare the same points under the same data "
+            "scope in both scenarios and the change is future / baseline - 1.",
+        )
+    )
+    if target == "MUNICIPALITY":
+        lines.append(
+            (
+                "Province Summary",
+                "One line per 시도: how many of its assessed municipalities fall in each risk "
+                "band per hazard, the highest band among them, how many were not priced, and "
+                "the highest heatwave indicator read. No money is added across municipalities "
+                "— every municipality result is a representative-point screening, not an area "
+                "aggregate, and Portfolio Totals sums only municipalities with a supplied value.",
+            )
+        )
     lines += [
         (
             "Risk Level — attribution",
@@ -280,7 +322,11 @@ def frames_from_output(output: dict[str, Any]) -> dict[str, list[dict[str, Any]]
     """Every sheet's frame for a worker output dict, in :data:`SHEET_ORDER`."""
     target = str(output.get("assessment_target") or "FACILITY")
     frames: dict[str, list[dict[str, Any]]] = dict(
-        export_frames(output.get("rows") or [], target=target)
+        export_frames(
+            output.get("rows") or [],
+            target=target,
+            baseline_rows=output.get("baseline_rows") or None,
+        )
     )
     frames["methodology"] = _plain_methodology(frames.get("methodology", []), target)
     frames["run_info"] = run_info_frame(output)

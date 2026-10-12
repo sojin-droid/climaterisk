@@ -45,12 +45,13 @@ Everything below explains what you will see; nothing here changes how the number
 
 | sheet | what it is for |
 |---|---|
+| Portfolio Totals | the top tier: one line per hazard and one for all priced hazards — points assessed / priced / hazard-only / not available, the asset value behind the priced points, their EAL summed (the only money that adds across points; 100-year losses are not summed), and, when a baseline scenario was run, Baseline EAL / Future EAL (paired) / EAL Change % over the same points and data scope |
 | Portfolio Summary | one line per asset: value, each hazard's status / risk / EAL / EAL ÷ assets / data source, counts of priced / hazard-only / not-available hazards, Overall EAL (a plain sum, not a score) |
 | Asset Risk Matrix | the on-screen matrix |
 | Hazard Results | every asset × hazard × data scope row with full provenance (for analysts) |
 | Global vs Country | the data comparison, where both were run |
 | Global vs Korea Local | kept for structure; today it says NOT_IMPLEMENTED for flood/typhoon |
-| Climate Change | only when a historical baseline was run |
+| Climate Change | only when a historical baseline was run (per asset × data scope multipliers; the portfolio-level pairing is on Portfolio Totals) |
 | Methodology | what was assessed, data sources, CLIMADA method, impact functions, EAL, potential loss, risk levels, climate multiplier, limitations, statuses |
 | Run Info | scenario, year, country, readiness |
 
