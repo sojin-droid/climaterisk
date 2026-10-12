@@ -114,6 +114,10 @@ layer** that converts each source into a CLIMADA-ready hazard and files it in a 
   `CLIMATERISK_DATA_ROOT` (default `~/Data/climaterisk`); layout, resolution rules, migration and
   the full path inventory: **[docs/DATA_LAYOUT.md](docs/DATA_LAYOUT.md)**. Nothing depends on the
   working directory or on where the repository sits.
+- **Offline mode** — `CLIMATERISK_OFFLINE=1`: the worker never consults the Data API (a peril
+  without a local layer fails fast), downloads and ingests are refused, maps have no basemap
+  tiles. The Data tab's *Offline readiness* card says what is cached and how to prepare
+  (`GET /api/status/offline`; `docs/USER_GUIDE.md` §7a).
 - **Local catalog** — `<DATA_ROOT>/derived/hazard_db/` (a pre-migration repo-local `data/hazard_db/`
   keeps serving until `scripts/migrate_data_root.py` moves it) with a `catalog.json` manifest keyed by
   `(peril, climate_scenario, region, year)`. Physical runners resolve hazards from here **first** and

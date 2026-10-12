@@ -71,6 +71,10 @@ def run(run_dir: Path) -> dict[str, Any]:
 
                 request["out_dir"] = str(run_dir)  # the worker writes preview.png here
                 output = compute_hazard_preview(request)
+            elif mode == "dataapi_index":
+                from climaterisk_worker.dataapi_index import compute_dataapi_index
+
+                output = compute_dataapi_index(request)
             elif mode == "physical_risk_models":
                 from climaterisk_worker.physical_risk.runner import compute_physical_risk_models
 

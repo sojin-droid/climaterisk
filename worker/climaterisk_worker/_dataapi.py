@@ -35,8 +35,27 @@ def purge_incomplete_downloads() -> int:
     return purged
 
 
+class OfflineError(RuntimeError):
+    """Raised instead of a network call when ``CLIMATERISK_OFFLINE`` is set."""
+
+
 def resilient_get_hazard(client: Any, *args: Any, **kwargs: Any) -> Any:
-    """``client.get_hazard`` with one self-healing retry past a stuck/interrupted download."""
+    """``client.get_hazard`` with one self-healing retry past a stuck/interrupted download.
+
+    In offline mode the Data API is never consulted: the caller's catalog lookup has
+    already failed, so this raises :class:`OfflineError` naming what to cache instead of
+    waiting for a network timeout.
+    """
+    from climaterisk_worker._params import offline
+
+    if offline():
+        wanted = args[0] if args else kwargs.get("data_type", "hazard")
+        props = kwargs.get("properties") or (args[1] if len(args) > 1 else {})
+        raise OfflineError(
+            f"offline mode (CLIMATERISK_OFFLINE): no local catalog layer for {wanted} "
+            f"{props} and the Data API is not consulted — cache it while online with "
+            "scripts/build_hazard.py cache / ingest or the Data tab (Fetch & ingest)"
+        )
     from climada.util.api_client import Download
 
     try:

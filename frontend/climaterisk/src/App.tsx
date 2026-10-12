@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ensureSession, getLibraries, saveModel } from "./lib/api";
+import { ensureSession, getHealth, getLibraries, saveModel } from "./lib/api";
+import { OfflineContext } from "./lib/offline";
 import { useResults } from "./lib/useResults";
 import type { Libraries, Portfolio } from "./types";
 import { ActivityBar, VIEW_IDS, type ViewId } from "./layout/ActivityBar";
@@ -18,6 +19,7 @@ import { MethodView } from "./views/MethodView";
 export function App() {
   const [model, setModel] = useState<Portfolio | null>(null);
   const [libraries, setLibraries] = useState<Libraries | null>(null);
+  const [offline, setOffline] = useState(false);
   // A launcher may land the user on a specific tab (Physical Risk.app → 현황 체크 opens
   // ?view=data&status=1). Anything not a known ViewId falls back to the map.
   const [view, setView] = useState<ViewId>(() => {
@@ -37,7 +39,12 @@ export function App() {
   // that a previous session may have persisted (e.g. river_flood before Phase 2+).
   useEffect(() => {
     (async () => {
-      const [libs, portfolio] = await Promise.all([getLibraries(), ensureSession()]);
+      const [libs, portfolio, health] = await Promise.all([
+        getLibraries(),
+        ensureSession(),
+        getHealth().catch(() => ({ offline: false })),
+      ]);
+      setOffline(Boolean(health.offline));
       const supported = new Set(
         libs.perils.perils.filter((p) => p.supported_mvp).map((p) => p.id),
       );
@@ -104,6 +111,7 @@ export function App() {
   }
 
   return (
+    <OfflineContext.Provider value={offline}>
     <div className="app">
       <ActivityBar view={view} onChange={setView} />
       <div className="workspace">
@@ -209,5 +217,6 @@ export function App() {
         </div>
       </div>
     </div>
+    </OfflineContext.Provider>
   );
 }

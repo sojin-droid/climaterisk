@@ -23,6 +23,7 @@ import type {
 } from "../types";
 import { AssetEditor } from "../components/AssetEditor";
 import { getHazardCatalog, getRun, hazardPreviewImageUrl, importAssets, submitHazardPreview } from "../lib/api";
+import { OFFLINE_MAP_NOTE, useOffline } from "../lib/offline";
 import { formatScenario, money } from "../lib/format";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -178,6 +179,7 @@ export function MapView({
   const [litpopCountry, setLitpopCountry] = useState("KOR");
 
   // Place search (Nominatim) — pans the map to the picked result.
+  const offline = useOffline();
   const [searchQ, setSearchQ] = useState("");
   const [importKind, setImportKind] = useState("latlon");
   const [importMode, setImportMode] = useState<"merge" | "replace">("merge");
@@ -364,13 +366,20 @@ export function MapView({
   return (
     <div className="mapview">
       <div className="map">
+        {offline && (
+          <div className="hint" style={{ position: "absolute", zIndex: 500, margin: 8, padding: "2px 6px", background: "var(--bg)", borderRadius: 4 }}>
+            {OFFLINE_MAP_NOTE}
+          </div>
+        )}
         <MapContainer center={[36.2, 127.9]} zoom={7} scrollWheelZoom>
           {/* The literal center above is only the cold-start view (no assets yet). */}
           <FitToAssets assets={model.assets} />
-          <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          />
+          {!offline && (
+            <TileLayer
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            />
+          )}
           <ClickToAdd onAdd={onMapClick} />
           <FlyTo target={flyTarget} />
           {draft.length > 0 &&
@@ -524,7 +533,12 @@ export function MapView({
                     if (e.key === "Enter") doSearch();
                   }}
                 />
-                <button className="btn" onClick={doSearch} disabled={searchBusy || !searchQ.trim()}>
+                <button
+                  className="btn"
+                  onClick={doSearch}
+                  disabled={offline || searchBusy || !searchQ.trim()}
+                  title={offline ? "Place search needs the network (OSM Nominatim)" : undefined}
+                >
                   {searchBusy ? <span className="spinner" /> : "Search"}
                 </button>
               </div>

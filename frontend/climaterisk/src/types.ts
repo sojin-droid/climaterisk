@@ -316,6 +316,30 @@ export interface KoreaKorLayer {
   label_variable_conflict: boolean;
   grade: string;
 }
+/** GET /api/status/offline — what runs without the network, and what will not. */
+export interface OfflineStatus {
+  offline: boolean;
+  env_var: string;
+  catalog: {
+    dir: string;
+    n_layers: number;
+    perils: Record<string, { layers: number; regions: string[]; scenarios: string[] }>;
+    note: string;
+  };
+  dataapi_index: {
+    present: boolean;
+    path: string;
+    fetched_at: string | null;
+    age_days: number | null;
+    counts: Record<string, number>;
+    n_datasets?: number;
+    error?: string;
+  };
+  local_files: { name: string; path: string; present: boolean; files?: string[] }[];
+  online_only: { feature: string; offline: string }[];
+  how_to_prepare: string;
+}
+
 export interface KoreaStatus {
   kma: {
     dir: string;

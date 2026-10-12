@@ -1,10 +1,14 @@
 import { useEffect, useRef } from "react";
+import { useOffline } from "../lib/offline";
 import maplibregl from "maplibre-gl";
 import MapboxDraw from "@mapbox/mapbox-gl-draw";
 import "maplibre-gl/dist/maplibre-gl.css";
 import "@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css";
 
 // Token-free raster basemap (no Mapbox account needed for a local-first tool).
+// Offline mode: a blank style — the draw tools work, there is just no basemap.
+const EMPTY_STYLE = { version: 8, sources: {}, layers: [] };
+
 const OSM_STYLE = {
   version: 8,
   sources: {
@@ -32,6 +36,7 @@ export function FootprintDrawMap({
   geometry: Record<string, unknown> | null | undefined;
   onChange: (geom: Record<string, unknown> | null) => void;
 }) {
+  const offline = useOffline();
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -40,7 +45,7 @@ export function FootprintDrawMap({
     try {
       map = new maplibregl.Map({
         container: ref.current,
-        style: OSM_STYLE as maplibregl.StyleSpecification,
+        style: (offline ? EMPTY_STYLE : OSM_STYLE) as maplibregl.StyleSpecification,
         center: [lon || 0, lat || 0],
         zoom: lat || lon ? 11 : 1,
         attributionControl: false,

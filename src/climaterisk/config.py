@@ -64,6 +64,12 @@ class Settings(BaseSettings):
     # Wall-clock cap per worker run; exceeded runs are killed and reported as timed out
     # (guards against intractable jobs, e.g. a full-MRIO supply-chain solve).
     max_run_seconds: int = Field(default=900, ge=30)
+    # Offline (closed-network) mode. The worker never consults the CLIMADA Data API (a
+    # peril without a local catalog layer fails fast), the Data tab's downloads and
+    # ingests are refused, and the UI draws maps without basemap tiles and disables place
+    # search. Injected into the worker env as CLIMATERISK_OFFLINE. See
+    # climaterisk.data.offline_status for what runs offline.
+    offline: bool = False
     # Optional Copernicus DEM GeoTIFF (topography) for TC storm-surge (TCSurgeBathtub).
     # A manual drop-in; injected into the worker env as CLIMATERISK_DEM_PATH when set.
     dem_path: str | None = None

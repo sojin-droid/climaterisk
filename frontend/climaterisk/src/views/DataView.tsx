@@ -1,10 +1,20 @@
 import { useEffect, useState } from "react";
-import { fetchOpenData, getHazardCatalog, getKoreaStatus, getRun, submitIngest } from "../lib/api";
+import {
+  fetchOpenData,
+  getHazardCatalog,
+  getKoreaStatus,
+  getOfflineStatus,
+  getRun,
+  submitDataApiIndex,
+  submitIngest,
+} from "../lib/api";
+import { useOffline } from "../lib/offline";
 import { formatScenario } from "../lib/format";
 import type {
   DataSource,
   HazardCatalog,
   KoreaStatus,
+  OfflineStatus,
   IngestResult,
   Libraries,
   OpenDataFetchResult,
@@ -149,6 +159,7 @@ function IngestControls({
 
 /** Direct one-click download of a curated open file into its destination (no CLIMADA refine). */
 function DownloadControls({ source }: { source: DataSource }) {
+  const offline = useOffline();
   const templated = (source.download_url ?? "").includes("{");
   const [country, setCountry] = useState("");
   const [status, setStatus] = useState<"idle" | "running" | "done" | "error">("idle");
@@ -207,9 +218,11 @@ function DownloadControls({ source }: { source: DataSource }) {
       <button
         className="btn"
         onClick={run}
-        disabled={status === "running" || (templated && country.trim().length !== 3)}
+        disabled={offline || status === "running" || (templated && country.trim().length !== 3)}
         title={
-          templated && country.trim().length !== 3
+          offline
+            ? "Offline mode: downloads are refused — copy the file in from an online machine"
+            : templated && country.trim().length !== 3
             ? "Enter a 3-letter ISO country code"
             : `Download into ${destLabel}`
         }
@@ -344,6 +357,7 @@ export function DataView({ model, libraries }: { model: Portfolio; libraries: Li
     <div className="panelview">
       <h2>Data sources &amp; catalog</h2>
 
+      <OfflineReadinessCard sessionId={model.id} />
       <div className="card" id="korea-status">
         <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
           <h3 style={{ margin: 0 }}>현황 체크 — 한국 1 km 준비 상태</h3>
@@ -431,6 +445,107 @@ export function DataView({ model, libraries }: { model: Portfolio; libraries: Li
           </table>
         )}
       </div>
+    </div>
+  );
+}
+
+/** Offline readiness — what runs without the network, what is refused, how to prepare. */
+function OfflineReadinessCard({ sessionId }: { sessionId: string }) {
+  const offline = useOffline();
+  const [s, setS] = useState<OfflineStatus | null | "loading" | "error">(null);
+  const [refresh, setRefresh] = useState<string | null>(null);
+  function load() {
+    setS("loading");
+    getOfflineStatus()
+      .then(setS)
+      .catch(() => setS("error"));
+  }
+  async function refreshIndex() {
+    setRefresh("Refreshing the Data API index…");
+    try {
+      let r = await submitDataApiIndex(sessionId);
+      for (let i = 0; i < 300 && (r.status === "queued" || r.status === "running"); i++) {
+        await sleep(2000);
+        r = await getRun(sessionId, r.id);
+      }
+      setRefresh(r.status === "done" ? ((r.output?.detail as string) ?? "Index refreshed.") : (r.detail ?? `Index: ${r.status}`));
+      load();
+    } catch (e) {
+      setRefresh(e instanceof Error ? e.message : String(e));
+    }
+  }
+  return (
+    <div className="card" id="offline-readiness">
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+        <h3 style={{ margin: 0 }}>Offline readiness {offline ? "— OFFLINE MODE ON" : ""}</h3>
+        <button className="btn secondary" onClick={load} disabled={s === "loading"}>
+          {s === "loading" ? "Checking…" : s && s !== "error" ? "Check again" : "Check"}
+        </button>
+      </div>
+      <p className="hint" style={{ marginTop: 6 }}>
+        What runs with the network cut (CLIMATERISK_OFFLINE=1): the local hazard catalog, the drop-in files
+        below and the cached Data API listing. Basemap tiles cannot be bundled (OSM policy) — maps then
+        draw on a plain background.
+      </p>
+      {s === "error" && <div className="status-box error">Could not read the offline status.</div>}
+      {s && s !== "loading" && s !== "error" && (
+        <div style={{ display: "grid", gap: 10 }}>
+          <div>
+            <div className="section-title">Hazard catalog — {s.catalog.n_layers} layers</div>
+            {Object.keys(s.catalog.perils).length === 0 ? (
+              <span className="hint">No layer yet — every peril would need the Data API.</span>
+            ) : (
+              <ul style={{ margin: "4px 0 0 18px" }}>
+                {Object.entries(s.catalog.perils).map(([p, v]) => (
+                  <li key={p}>
+                    <b>{p}</b> · {v.layers} layer{v.layers === 1 ? "" : "s"} · {v.regions.join(", ")} · {v.scenarios.join(", ")}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="hint">{s.catalog.note}</div>
+          </div>
+          <div>
+            <div className="section-title">Local files</div>
+            <ul style={{ margin: "4px 0 0 18px" }}>
+              {s.local_files.map((f) => (
+                <li key={f.name} style={{ color: f.present ? undefined : "var(--muted)" }}>
+                  {f.present ? "✓" : "✗"} {f.name} <span className="hint">({f.path})</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div>
+            <div className="section-title">Data API index (cached listing)</div>
+            {s.dataapi_index.present ? (
+              <span>
+                {s.dataapi_index.n_datasets} datasets, fetched {s.dataapi_index.fetched_at}
+                {s.dataapi_index.age_days != null ? ` (${s.dataapi_index.age_days} days ago)` : ""} ·{" "}
+                {Object.entries(s.dataapi_index.counts)
+                  .map(([t, n]) => `${t}: ${n}`)
+                  .join(" · ")}
+              </span>
+            ) : (
+              <span className="hint">Not cached yet.</span>
+            )}{" "}
+            <button className="btn secondary" onClick={refreshIndex} disabled={offline || refresh === "Refreshing the Data API index…"}>
+              Refresh (needs network)
+            </button>
+            {refresh && <div className="hint">{refresh}</div>}
+          </div>
+          <div>
+            <div className="section-title">Online-only features</div>
+            <ul style={{ margin: "4px 0 0 18px" }}>
+              {s.online_only.map((o) => (
+                <li key={o.feature}>
+                  <b>{o.feature}</b> — {o.offline}
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="hint">{s.how_to_prepare}</div>
+        </div>
+      )}
     </div>
   );
 }
