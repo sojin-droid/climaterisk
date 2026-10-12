@@ -70,6 +70,11 @@ class Settings(BaseSettings):
     # search. Injected into the worker env as CLIMATERISK_OFFLINE. See
     # climaterisk.data.offline_status for what runs offline.
     offline: bool = False
+    # Built single-page UI to serve from the backend itself (the Windows bundle, or any run
+    # without the Vite dev server). Relative to the repo root unless absolute. Unset →
+    # frontend/climaterisk/dist when that directory exists (a `vite build`), else nothing is
+    # mounted and the Vite dev server is expected to proxy /api.
+    ui_dir: Path | None = None
     # Optional Copernicus DEM GeoTIFF (topography) for TC storm-surge (TCSurgeBathtub).
     # A manual drop-in; injected into the worker env as CLIMATERISK_DEM_PATH when set.
     dem_path: str | None = None
@@ -130,6 +135,20 @@ class Settings(BaseSettings):
         if (legacy / "catalog.json").is_file():
             return legacy
         return canonical
+
+    def resolve_ui_dir(self) -> Path | None:
+        """The built UI directory to serve, or None when there is nothing to serve.
+
+        An explicit ``ui_dir`` must exist (a typo must not silently fall back to the dev
+        proxy); the default is only used when ``frontend/climaterisk/dist`` is present.
+        """
+        if self.ui_dir is not None:
+            path = self._abspath(self.ui_dir)
+            if not (path / "index.html").is_file():
+                raise FileNotFoundError(f"CLIMATERISK_UI_DIR has no index.html: {path}")
+            return path
+        default = REPO_ROOT / "frontend" / "climaterisk" / "dist"
+        return default if (default / "index.html").is_file() else None
 
     @property
     def worker_dir(self) -> Path:

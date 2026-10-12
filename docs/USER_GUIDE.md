@@ -25,6 +25,11 @@ conda env create -f worker/climaterisk_worker/env_climada.yml --prefix ./.climad
 cp .env.example .env                                  # optional: ports, paths
 ```
 
+**Windows without a developer stack:** ask for the bundle zip (built with
+`scripts\make_windows_bundle.ps1`, see `docs/WINDOWS_BUNDLE.md`), unzip it into a short path
+such as `C:\climaterisk`, and double-click `Start climaterisk.bat`. Nothing in this section
+or the next is needed then.
+
 ## 3. Start
 
 ```bash
