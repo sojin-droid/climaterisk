@@ -12,6 +12,7 @@ uv run pytest --cov=src        # tests + coverage
 uv run ruff check . --fix      # lint + autofix
 uv run ruff format .           # format
 uv run mypy src/               # type-check
+npm --prefix frontend/climaterisk run test:e2e   # browser flows (Playwright, fake worker; see tests/e2e)
 ```
 
 If `uv` is not yet adopted, fall back to `pip install -e ".[dev]"` and `pytest` / `ruff` / `mypy` directly. Don't introduce `setup.py`, `requirements.txt`, `flake8`, or `black` configs — `pyproject.toml` is the single source of truth.

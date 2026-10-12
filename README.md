@@ -221,6 +221,13 @@ uv run ruff check . && uv run ruff format --check . && uv run mypy src/ && uv ru
 The backend suite runs CLIMADA-free (the engine regression is auto-skipped); it is pinned against a
 captured CLIMADA baseline and run in the worker env.
 
+```bash
+# Browser flows (Playwright): municipalities → RUN → Excel, import assets → RUN → Excel.
+# Starts its own backend (port 8199) and Vite (5199) against a fake worker — no conda env,
+# no network, deterministic (tests/e2e/fake_worker.py). First time: npx playwright install chromium
+npm --prefix frontend/climaterisk run test:e2e
+```
+
 ## Status
 
 Asset-level **physical risk** (CLIMADA — 15 perils incl. TC + surge + rainfall, river/coastal

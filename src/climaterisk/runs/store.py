@@ -78,14 +78,18 @@ class RunStore:
         conn = sqlite3.connect(self._db_path, timeout=30.0)
         conn.row_factory = sqlite3.Row
         try:
-            conn.execute("PRAGMA journal_mode=WAL;")
             yield conn
             conn.commit()
         finally:
             conn.close()
 
     def _init_schema(self) -> None:
-        with self._connect() as conn:
+        # WAL is set once per file here (see session_store._SCHEMA_LOCK for why not per
+        # connection); both stores share app.db and the same lock.
+        from climaterisk.data.session_store import _SCHEMA_LOCK
+
+        with _SCHEMA_LOCK, self._connect() as conn:
+            conn.execute("PRAGMA journal_mode=WAL;")
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS runs (
