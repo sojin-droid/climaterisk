@@ -202,3 +202,33 @@ def test_sector_mapping_is_configuration_and_falls_back_rather_than_guessing() -
     assert jrc_sector_for("something_unheard_of") == "commercial"
     mapping = json.loads(config_path().read_text(encoding="utf-8"))["property_type_to_jrc_sector"]
     assert "platform choice" in mapping["_note"]
+
+
+# --------------------------------------------------------------------------- #
+# Exposure growth — the economic-growth step                                   #
+# --------------------------------------------------------------------------- #
+def test_exposure_growth_factor_is_compound_and_refuses_backwards_growth() -> None:
+    from climaterisk.physical_risk.metrics import exposure_growth_factor
+
+    assert exposure_growth_factor(2.0, 2026, 2050) == pytest.approx(1.02**24)  # analytical
+    assert exposure_growth_factor(0.0, 2026, 2050) == 1.0
+    assert exposure_growth_factor(3.0, 2050, 2050) == 1.0  # zero years
+    assert exposure_growth_factor(-10.0, 2026, 2028) == pytest.approx(0.81)  # decline allowed
+    with pytest.raises(ValueError, match="precedes"):
+        exposure_growth_factor(2.0, 2050, 2040)
+    with pytest.raises(ValueError, match="-100"):
+        exposure_growth_factor(-100.0, 2026, 2050)
+
+
+def test_exposure_growth_record_reads_its_defaults_from_configuration() -> None:
+    from climaterisk.physical_risk.metrics import exposure_growth_record
+
+    cfg = load_config()["exposure_growth"]
+    rec = exposure_growth_record(2.0, 2050)
+    assert rec["valuation_year"] == cfg["valuation_year"]
+    assert rec["years"] == 2050 - cfg["valuation_year"]
+    assert rec["factor"] == pytest.approx(1.02 ** rec["years"])
+    assert "linear" in rec["applies_to"] and rec["definition"] == cfg["definition"]
+    explicit = exposure_growth_record(2.0, 2050, valuation_year=2030)
+    assert explicit["years"] == 20 and explicit["factor"] == pytest.approx(1.02**20)
+    assert cfg["max_annual_growth_pct"] > 0  # the ceiling the API enforces is configuration

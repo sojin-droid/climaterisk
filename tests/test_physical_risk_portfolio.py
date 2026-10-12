@@ -371,6 +371,42 @@ def test_request_selects_a_subset_of_assets_and_refuses_unknown_ids(client) -> N
     assert r.status_code == 200 and r.json()["display"]["recommended_models"]["HEAT"] == K
 
 
+def test_exposure_growth_is_carried_to_the_worker_and_validated_at_the_route(client) -> None:  # type: ignore[no-untyped-def]
+    from climaterisk.core.entities import Asset, Portfolio
+    from climaterisk.physical_risk.metrics import load_config
+
+    pf = Portfolio(assets=[Asset(id="a1", name="One", lat=37.5, lon=127.0, value=1e8)])
+    req = PhysicalRiskModelsRequest.from_portfolio(pf, annual_growth_pct=2.0, valuation_year=2026)
+    assert req.annual_growth_pct == 2.0 and req.valuation_year == 2026
+    assert '"annual_growth_pct":2.0' in req.model_dump_json()  # survives the file contract
+    assert PhysicalRiskModelsRequest.from_portfolio(pf).annual_growth_pct is None
+    muni = PhysicalRiskModelsRequest.from_municipalities(
+        "s", "rcp45", ["SGIS-11"], annual_growth_pct=1.5
+    )
+    assert muni.annual_growth_pct == 1.5 and muni.valuation_year is None  # config default applies
+
+    sid = client.post("/api/session").json()["id"]
+    url = f"/api/session/{sid}/physical-risk-models"
+    ceiling = load_config()["exposure_growth"]["max_annual_growth_pct"]
+    # refused before any worker is spawned, with the reason
+    r = client.post(url, json={"facility_ids": [], "annual_growth_pct": ceiling + 1})
+    assert r.status_code == 400 and "ceiling" in r.json()["detail"]
+    r = client.post(url, json={"facility_ids": [], "annual_growth_pct": -100})
+    assert r.status_code == 400 and "-100" in r.json()["detail"]
+    r = client.post(
+        url,
+        json={
+            "facility_ids": [],
+            "annual_growth_pct": 2,
+            "valuation_year": 2060,
+            "target_year": 2050,
+        },
+    )
+    assert r.status_code == 400 and "precedes" in r.json()["detail"]
+    r = client.post(url, json={"facility_ids": [], "valuation_year": 2026})
+    assert r.status_code == 400 and "needs annual_growth_pct" in r.json()["detail"]
+
+
 def test_run_history_lists_physical_risk_runs_newest_first(client, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
     """Run history: the store filters by kind and the route 404s an unknown session."""
     from climaterisk.runs.store import RunStore

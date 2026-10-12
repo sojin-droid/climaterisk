@@ -289,6 +289,52 @@ def test_portfolio_totals_pairs_present_and_future_within_the_same_scope_only() 
     assert flood["Baseline EAL"] is None and flood["EAL Change %"] is None  # empty, never 0
     overall = totals["All priced hazards"]
     assert overall["Pairs Compared"] == 1 and overall["EAL Change %"] == pytest.approx(50.0)
+    assert "Growth Factor" not in overall  # no growth assumption was made
+
+
+def test_portfolio_totals_decomposes_growth_and_climate_steps_exactly() -> None:
+    """ECA chain on the totals: today → + economic growth → + climate change, deltas add up."""
+    from climaterisk.physical_risk.metrics import exposure_growth_record
+
+    fut = {"scenario": "rcp85", "requested_scenario": "rcp85", "served_scenario": "rcp85"}
+    hist = {
+        "scenario": "historical",
+        "requested_scenario": "historical",
+        "served_scenario": "historical",
+    }
+    out = _output(0)
+    out["rows"] = [
+        _priced("F1", "TC", C, 150.0, 1000.0, **fut).to_dict(),
+        _priced("F2", "TC", C, 300.0, 1000.0, **fut).to_dict(),
+    ]
+    out["baseline_rows"] = [_priced("F1", "TC", C, 100.0, 900.0, **hist).to_dict()]
+    out["baseline_scenario"] = "historical"
+    out["exposure_growth"] = exposure_growth_record(2.0, 2050, valuation_year=2026)
+    f = 1.02**24
+    wb = _book(out)
+    totals = {r["Hazard"]: r for r in _sheet_rows(wb["Portfolio Totals"])}
+    tc = totals["Typhoon"]
+    assert tc["Growth Factor"] == pytest.approx(f)
+    assert tc["Target-year EAL"] == pytest.approx(450.0 * f)  # every future point, grown
+    assert tc["Baseline EAL"] == pytest.approx(100.0)  # today's hazard, today's exposure
+    assert tc["Growth-step EAL"] == pytest.approx(100.0 * f)  # today's hazard, grown exposure
+    assert tc["Climate-step EAL"] == pytest.approx(150.0 * f)  # future hazard, grown exposure
+    assert tc["Δ Economic Growth EAL"] + tc["Δ Climate Change EAL"] == pytest.approx(
+        tc["Climate-step EAL"] - tc["Baseline EAL"]
+    )
+    assert tc["EAL Change %"] == pytest.approx(50.0)  # pure climate ratio, untouched by growth
+    flood = totals["Flood"]
+    assert flood["Growth-step EAL"] is None and flood["Target-year EAL"] is None  # empty, not 0
+    # rows keep the valuation-year values: nothing in Hazard Results was rescaled
+    hr = {r["facility_id"]: r for r in _sheet_rows(wb["Hazard Results"])}
+    assert hr["F1"]["eal_usd"] == 150.0 and hr["F2"]["eal_usd"] == 300.0
+    info = {r["key"]: r["value"] for r in _sheet_rows(wb["Run Info"])}
+    assert info["exposure_growth.factor"] == pytest.approx(f)
+    assert (
+        info["exposure_growth.valuation_year"] == 2026 and "exposure_growth.definition" not in info
+    )
+    meth = {r["key"]: r["value"] for r in _sheet_rows(wb["Methodology"])}
+    assert "pure climate signal" in meth["Exposure growth (economic-growth step)"]
 
 
 # --------------------------------------------------------------------------- #

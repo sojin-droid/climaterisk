@@ -114,6 +114,7 @@ _FORMATS: tuple[tuple[str, str], ...] = (
 _PLAIN_FORMATS: tuple[tuple[str, str], ...] = (  # first match wins: ratios before money
     ("EAL / Assets", '0.000"%"'),
     ("Change %", '0.00"%"'),
+    ("Factor", "0.0000"),
     ("Asset Value", '"$"#,##0'),
     (" EAL", '"$"#,##0'),
     ("Tmax", '0.0" °C"'),
@@ -180,13 +181,16 @@ def run_info_frame(output: dict[str, Any]) -> list[dict[str, Any]]:
             lines.append((f"readiness.{hazard}.{model}", status))
     for hazard, fixed in (output.get("impact_function_fixed") or {}).items():
         lines.append((f"impact_function_fixed.{hazard}", fixed))
+    for k, v in (output.get("exposure_growth") or {}).items():
+        if k != "definition":  # the definition is on the Methodology sheet
+            lines.append((f"exposure_growth.{k}", v))
     if output.get("detail"):
         lines.append(("detail", output["detail"]))
     return [{"key": k, "value": v} for k, v in lines]
 
 
 def _plain_methodology(
-    frame: list[dict[str, Any]], target: str = "FACILITY"
+    frame: list[dict[str, Any]], target: str = "FACILITY", growth: dict[str, Any] | None = None
 ) -> list[dict[str, Any]]:
     """The Methodology sheet a general reader can follow, in fixed sections.
 
@@ -272,6 +276,20 @@ def _plain_methodology(
             "scope in both scenarios and the change is future / baseline - 1.",
         )
     )
+    if growth:
+        lines.append(
+            (
+                "Exposure growth (economic-growth step)",
+                f"Asset values are stated in {growth['valuation_year']} and grow at "
+                f"{growth['annual_growth_pct']:g} % per year to {growth['target_year']} "
+                f"(factor {growth['factor']:.4f} over {growth['years']} years). "
+                f"{growth['applies_to']}. Portfolio Totals shows the ECA chain: Baseline EAL "
+                "(today's hazard, today's exposure) → Growth-step EAL (today's hazard, grown "
+                "exposure) → Climate-step EAL (future hazard, grown exposure), with the two "
+                "deltas. Per-row numbers keep the valuation-year values and the climate change "
+                "multiplier stays a pure climate signal. " + str(growth["definition"]),
+            )
+        )
     if target == "MUNICIPALITY":
         lines.append(
             (
@@ -326,9 +344,12 @@ def frames_from_output(output: dict[str, Any]) -> dict[str, list[dict[str, Any]]
             output.get("rows") or [],
             target=target,
             baseline_rows=output.get("baseline_rows") or None,
+            growth=output.get("exposure_growth") or None,
         )
     )
-    frames["methodology"] = _plain_methodology(frames.get("methodology", []), target)
+    frames["methodology"] = _plain_methodology(
+        frames.get("methodology", []), target, output.get("exposure_growth") or None
+    )
     frames["run_info"] = run_info_frame(output)
     multipliers = output.get("climate_change_multipliers")
     if multipliers:

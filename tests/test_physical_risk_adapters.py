@@ -323,6 +323,29 @@ def test_baseline_scenario_yields_separate_rows_and_same_model_multipliers_only(
     assert all(c["available"] is False for c in out["comparisons"]["global_vs_korea_local"])
 
 
+def test_exposure_growth_is_recorded_and_never_rescales_a_row() -> None:
+    """The growth step is a scalar record on the output; rows keep the valuation-year values."""
+    base = {
+        "facilities": [FACILITY],
+        "climate_scenario": "rcp45",
+        "target_year": 2050,
+        "hazards": ["RF"],
+        "models": [K],
+        "country": "KOR",
+    }
+    plain = runner.compute_physical_risk_models(dict(base))
+    grown = runner.compute_physical_risk_models(
+        {**base, "annual_growth_pct": 2.0, "valuation_year": 2026}
+    )
+    assert plain["exposure_growth"] is None
+    rec = grown["exposure_growth"]
+    assert rec["years"] == 24 and rec["factor"] == pytest.approx(1.02**24)
+    strip = ["hazard_data_version", "definitions"]
+    assert [{k: v for k, v in r.items() if k not in strip} for r in grown["rows"]] == [
+        {k: v for k, v in r.items() if k not in strip} for r in plain["rows"]
+    ]
+
+
 def test_ten_assets_times_three_hazards_batch_under_korea_local(tmp_path) -> None:  # type: ignore[no-untyped-def]
     """Batch shape: 10 x 3 x 1 = 30 rows, each with model_id and a status; progress file written."""
     facilities = [

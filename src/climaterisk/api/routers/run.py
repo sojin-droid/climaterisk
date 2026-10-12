@@ -101,6 +101,36 @@ class PhysicalRiskModelsBody(BaseModel):
     asset_values: dict[str, float] | None = None  # municipality id -> user-supplied USD value
     # V0.3 POC — REPRESENTATIVE_POINT (default) and/or OFFICIAL_OFFICE_POINT
     anchors: list[str] | None = None
+    # Economic-growth step: asset values grow from valuation_year (config default) to the
+    # target year at annual_growth_pct per year; reported as a scalar, rows stay unscaled.
+    annual_growth_pct: float | None = None
+    valuation_year: int | None = None
+
+
+def _validated_growth(
+    body: PhysicalRiskModelsBody, anchor_years: list[int]
+) -> tuple[float | None, int | None]:
+    """Refuse a growth assumption the engine would refuse later, with the reason up front."""
+    if body.annual_growth_pct is None:
+        if body.valuation_year is not None:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, detail="valuation_year needs annual_growth_pct"
+            )
+        return None, None
+    from climaterisk.physical_risk.metrics import exposure_growth_record, load_config
+
+    ceiling = float(load_config()["exposure_growth"]["max_annual_growth_pct"])
+    if body.annual_growth_pct > ceiling:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail=f"annual_growth_pct above the configured ceiling of {ceiling:g} % per year",
+        )
+    target = body.target_year or max(anchor_years or [2050])
+    try:
+        exposure_growth_record(body.annual_growth_pct, target, body.valuation_year)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return body.annual_growth_pct, body.valuation_year
 
 
 def _validated_anchors(anchors: list[str] | None, municipality_ids: list[str]) -> list[str]:
@@ -153,6 +183,7 @@ def submit_physical_risk_models(
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, detail="assessment_target must be FACILITY or MUNICIPALITY"
         )
+    growth_pct, valuation_year = _validated_growth(body, portfolio.scenario.anchor_years)
     if body.assessment_target == "MUNICIPALITY":
         from climaterisk.physical_risk.municipalities import load_municipalities
 
@@ -189,6 +220,8 @@ def submit_physical_risk_models(
             assessment_target="MUNICIPALITY",
             municipality_ids=body.municipality_ids,
             asset_values={k: float(v) for k, v in (body.asset_values or {}).items()},
+            annual_growth_pct=growth_pct,
+            valuation_year=valuation_year,
         )
     if body.facility_ids is not None:
         known = {a.id for a in portfolio.assets}
@@ -207,6 +240,8 @@ def submit_physical_risk_models(
         country=body.country.upper() if body.country else None,
         baseline_scenario=body.baseline_scenario,
         facility_ids=body.facility_ids,
+        annual_growth_pct=growth_pct,
+        valuation_year=valuation_year,
     )
 
 

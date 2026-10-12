@@ -669,6 +669,11 @@ class PhysicalRiskModelsRequest(BaseModel):
     baseline_scenario: str | None = None
     # FACILITY (portfolio assets) or MUNICIPALITY (official representative points).
     assessment_target: str = "FACILITY"
+    # Economic-growth step (ECA): asset values are stated in ``valuation_year`` (config
+    # default when None) and grow by ``annual_growth_pct`` per year to ``target_year``.
+    # Reported as a scalar on EAL / potential loss; rows keep the valuation-year values.
+    annual_growth_pct: float | None = None
+    valuation_year: int | None = None
 
     @classmethod
     def from_municipalities(
@@ -684,6 +689,8 @@ class PhysicalRiskModelsRequest(BaseModel):
         country: str | None = "KOR",
         baseline_scenario: str | None = None,
         anchors: list[str] | None = None,
+        annual_growth_pct: float | None = None,
+        valuation_year: int | None = None,
     ) -> PhysicalRiskModelsRequest:
         """A municipality run: the bundled representative points as the exposure points.
 
@@ -724,6 +731,8 @@ class PhysicalRiskModelsRequest(BaseModel):
             country=country,
             baseline_scenario=baseline_scenario,
             assessment_target="MUNICIPALITY",
+            annual_growth_pct=annual_growth_pct,
+            valuation_year=valuation_year,
         )
 
     @classmethod
@@ -737,6 +746,8 @@ class PhysicalRiskModelsRequest(BaseModel):
         country: str | None = None,
         baseline_scenario: str | None = None,
         facility_ids: list[str] | None = None,
+        annual_growth_pct: float | None = None,
+        valuation_year: int | None = None,
     ) -> PhysicalRiskModelsRequest:
         """Map portfolio assets onto facilities; ``property_type`` comes from the asset
         properties when present, else its sector label (the config maps it to a JRC sector)."""
@@ -764,6 +775,8 @@ class PhysicalRiskModelsRequest(BaseModel):
             models=models or ["GLOBAL_BASELINE", "DATA_API_COUNTRY", "KOREA_LOCAL"],
             country=country,
             baseline_scenario=baseline_scenario,
+            annual_growth_pct=annual_growth_pct,
+            valuation_year=valuation_year,
         )
 
 
@@ -778,6 +791,7 @@ class PhysicalRiskModelsOutput(BaseModel):
     rows: list[dict[str, Any]] = Field(default_factory=list)
     baseline_rows: list[dict[str, Any]] = Field(default_factory=list)
     climate_change_multipliers: list[dict[str, Any]] = Field(default_factory=list)
+    exposure_growth: dict[str, Any] | None = None  # the growth record, when requested
     comparisons: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
     readiness: dict[str, Any] = Field(default_factory=dict)
     adapters: list[dict[str, Any]] = Field(default_factory=list)

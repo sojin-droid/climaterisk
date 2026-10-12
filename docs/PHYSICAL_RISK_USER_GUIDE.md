@@ -45,7 +45,7 @@ Everything below explains what you will see; nothing here changes how the number
 
 | sheet | what it is for |
 |---|---|
-| Portfolio Totals | the top tier: one line per hazard and one for all priced hazards — points assessed / priced / hazard-only / not available, the asset value behind the priced points, their EAL summed (the only money that adds across points; 100-year losses are not summed), and, when a baseline scenario was run, Baseline EAL / Future EAL (paired) / EAL Change % over the same points and data scope |
+| Portfolio Totals | the top tier: one line per hazard and one for all priced hazards — points assessed / priced / hazard-only / not available, the asset value behind the priced points, their EAL summed (the only money that adds across points; 100-year losses are not summed), and, when a baseline scenario was run, Baseline EAL / Future EAL (paired) / EAL Change % over the same points and data scope. With an annual exposure growth rate (Custom mode) it adds the economic-growth step: Growth Factor, Target-year EAL, and the chain Baseline → Growth-step → Climate-step EAL with both deltas |
 | Portfolio Summary | one line per asset: value, each hazard's status / risk / EAL / EAL ÷ assets / data source, counts of priced / hazard-only / not-available hazards, Overall EAL (a plain sum, not a score) |
 | Asset Risk Matrix | the on-screen matrix |
 | Hazard Results | every asset × hazard × data scope row with full provenance (for analysts) |
