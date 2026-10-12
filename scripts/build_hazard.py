@@ -44,6 +44,15 @@ def cmd_cache(args: argparse.Namespace) -> None:
     from climada.util.api_client import Client
 
     haz = Client().get_hazard(args.data_type, properties=json.loads(args.props))
+    mask = None
+    if args.mask_country:
+        from climaterisk_worker.hazard_mask import mask_hazard_to_country
+
+        haz, mask = mask_hazard_to_country(haz, args.mask_country, buffer_deg=args.mask_buffer_deg)
+        print(
+            f"masked to {mask['iso3']} (+{mask['buffer_deg']:g} deg): "
+            f"{mask['n_centroids_before']} -> {mask['n_centroids_after']} centroids"
+        )
     db = catalog.catalog_dir()
     peril_dir = db / args.peril
     peril_dir.mkdir(parents=True, exist_ok=True)
@@ -59,9 +68,12 @@ def cmd_cache(args: argparse.Namespace) -> None:
         "file": f"{args.peril}/{fname}",
         "n_events": int(haz.size),
         "n_centroids": int(haz.centroids.size),
-        "source": f"CLIMADA Data API ({args.data_type}, cached)",
+        "source": f"CLIMADA Data API ({args.data_type}, cached)"
+        + (f"; masked to {mask['iso3']} land +{mask['buffer_deg']:g} deg" if mask else ""),
         "license": "per CLIMADA Data API",
     }
+    if mask:
+        entry["mask"] = mask
     catalog.register(entry)
     print(
         f"cached {entry['file']}  ({entry['n_events']} events × {entry['n_centroids']} centroids)"
@@ -106,6 +118,20 @@ def main() -> None:
     for a in ("--data-type", "--peril", "--scenario", "--region", "--props"):
         pk.add_argument(a, required=True)
     pk.add_argument("--year", type=int, required=True)
+    pk.add_argument(
+        "--mask-country",
+        default=None,
+        metavar="ISO3",
+        help="keep only centroids inside this country's land (+ --mask-buffer-deg); use it "
+        "when caching a *global* set under a country region key",
+    )
+    pk.add_argument(
+        "--mask-buffer-deg",
+        type=float,
+        default=None,
+        help="buffer around the land polygon in degrees (default: _params.MASK_BUFFER_DEG; "
+        "0 = strict polygon)",
+    )
     pk.set_defaults(func=cmd_cache)
 
     pi = sub.add_parser(
