@@ -6,6 +6,9 @@ nothing is computed here. Sheet order (titles as the reader sees them)::
     Portfolio Totals       top tier: per hazard and overall — counts, priced asset value,
                            EAL summed (the only additive money); paired present vs future
                            columns when a baseline scenario was run
+    Portfolio Loss Curve   facility runs: the portfolio's (and each 시도's) own return-period
+                           losses from summed event losses, beside the standalone sum and
+                           the diversification benefit
     Portfolio Summary      non-expert sheet: one line per facility, plain words
     Asset Risk Matrix      facility x hazard risk levels (or a status label)
     Municipality Summary / Municipality Risk Matrix   the municipality forms of the two
@@ -50,6 +53,7 @@ from climaterisk.physical_risk.results_table import HAZARD_RESULTS_COLUMNS, expo
 #: Hazard Coverage; the rest are shared.
 SHEET_TITLES: dict[str, str] = {
     "portfolio_totals": "Portfolio Totals",
+    "portfolio_loss_curve": "Portfolio Loss Curve",
     "portfolio_summary": "Portfolio Summary",
     "asset_risk_matrix": "Asset Risk Matrix",
     "municipality_summary": "Municipality Summary",
@@ -82,6 +86,7 @@ REQUIRED_MUNICIPALITY_SHEETS: tuple[str, ...] = (
 _PLAIN_SHEETS: frozenset[str] = frozenset(
     {
         "portfolio_totals",
+        "portfolio_loss_curve",
         "portfolio_summary",
         "asset_risk_matrix",
         "municipality_summary",
@@ -114,6 +119,8 @@ _FORMATS: tuple[tuple[str, str], ...] = (
 _PLAIN_FORMATS: tuple[tuple[str, str], ...] = (  # first match wins: ratios before money
     ("EAL / Assets", '0.000"%"'),
     ("Change %", '0.00"%"'),
+    ("Benefit %", '0.0"%"'),
+    ("-yr Loss", '"$"#,##0'),
     ("Factor", "0.0000"),
     ("Asset Value", '"$"#,##0'),
     (" EAL", '"$"#,##0'),
@@ -271,11 +278,34 @@ def _plain_methodology(
             "priced, hazard-only or not available; the asset value behind the priced points; "
             "and their EAL added up. Expected annual loss is the only money that adds across "
             "points. Return-period (100-year) losses are not summed: each point's comes from "
-            "different events, so their sum would not be a portfolio 100-year loss. With a "
+            "different events, so their sum would not be a portfolio 100-year loss (that one "
+            "is on Portfolio Loss Curve). With a "
             "baseline scenario, the paired columns compare the same points under the same data "
             "scope in both scenarios and the change is future / baseline - 1.",
         )
     )
+    if target != "MUNICIPALITY":
+        lines.append(
+            (
+                "Portfolio Loss Curve",
+                "The portfolio's own return-period losses. Every asset priced against one "
+                "hazard dataset sees the same events, so each event's losses are added across "
+                "the assets first and CLIMADA's frequency curve is read from that sum — the "
+                "same method gives each asset class's and each 시도's curve. The asset class is "
+                "the JRC sector the property type maps to (Commercial / Residential / "
+                "Industrial / …), the key that also picks the flood damage curve; 'Asset "
+                "Classes' and 'Impact Functions' list what each line's priced assets used — a "
+                "flood portfolio mixes JRC sector curves, which is correct because each asset's "
+                "event losses come from its own curve and only money is added. 'Sum of "
+                "Standalone' adds the assets' own "
+                "losses at that return period; the diversification benefit is 1 - portfolio / "
+                "standalone sum (it can be negative at short return periods, where several "
+                "moderate events add up). Expected annual loss equals Total EAL. Hazards and "
+                "data scopes are never added to each other: their events are unrelated. A "
+                "return period outside the curve is left blank rather than repeating the "
+                "curve's end value. Losses are in valuation-year asset values (no growth).",
+            )
+        )
     if growth:
         lines.append(
             (
@@ -345,6 +375,8 @@ def frames_from_output(output: dict[str, Any]) -> dict[str, list[dict[str, Any]]
             target=target,
             baseline_rows=output.get("baseline_rows") or None,
             growth=output.get("exposure_growth") or None,
+            loss_curves=output.get("portfolio_loss_curves") or None,
+            baseline_loss_curves=output.get("baseline_portfolio_loss_curves") or None,
         )
     )
     frames["methodology"] = _plain_methodology(
