@@ -48,6 +48,11 @@
     "presumed_defended_return_period_years": 2,
     "rule": "A location protected to a design return period P does not flood in events up to P; rarer events overtop and flood with their full depth (CLIMADA / ISIMIP-FLOPROS protection-standard rule). Applied per hazard grid cell via Hazard.local_exceedance_intensity (stepfunction). One national value per hazard — not the defence actually in place at a site. A cell that floods even at the 2-year event without defences is flagged: in reality it must sit behind sea walls, levees or pumps.",
     "RF": {
+      "levee_protected": {
+        "return_period_years": 100,
+        "radius_km": 2.0,
+        "basis": "A 배수펌프장 only exists where a river levee encloses low land (제내지) — it lifts interior water over the levee. Grid cells within radius_km of a pump station the publisher located are treated as levee-protected urban reaches and get the lower bound of 하천기본계획 수립지침 B급 (도시구간, 100~200년). radius_km is a platform assumption (no public 배수구역 polygons); pumps come from assets/libraries/korea_pump_stations.csv. The pumps' own 계획빈도 (mostly 20-30 y) is an interior-drainage design rainfall, reported on the row, never used as the levee standard."
+      },
       "return_period_years": 50,
       "basis": "Lowest plan scale in 하천기본계획 수립지침 (환경부고시, 2023.10.31), §4.1 하천의 계획규모: A급 200년 이상, B급 100~200년, C급(지방하천) 50~200년; older practice 지방하천 50년 / 국가하천 100년 (KDI 2002). The national minimum is used so protection is never overstated; 한강 and other A-grade reaches are protected well beyond it."
     },

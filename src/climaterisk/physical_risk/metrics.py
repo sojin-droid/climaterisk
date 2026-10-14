@@ -359,6 +359,13 @@ class ResultRow:
     flood_protection_return_period_years: float | None = None
     eal_undefended_usd: float | None = None
     undefended_frequent_flooding: bool | None = None
+    # river flood: the cell is within the configured radius of a located 배수펌프장 (levee-
+    # protected 제내지 → urban plan scale), and the nearest pump station as published —
+    # its 계획빈도 is an interior-drainage rainfall frequency, reported, never applied
+    levee_protected: bool | None = None
+    nearest_pump_station: str | None = None
+    nearest_pump_station_km: float | None = None
+    nearest_pump_station_design_frequency_years: int | None = None
 
     calculation_status: str = CalculationStatus.ERROR.value
     status_detail: str | None = None

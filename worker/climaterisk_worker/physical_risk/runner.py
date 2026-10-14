@@ -162,8 +162,10 @@ def _rows_for(
     hazard, defences = _with_defences(hazard, tag)
     if defences is not None:
         record_defences = {
-            "return_period_years": defences["return_period"],
+            "return_period_years": defences["national_return_period"],
             "basis": defences["basis"],
+            "levee_protected_cells": defences["levee_cells"],
+            "levee_basis": defences["levee_basis"],
         }
     rows = [
         engine.calculate(
@@ -379,12 +381,28 @@ def _with_defences(hazard: Any, tag: str) -> tuple[Any, dict[str, Any] | None]:
     rp = entry.get("return_period_years")
     if tag not in ("RF", "CF") or not cfg.get("enabled") or rp is None:
         return hazard, None
+    import numpy as np
+
     frequent_rp = float(cfg["presumed_defended_return_period_years"])
-    return protection.protect(hazard, float(rp)), {
-        "return_period": float(rp),
+    per_cell = np.full(hazard.centroids.size, float(rp))
+    levee = entry.get("levee_protected") or {}
+    n_levee = 0
+    if levee.get("return_period_years") is not None:
+        from climaterisk.physical_risk.pump_stations import located
+
+        points = [(s.latitude, s.longitude) for s in located()]
+        near = protection.cells_near(hazard, points, float(levee["radius_km"]))
+        per_cell[near] = max(float(rp), float(levee["return_period_years"]))
+        n_levee = int(near.sum())
+    return protection.protect(hazard, per_cell), {
+        "return_period": per_cell,
+        "national_return_period": float(rp),
+        "levee_cells": n_levee,
         "basis": str(entry.get("basis") or ""),
+        "levee_basis": str(levee.get("basis") or ""),
         "undefended": hazard,
         "frequent": protection.local_intensity(hazard, frequent_rp) > 0.0,
+        "pump_info": tag == "RF",
     }
 
 

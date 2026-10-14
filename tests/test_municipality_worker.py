@@ -175,6 +175,13 @@ def test_runner_tags_rows_and_records_resolution(monkeypatch: pytest.MonkeyPatch
         return original(hazard_type, model_id, scenario, year, iso3)
 
     monkeypatch.setattr(runner.adapters, "adapter_for", fake_adapter_for)
+    # tagging is under test, not defences: the synthetic set's two equal 1 m events would
+    # both sit at or below a 50-year design depth and be defended away
+    import copy
+
+    cfg = copy.deepcopy(runner.load_config())
+    cfg["flood_protection"]["enabled"] = False
+    monkeypatch.setattr(runner, "load_config", lambda: cfg)
     seoul, gwangju = by_id(["SGIS-11", "SGIS-24"])
     out = runner.compute_physical_risk_models(
         {

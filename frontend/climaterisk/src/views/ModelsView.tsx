@@ -1451,6 +1451,23 @@ function PointDetail({
                         muted
                       />
                       <Line k="EAL without defences" v={fmtUsdFull(r.eal_undefended_usd, ccy)} muted />
+                      {r.levee_protected && (
+                        <div className="hint">
+                          Near a published 배수펌프장 — treated as levee-protected urban floodplain (higher design
+                          standard than the national default).
+                        </div>
+                      )}
+                      {r.nearest_pump_station && (
+                        <Line
+                          k="Nearest pump station"
+                          v={`${r.nearest_pump_station} · ${r.nearest_pump_station_km?.toFixed(1)} km${
+                            r.nearest_pump_station_design_frequency_years
+                              ? ` · 계획빈도 ${r.nearest_pump_station_design_frequency_years}년 (interior drainage)`
+                              : ""
+                          }`}
+                          muted
+                        />
+                      )}
                       {r.undefended_frequent_flooding && (
                         <div className="hint">
                           Without defences this cell floods even in a 2-year event — land that must sit behind

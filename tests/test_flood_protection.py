@@ -84,3 +84,17 @@ def test_expected_depth_falls_to_the_overtopping_events() -> None:
 def test_frequent_flooding_flag_marks_land_that_must_be_defended() -> None:
     frequent = protection.local_intensity(_layered(), 2) > 0
     assert frequent.tolist() == [True, False, False]
+
+
+def test_per_cell_design_return_periods() -> None:
+    """Centroid 0 at P=100 keeps only the 1000-yr depth; the others at P=10 as before."""
+    out = protection.protect(_layered(), np.array([100.0, 10.0, 10.0])).intensity.toarray()
+    np.testing.assert_allclose(out[:, 0], [0.0, 0.0, 0.0, 0.0, 5.0])
+    np.testing.assert_allclose(out[:, 1], DEPTH[:, 1])
+
+
+def test_cells_near_uses_great_circle_distance() -> None:
+    """Centroids sit 0.1° of latitude apart (~11.1 km): 5 km reaches only the first."""
+    near = protection.cells_near(_layered(), [(37.0, 126.0)], 5.0)
+    assert near.tolist() == [True, False, False]
+    assert protection.cells_near(_layered(), [(37.05, 126.0)], 6.0).tolist() == [True, True, False]

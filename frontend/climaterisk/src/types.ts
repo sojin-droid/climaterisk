@@ -662,6 +662,11 @@ export interface PhysicalRiskRow {
   flood_protection_return_period_years?: number | null;
   eal_undefended_usd?: number | null;
   undefended_frequent_flooding?: boolean | null;
+  // river flood: levee-protected cell (near a located 배수펌프장) and the nearest pump station
+  levee_protected?: boolean | null;
+  nearest_pump_station?: string | null;
+  nearest_pump_station_km?: number | null;
+  nearest_pump_station_design_frequency_years?: number | null;
   risk_level: string | null;
   risk_level_criteria: string | null;
   calculation_status: string;

@@ -160,6 +160,11 @@ def osm_dir(*parts: str) -> Path:
     return external_dir("osm", *parts)
 
 
+def pumpstation_dir(*parts: str) -> Path:
+    """``<DATA_ROOT>/external/pumpstations[/…]`` — 배수·빗물펌프장 files from data.go.kr (raw/)."""
+    return external_dir("pumpstations", *parts)
+
+
 def municipality_dir(*parts: str) -> Path:
     """``<DATA_ROOT>/external/municipality[/…]`` — raw government downloads (sgis/, source/)."""
     return external_dir("municipality", *parts)

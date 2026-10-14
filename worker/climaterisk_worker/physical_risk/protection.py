@@ -42,11 +42,27 @@ def local_intensity(hazard: Any, return_period: float) -> Any:
     return np.nan_to_num(np.asarray(gdf[col], dtype=float), nan=0.0)
 
 
-def protect(hazard: Any, return_period: float) -> Any:
-    """A copy of ``hazard`` without the events at or below the local ``return_period`` depth."""
+def thresholds(hazard: Any, return_periods: Any) -> Any:
+    """Per-centroid design depth for a scalar or per-centroid array of return periods."""
     import numpy as np
 
-    threshold = local_intensity(hazard, return_period)
+    rps = np.broadcast_to(np.asarray(return_periods, dtype=float), (hazard.centroids.size,))
+    out = np.zeros(rps.shape)
+    for rp in np.unique(rps):
+        mask = rps == rp
+        out[mask] = local_intensity(hazard, float(rp))[mask]
+    return out
+
+
+def protect(hazard: Any, return_period: Any) -> Any:
+    """A copy of ``hazard`` without the events at or below the local design depth.
+
+    ``return_period`` is one value for every centroid or an array with one per centroid
+    (e.g. levee-protected cells at a higher standard than the rest).
+    """
+    import numpy as np
+
+    threshold = thresholds(hazard, return_period)
     intensity = hazard.intensity.tocsr(copy=True)
     keep = intensity.data > threshold[intensity.indices]
     intensity.data = np.where(keep, intensity.data, 0.0)
@@ -58,6 +74,21 @@ def protect(hazard: Any, return_period: float) -> Any:
     else:
         out.fraction = (intensity > 0).astype(float).tocsr()
     return out
+
+
+def cells_near(hazard: Any, points: list[tuple[float, float]], radius_km: float) -> Any:
+    """Boolean per centroid: within ``radius_km`` (great circle) of any of ``points``."""
+    import numpy as np
+
+    lat = np.radians(np.asarray(hazard.centroids.lat, dtype=float))
+    lon = np.radians(np.asarray(hazard.centroids.lon, dtype=float))
+    near = np.zeros(lat.shape, dtype=bool)
+    r_earth = 6371.0088
+    for plat, plon in points:
+        p1, l1 = np.radians(plat), np.radians(plon)
+        h = np.sin((lat - p1) / 2) ** 2 + np.cos(p1) * np.cos(lat) * np.sin((lon - l1) / 2) ** 2
+        near |= 2 * r_earth * np.arcsin(np.sqrt(h)) <= radius_km
+    return near
 
 
 def nearest_centroid(hazard: Any, lat: float, lon: float) -> int | None:

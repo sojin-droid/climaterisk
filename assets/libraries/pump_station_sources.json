@@ -1,0 +1,35 @@
+{
+  "_meta": {
+    "purpose": "How scripts/fetch_pump_stations.py finds the 배수·빗물펌프장 file datasets on data.go.kr, and which of them scripts/build_pump_stations.py may use. The national MOIS file (15025388) is a count per 시도, not a facility list; the KRC pump list (15131996) is agricultural pumps without locations.",
+    "version": "1.1.0",
+    "updated": "2026-10-14",
+    "notes_on_rules": "exclude_name_pattern: underpass (지하차도), manhole (맨홀) and sewage (하수) pumps drain a road or a sewer, not a levee-enclosed 제내지, so they say nothing about river-flood defences. address_check_km: a publisher coordinate farther than this from the 시군구 (else 시도) its own address names is dropped as a coordinate error (e.g. 대구 중구 underpass pumps placed in 합천군), never moved."
+  },
+  "search_keywords": [
+    "배수펌프장",
+    "빗물펌프장",
+    "우수펌프장",
+    "배수장"
+  ],
+  "title_pattern": "펌프|배수장",
+  "exclude_datasets": {
+    "15025388": "행정안전부_배수펌프장 현황 — counts per 시도, no facilities",
+    "15131996": "한국농어촌공사_펌프 정보 — pump units, no locations",
+    "15047864": "구미시 농경지용수공급시설(배수장) — irrigation supply, not flood drainage",
+    "15127297": "김천시 농업용배수펌프장 — agricultural drainage, kept out of urban flood defences",
+    "15063526": "파주시 하수펌프장 — sewage pumping, not flood drainage"
+  },
+  "allowed_licences": [
+    "제한 없음",
+    "공공누리 1유형",
+    "공공누리 제1유형"
+  ],
+  "korea_bbox": {
+    "lat_min": 33.0,
+    "lat_max": 38.7,
+    "lon_min": 124.5,
+    "lon_max": 131.0
+  },
+  "exclude_name_pattern": "지하차도|맨홀|하수",
+  "address_check_km": 2.0
+}

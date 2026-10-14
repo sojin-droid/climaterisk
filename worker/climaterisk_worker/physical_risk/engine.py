@@ -162,9 +162,12 @@ def calculate(
             the returned row whether the point counts as priced.
         defences: For RF / CF when a design return period is configured — ``hazard`` is
             then the *protected* set and this carries ``return_period`` (years),
-            ``undefended`` (the raw hazard, priced again for ``eal_undefended_usd``) and
+            ``undefended`` (the raw hazard, priced again for ``eal_undefended_usd``),
+            ``return_period`` (per-centroid design return period — higher in
+            levee-protected cells near a 배수펌프장), ``national_return_period``,
             ``frequent`` (per-centroid bool: the undefended cell floods at the most
-            frequent return period → ``undefended_frequent_flooding``).
+            frequent return period → ``undefended_frequent_flooding``) and ``pump_info``
+            (river flood: record the nearest located pump station and its 계획빈도).
 
     Returns:
         A finalised :class:`ResultRow`; financial fields are null unless the status is
@@ -304,13 +307,26 @@ def calculate(
     if defences is not None:
         from climaterisk_worker.physical_risk import protection
 
-        row.flood_protection_return_period_years = float(defences["return_period"])
         raw = ImpactCalc(exposure, ImpactFuncSet([func]), defences["undefended"]).impact(
             save_mat=False, assign_centroids=True
         )
         row.eal_undefended_usd = float(raw.aai_agg)
         idx = protection.nearest_centroid(defences["undefended"], lat, lon)
-        row.undefended_frequent_flooding = None if idx is None else bool(defences["frequent"][idx])
+        if idx is not None:
+            row.flood_protection_return_period_years = float(defences["return_period"][idx])
+            row.levee_protected = bool(
+                defences["return_period"][idx] > defences["national_return_period"]
+            )
+            row.undefended_frequent_flooding = bool(defences["frequent"][idx])
+        if defences.get("pump_info"):
+            from climaterisk.physical_risk.pump_stations import nearest
+
+            hit = nearest(lat, lon)
+            if hit is not None:
+                station, km = hit
+                row.nearest_pump_station = f"{station.name} ({station.source_title})"
+                row.nearest_pump_station_km = round(km, 3)
+                row.nearest_pump_station_design_frequency_years = station.design_frequency_years
     if event_losses is not None:
         event_losses[row.facility_id] = impact.at_event
     target_rp = float(cfg["potential_loss"]["return_period_years"])
