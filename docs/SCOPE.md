@@ -69,8 +69,8 @@ S → I 는 1·2 없이도 가능하다. 조건은 "취약성 곡선이 **발표
 | `tropical_cyclone` | 급성 | **I** | Eberenz 2021 WP4 지역 프리셋(v½ 190.5)이 기본값이나 **국내 실측 검증 없음**(G1 → C2/C5); RMSF↔TDR 3.3배 차이를 밴드로 보고하지 않음(G6); 바람 성분만이라 하한(G5) | **D**: C2 재해연보 보정 + C5 연도별 대조 통과 + G6 밴드 + G5 포착률 캐비엇 상시 부착 |
 | `tc_surge` | 급성 | **S** | petals `TCSurgeBathtub` = 정수역(bathtub), **방조제·방어시설 미반영**, 저지대 대도시에서 두 자릿수 %/yr까지 부풀 수 있음(G5 캐비엇, 7월 부산 실측 28.2%/yr); DEM 해상도가 포트폴리오 bbox 크기에 따라 변함(KOREA_1KM §1.3) | **I**: 방어 기준(항만 50년·방조제 100년) 반영 또는 국내 연안침수지도로 대체 + 고정 DEM 해상도 기록 |
 | `tc_rain` | 급성 | **S** | 물리 하자드(R-CLIPER mm)는 있으나 취약성이 **지시적 램프**이고 산불용 `wf_max_mdd`를 차용(G4) | **I**: JRC 홍수 깊이-피해 곡선 계열로 승격(강우 → 침수심 변환 근거 포함) |
-| `river_flood` | 급성 | **I** | JRC 2017 아시아 주거 프리셋이 기본값이나 **국내 실측 검증 없음**(G2); ISIMIP 전지구 격자(0.0417°)라 한국 하천망·제방 미반영(C3); 점자산 민감성(B1); 도시 내수침수 구조적 부재(G7) | **D**: C3 홍수위험지도(라이선스 협의 전까지 내부 검증 전용) + C5 대조 + G6 업종 밴드 |
-| `coastal_flood` | 급성(+SLR 만성 성분) | **I** | WRI Aqueduct 단일 GCM(NorESM1-M), 재현주기 레이어의 빈도 모형은 플랫폼 커스텀, 방어시설 미반영; 취약성은 하천홍수와 같은 JRC 프리셋(미검증) | **D**: 국내 연안침수 자료 대체 + C5 대조 + GCM 앙상블 밴드 |
+| `river_flood` | 급성 | **I** | JRC 2017 아시아 주거 프리셋이 기본값이나 **국내 실측 검증 없음**(G2); ISIMIP 전지구 격자(0.0417°)라 한국 하천망·제방 미반영(C3) — Models 탭은 2026-10-14부터 **전국 일괄 설계빈도 50년**(하천기본계획 수립지침 C급 하한)을 방어 수준으로 적용하고 방어 미적용 EAL을 병기(`flood_protection`), 지점별 실제 제방·펌프장은 아님; 점자산 민감성(B1); 도시 내수침수 구조적 부재(G7) | **D**: C3 홍수위험지도(라이선스 협의 전까지 내부 검증 전용) + C5 대조 + G6 업종 밴드 |
+| `coastal_flood` | 급성(+SLR 만성 성분) | **S** | WRI Aqueduct Floods v2 `inuncoast`(GCM 없음 — 해수면 상승 백분위·지반침하 시나리오; Studio는 95번째, Models 탭은 50번째 백분위). 재현주기 레이어마다 한 이벤트라 **공간 상관이 완전**(포트폴리오 분산효과가 구조적으로 0). **방어시설 미반영** — 매립지(시화·반월, 남동, 군산)가 2년 빈도부터 4–5 m 침수되어 EAL이 자산가치의 연 45–48 %(2026-10-14 OSM 1,000동). Models 탭은 전국 일괄 설계빈도 50년을 적용해 EAL이 미적용의 약 2 %로 줄고 방어 미적용 EAL과 "2년 빈도 침수(방어 시설 뒤 추정)" 표시를 병기하지만, 절대값이 방어 가정에 수십 배 좌우되므로 스크리닝 용도 | **I**: 위치별 방어 수준(국가관리방조제·항만 외곽시설 대장, KHOA 연안침수 API) 또는 국내 연안침수 자료로 대체 + 방어 가정 밴드 상시 보고. **D**: + C5 대조 |
 | `wildfire` | 급성 | **S** | 무임계 시그모이드(`x0=325 K`, 295 K부터 피해)라 **저강도 시즌을 자릿수급 과대**(G3, 7월 실측 약 8배); Lüthi 2021 보정 형태 미적용; petals `ImpfWildfire`는 6.2에서 사용 불가로 회피 | **I**: Lüthi 보정 형태 채택 + 해상도군별 `i_half` 밴드 병기 |
 | `european_windstorm` | 급성 | **I** | 유일하게 **발표 보정 곡선이 기본값**(Schwierz, Welker 토글). 다만 대상국 실측 대조는 이 저장소에 없음 | **D**: 대상국 관측 손실 대조(한국 비적용 재해) + Schwierz↔Welker 밴드 상시 보고 |
 | `earthquake` | 급성(비기후) | **S** | EMS-98/HAZUS 유형의 **지시적 MMI 등급 곡선**, 발표된 CLIMADA 지진 impf 없음; 보정·불확실성·적응 미구현 | **I**: 출처가 있는 취약도(HAZUS/GEM 계열) 채택 + 출처 기록 |
@@ -87,8 +87,8 @@ S → I 는 1·2 없이도 가능하다. 조건은 "취약성 곡선이 **발표
 | 등급 | 재해 |
 |---|---|
 | **D** | 없음 |
-| **I** | `tropical_cyclone`, `river_flood`, `coastal_flood`, `european_windstorm`, `heat_mortality`(비율·순위·델타) |
-| **S** | `tc_surge`, `tc_rain`, `wildfire`, `earthquake`, `heatwave`, `drought`, `low_flow`, `crop_yield`, `hail`, `landslide`, `heat_mortality`(절대 사망자 수) |
+| **I** | `tropical_cyclone`, `river_flood`, `european_windstorm`, `heat_mortality`(비율·순위·델타) |
+| **S** | `coastal_flood`, `tc_surge`, `tc_rain`, `wildfire`, `earthquake`, `heatwave`, `drought`, `low_flow`, `crop_yield`, `hail`, `landslide`, `heat_mortality`(절대 사망자 수) |
 
 ---
 
@@ -110,5 +110,7 @@ S → I 는 1·2 없이도 가능하다. 조건은 "취약성 곡선이 **발표
 | 날짜 | 재해 | 변경 | 근거 |
 |---|---|---|---|
 | 2026-10-12 | 전체 | 최초 선언. D 없음, I 5종(열사망은 지표별 분할), S 10종 | GAP G1–G7, RISK_REGISTER B1·B2·C1–C6, METHODOLOGY 재해별 표 |
+| 2026-10-14 | `coastal_flood` | **I → S** | 방어시설 미반영으로 매립지 EAL 연 45–48 %; 일괄 방어 수준(50년)을 넣으면 EAL이 약 1/50로 바뀌어 절대값이 가정에 지배됨; 재현주기 레이어 이벤트라 분산효과 0 ([sample-portfolio-1000.md](sample-portfolio-1000.md) §5, [FLOOD_DEFENCE_DATA_KR.md](FLOOD_DEFENCE_DATA_KR.md)). 이전 행의 "단일 GCM(NorESM1-M)"은 하천 레이어 설명이 잘못 옮겨진 것이라 정정 |
+| 2026-10-14 | `river_flood` | 등급 유지(I), 방어 수준 도입 | Models 탭에 전국 일괄 설계빈도 50년 적용 + 방어 미적용 EAL 병기. 지점별 방어가 아니므로 승급 근거는 아님 |
 
 승급·강등은 이 표에 날짜·근거와 함께 기록하고, 같은 PR에서 §3 행을 고친다.

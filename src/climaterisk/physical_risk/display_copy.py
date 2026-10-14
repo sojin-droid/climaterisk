@@ -33,6 +33,7 @@ from climaterisk.physical_risk.municipalities import (
 #: User-facing hazard names. ``HEAT`` is the readiness key; ``HW`` the CLIMADA tag.
 HAZARD_LABEL: dict[str, str] = {
     "RF": "Flood",
+    "CF": "Coastal Flood",
     "TC": "Tropical Cyclone",
     "HEAT": "Heatwave",
     "HW": "Heatwave",
@@ -44,6 +45,10 @@ HAZARD_LABEL: dict[str, str] = {
 #: One-line, non-expert descriptions shown under each hazard checkbox.
 HAZARD_COPY: dict[str, str] = {
     "RF": "Modeled river flooding and inundation risk.",
+    "CF": (
+        "Modeled coastal inundation from storm tides with sea-level rise and land "
+        "subsidence (WRI Aqueduct). Coastal defences are not represented."
+    ),
     "TC": "Modeled wind-related physical damage from tropical cyclones.",
     "HEAT": (
         "Extreme heat exposure. Financial impact is shown only where an applicable "
@@ -119,6 +124,8 @@ STATUS_SHORT: dict[str, str] = {
 LIMITATIONS: tuple[str, ...] = (
     "Flood: Korea-local domestic source not yet implemented; financial loss is available "
     "where the status is FULL (Data API hazard).",
+    "Coastal flood: global WRI Aqueduct data only (no Korean coastal-inundation source "
+    "connected, no coastal defences represented); river-flood data does not cover the coast.",
     "Tropical cyclone: Korea-local domestic source not yet implemented; financial loss is "
     "available where the status is FULL (Data API hazard).",
     "Heatwave: hazard available from KMA TAMAX; financial impact unavailable because no "
@@ -196,6 +203,11 @@ def method_copy(hazard_tag: str) -> str:
     """The one-line "why" chain for a hazard, for the detail panel's Method section."""
     if hazard_tag == "RF":
         return "Flood risk is based on: Hazard → CLIMADA JRC Impact Function → Asset Value → EAL."
+    if hazard_tag == "CF":
+        return (
+            "Coastal flood risk is based on: Aqueduct coastal inundation depth → CLIMADA JRC "
+            "Impact Function → Asset Value → EAL."
+        )
     if hazard_tag == "TC":
         return (
             "Tropical cyclone risk is based on: Wind hazard → CLIMADA regional Impact Function "

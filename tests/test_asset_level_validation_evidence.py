@@ -68,7 +68,12 @@ def test_fixture_portfolio_has_the_five_cases_and_matches_the_evidence(evidence)
     assert len(set(keys)) == len(keys)
     # Recommended mode: readiness decided the models, and Global was never touched
     assert {r["model_id"] for r in evidence["rows"]} == {COUNTRY, LOCAL}
-    assert recommended_models() == {"RF": COUNTRY, "TC": COUNTRY, "HEAT": LOCAL}
+    assert recommended_models() == {
+        "RF": COUNTRY,
+        "CF": "GLOBAL_BASELINE",  # coastal flood: the Data API has no such type
+        "TC": COUNTRY,
+        "HEAT": LOCAL,
+    }
     assert not any(a["model_id"] == "GLOBAL_BASELINE" for a in evidence["adapters"])
     assert not any("global" in str(a.get("hazard_dataset")) for a in evidence["adapters"])
 

@@ -283,6 +283,21 @@ def flood_impact_function(region: str, sector: str) -> Any:
     return ImpfRiverFlood.from_jrc_region_sector(region, sector)
 
 
+def coastal_flood_impact_function(region: str, sector: str) -> Any:
+    """The same JRC depth-damage curve, tagged for the coastal-flood hazard (``CF``).
+
+    Coastal inundation is water depth on the same buildings, so the published JRC curve
+    applies unchanged — EIOPA's CLIMADA-App and this platform's Studio runner do the same.
+    Only ``haz_type`` changes, because ``ImpactCalc`` matches functions to hazards by tag;
+    the id, name, intensity and damage points are the JRC's.
+    """
+    import copy
+
+    func = copy.deepcopy(flood_impact_function(region, sector))
+    func.haz_type = "CF"
+    return func
+
+
 def tc_impact_function(impf_id: int) -> Any:
     """One of the ten Eberenz regional functions, by CLIMADA's own id."""
     from climada.entity.impact_funcs.trop_cyclone import ImpfSetTropCyclone

@@ -63,6 +63,9 @@ HAZARD_RESULTS_COLUMNS: tuple[str, ...] = (
     "probability",
     "return_period_years",
     "potential_loss_return_period_years",
+    "flood_protection_return_period_years",
+    "eal_undefended_usd",
+    "undefended_frequent_flooding",
     "asset_value_usd",
     "asset_value_currency",
     "risk_level_criteria",
@@ -367,9 +370,24 @@ def export_frames(
 #: Hazard tags the portfolio views show, in column order, with their display names.
 PORTFOLIO_HAZARDS: tuple[tuple[str, str], ...] = (
     ("RF", "Flood"),
+    ("CF", "Coastal Flood"),
     ("TC", "Typhoon"),
     ("HW", "Heatwave"),
 )
+
+#: Hazards a view shows only when the run assessed them. Coastal flood was added after
+#: results already existed (2026-10-14); a run without it should not grow a column of
+#: "Not assessed" nor count it in "n of m calculated".
+_OPTIONAL_VIEW_TAGS: frozenset[str] = frozenset({"CF"})
+
+
+def view_hazards(
+    rows: Iterable[ResultRow], table: tuple[tuple[str, str], ...]
+) -> tuple[tuple[str, str], ...]:
+    """``table`` without the optional hazards that no row assessed."""
+    present = {r.hazard_type for r in rows}
+    return tuple((t, lab) for t, lab in table if t not in _OPTIONAL_VIEW_TAGS or t in present)
+
 
 #: Preference when several models priced the same facility x hazard: most local first.
 _MODEL_PREFERENCE: tuple[str, ...] = (
@@ -465,12 +483,13 @@ def portfolio_summary_frame(
     facilities: dict[str, tuple[str, float | None]] = {}
     for row in _as_rows(rows):
         facilities.setdefault(row.facility_id, (row.facility_name, row.asset_value_usd))
+    hazards = view_hazards(_as_rows(rows), PORTFOLIO_HAZARDS)
     out = []
     for fid, (name, value) in facilities.items():
         line: dict[str, Any] = {"Facility ID": fid, "Facility": name, "Asset Value": value}
         total: float | None = None
         priced = hazard_only = not_available = 0
-        for tag, label in PORTFOLIO_HAZARDS:
+        for tag, label in hazards:
             r = prim.get((fid, tag))
             if r is not None:
                 if r.eal_usd is not None:
@@ -521,11 +540,12 @@ def asset_risk_matrix_frame(
     """
     prim = primary_rows(rows, preferred)
     names = {r.facility_id: r.facility_name for r in _as_rows(rows)}
+    hazards = view_hazards(_as_rows(rows), PORTFOLIO_HAZARDS)
     out = []
     for fid, name in names.items():
         line: dict[str, Any] = {"Facility ID": fid, "Facility": name}
         priced = 0
-        for tag, label in PORTFOLIO_HAZARDS:
+        for tag, label in hazards:
             r = prim.get((fid, tag))
             if r is None:
                 line[label] = "Not assessed"
@@ -534,7 +554,7 @@ def asset_risk_matrix_frame(
                 priced += 1
             else:
                 line[label] = _status_short(r.calculation_status)
-        line["Overall"] = f"{priced} of {len(PORTFOLIO_HAZARDS)} calculated"
+        line["Overall"] = f"{priced} of {len(hazards)} calculated"
         out.append(line)
     return out
 
@@ -578,6 +598,7 @@ def summary_counts(
 #: Hazard tags of the municipality views, with the names the spec uses.
 MUNICIPALITY_HAZARDS: tuple[tuple[str, str], ...] = (
     ("RF", "Flood"),
+    ("CF", "Coastal Flood"),
     ("TC", "Tropical Cyclone"),
     ("HW", "Heatwave"),
 )
@@ -644,7 +665,7 @@ def municipality_summary_frame(
             "Asset Value": value,
         }
         priced_any = False
-        for tag, label in MUNICIPALITY_HAZARDS:
+        for tag, label in view_hazards(rs, MUNICIPALITY_HAZARDS):
             r = prim.get((fid, tag))
             if r is None:
                 line[f"{label} Status"] = "Not assessed"
@@ -700,7 +721,8 @@ def municipality_risk_matrix_frame(
                 first.point_type or "", first.point_type
             )
         priced = 0
-        for tag, label in MUNICIPALITY_HAZARDS:
+        hazards = view_hazards(rs, MUNICIPALITY_HAZARDS)
+        for tag, label in hazards:
             r = prim.get((fid, tag))
             if r is None:
                 line[label] = "Not assessed"
@@ -709,7 +731,7 @@ def municipality_risk_matrix_frame(
                 priced += 1
             else:
                 line[label] = _muni_status_short(r.calculation_status)
-        line["Calculated"] = f"{priced} of {len(MUNICIPALITY_HAZARDS)} calculated"
+        line["Calculated"] = f"{priced} of {len(hazards)} calculated"
         out.append(line)
     return out
 
@@ -947,7 +969,9 @@ def portfolio_totals_frame(
             None if b_sum is None or f_sum is None else (f_sum - b_sum) * factor
         )
 
-    hazards = MUNICIPALITY_HAZARDS if target == "MUNICIPALITY" else PORTFOLIO_HAZARDS
+    hazards = view_hazards(
+        rs, MUNICIPALITY_HAZARDS if target == "MUNICIPALITY" else PORTFOLIO_HAZARDS
+    )
 
     lines: list[dict[str, Any]] = []
     all_points: set[str] = set()
@@ -1052,7 +1076,7 @@ def province_summary_frame(
             if any(first[f].municipality_level in _SIDO_LEVELS for f in fids)
             else "No",
         }
-        for tag, label in MUNICIPALITY_HAZARDS:
+        for tag, label in view_hazards(rs, MUNICIPALITY_HAZARDS):
             cells = [prim[(f, tag)] for f in fids if (f, tag) in prim]
             if tag == "HW":
                 reads = [c.hazard_intensity for c in cells if c.hazard_intensity is not None]

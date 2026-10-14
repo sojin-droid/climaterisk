@@ -90,6 +90,18 @@ def _dataapi(hazard: str, model: str) -> dict[str, Any]:
 #: Declared resolution per (hazard key x model). Missing = that cell has no dataset.
 SPATIAL_RESOLUTION: dict[str, dict[str, dict[str, Any]]] = {
     "RF": {_G: _dataapi("RF", _G), _C: _dataapi("RF", _C)},
+    "CF": {
+        _G: {
+            "hazard": "CF",
+            "model_id": _G,
+            "value": 30.0,
+            "unit": "arcsec",
+            "unit_type": "grid cell",
+            "description": f"30 arcsec grid ({km_class(30.0, 'arcsec')} class in Korea)",
+            "metadata_field": "Aqueduct GeoTIFF pixel size (measured on load)",
+            "dataset_family": "WRI Aqueduct Floods v2 inuncoast",
+        }
+    },
     "TC": {_G: _dataapi("TC", _G), _C: _dataapi("TC", _C)},
     "HEAT": {
         _K: {
@@ -169,13 +181,12 @@ EXTENDED_HAZARDS: dict[str, dict[str, Any]] = {
             "hazard-loss calculation."
         ),
         "detail": (
-            "Sea-level rise exists only as the sea_level_rise_m option of the legacy "
-            "tropical-cyclone surge runner (a static offset added to the bathtub surge "
-            "height), not as a hazard grid with events and frequencies. CLIMADA has no "
-            "sea-level-rise hazard class; Petals' CoastalFlood.from_aqueduct_tif (Aqueduct "
-            "coastal inundation, RCP 4.5/8.5, 2030/2050/2080, subsidence option) and "
-            "TCSurgeBathtub are the nearest existing hazards, and neither is connected to the "
-            "validated chain."
+            "Sea-level rise on its own is not a hazard grid with events and frequencies: it "
+            "exists as the sea_level_rise_m option of the legacy tropical-cyclone surge runner "
+            "and, since 2026-10-14, inside the Coastal Flood hazard (CF), whose Aqueduct "
+            "scenarios already include sea-level rise (50th percentile) and subsidence. A "
+            "separate sea-level-rise loss is not reported, so it is never added to the coastal "
+            "flood loss twice."
         ),
         "evidence": {
             "checked": "2026-09-27, installed climada 6.1.0 / climada_petals 6.2.0",
@@ -191,9 +202,9 @@ EXTENDED_HAZARDS: dict[str, dict[str, Any]] = {
             "repository": "physical.py _run_tc_surge: sea_level_rise_m static option only",
         },
         "candidate": (
-            "Aqueduct coastal flood through CoastalFlood + the JRC coastal depth-damage "
-            "function would be a spatial hazard-loss chain — a separate phase with its own "
-            "licence and validation evidence"
+            "read through Coastal Flood (CF): Aqueduct coastal inundation with the JRC "
+            "depth-damage function is now the spatial hazard-loss chain for sea-level-driven "
+            "flooding"
         ),
     },
 }

@@ -11,6 +11,10 @@ an adapter only answers *which dataset* and *what it actually is*:
 * ``DATA_API_COUNTRY`` — CLIMADA Data API, ``spatial_coverage=country`` for one ISO3.
   The same product cropped to a country: a **country-specific Data API hazard**, not
   Korea-local source data.
+* Coastal flood (``CF``) — the Data API has no coastal-flood type, so ``GLOBAL_BASELINE``
+  reads the global WRI Aqueduct Floods v2 coastal-inundation GeoTIFFs over the portfolio's
+  bbox (:class:`GlobalCoastalFloodAdapter`), ``DATA_API_COUNTRY`` has no data and
+  ``KOREA_LOCAL`` is an interface only.
 * ``KOREA_LOCAL`` — a domestic dataset through a dedicated adapter. For flood and TC the
   adapters exist with ``status = NOT_IMPLEMENTED`` and ``load()`` returns None: the
   환경부 홍수위험지도 licence and access are unresolved and no domestic TC set is on hand,
@@ -55,6 +59,14 @@ NOT_IMPLEMENTED = "NOT_IMPLEMENTED"
 _CROP_PAD_DEG = 1.0
 
 
+class HazardUnavailable(RuntimeError):
+    """The cell can run in principle but has no hazard right now (e.g. offline, not cached).
+
+    The runner turns it into ``NO_HAZARD_DATA`` rows carrying the message — distinct from a
+    calculation ``ERROR``.
+    """
+
+
 @dataclass(frozen=True)
 class HazardDescription:
     """What an adapter would price — recorded on the row whether or not a load happened."""
@@ -84,7 +96,11 @@ class HazardAdapter(Protocol):
 
     def describe(self) -> HazardDescription: ...
 
-    def load(self, bbox: tuple[float, float, float, float] | None = None) -> Any: ...
+    def load(
+        self,
+        bbox: tuple[float, float, float, float] | None = None,
+        points: list[tuple[float, float]] | None = None,
+    ) -> Any: ...
 
     def spatial_resolution(self, hazard: Any) -> dict[str, Any] | None: ...
 
@@ -284,7 +300,11 @@ class DataApiAdapter:
             ),
         )
 
-    def load(self, bbox: tuple[float, float, float, float] | None = None) -> Any:
+    def load(
+        self,
+        bbox: tuple[float, float, float, float] | None = None,
+        points: list[tuple[float, float]] | None = None,
+    ) -> Any:
         from climada.util.api_client import Client
 
         from climaterisk_worker._dataapi import resilient_get_hazard
@@ -329,6 +349,260 @@ class CountryTCAdapter(DataApiAdapter):
 
 
 # --------------------------------------------------------------------------- #
+# Coastal flood — WRI Aqueduct (GLOBAL_BASELINE)                                  #
+# --------------------------------------------------------------------------- #
+def aqueduct_coastal_plan(
+    scenario: str, year: int, percentile: int, subsidence: str
+) -> tuple[str, str, str, list[tuple[int, str]]]:
+    """``(dataset, served_scenario, time_horizon, [(rp, file name), ...])`` for Aqueduct coastal.
+
+    Aqueduct publishes historical and RCP 4.5 / 8.5 at 2030 / 2050 / 2080. A platform
+    scenario maps to the emissions scenario the platform's Aqueduct ingest already uses
+    (``rcp26 → rcp4p5``, ``rcp60 → rcp8p5``); the *served* scenario is named by its
+    platform key so a mismatch is visible on the row. Future layers carry the
+    sea-level-rise percentile token (``0_perc_50``; the bare ``0`` is the 95th);
+    historical layers have none.
+    """
+    from climaterisk_worker import ingest
+
+    rps = list(ingest._AQ_COAST_RPS)
+    if scenario == "historical":
+        token = f"inuncoast_historical_{subsidence}_hist"
+        files = [(rp, f"{token}_rp{rp:04d}_0.tif") for rp in rps]
+        return f"aqueduct_{token}", "historical", "hist", files
+    aq = ingest._AQ_SCENARIO.get(scenario, "rcp8p5")
+    served = {"rcp4p5": "rcp45", "rcp8p5": "rcp85"}[aq]
+    yr = nearest(ingest._AQ_FUTURE_YEARS, int(year))
+    slr = "0" if int(percentile) == 95 else f"0_perc_{int(percentile):02d}"
+    token = f"inuncoast_{aq}_{subsidence}_{yr}"
+    files = [(rp, f"{token}_rp{rp:04d}_{slr}.tif") for rp in rps]
+    return f"aqueduct_{token}_{slr}", served, str(yr), files
+
+
+def snapped_bbox(
+    bbox: tuple[float, float, float, float], pad: float, snap: float
+) -> tuple[float, float, float, float]:
+    """``(lon_min, lat_min, lon_max, lat_max)`` padded and snapped outward to ``snap`` degrees.
+
+    ``bbox`` is the runner's ``(lat_min, lon_min, lat_max, lon_max)``. Snapping lets
+    portfolios in the same area share one cached read.
+    """
+    import math
+
+    lat0, lon0, lat1, lon1 = bbox
+    return (
+        math.floor((lon0 - pad) / snap) * snap,
+        math.floor((lat0 - pad) / snap) * snap,
+        math.ceil((lon1 + pad) / snap) * snap,
+        math.ceil((lat1 + pad) / snap) * snap,
+    )
+
+
+class GlobalCoastalFloodAdapter:
+    """Coastal flood from WRI Aqueduct Floods v2 (inuncoast GeoTIFFs), one event per RP.
+
+    Each return-period layer is read over ``/vsicurl`` for the portfolio's snapped bbox and
+    cached as a compressed array under ``<DATA_ROOT>/cache/aqueduct`` (offline runs read the
+    cache; with no cache they get ``NO_HAZARD_DATA``). Event frequencies are the incremental
+    exceedance probabilities ``1/RP_i − 1/RP_{i+1}`` (the platform's Aqueduct ingest rule),
+    so ``aai_agg`` integrates the exceedance curve and ``calc_freq_curve`` returns the RPs.
+
+    The hazard keeps only (a) cells flooded at some return period and (b) the grid cell
+    holding each facility. A facility's nearest centroid is then exactly its own 30-arcsec
+    cell — a dry facility reads 0 m, never a wet cell kilometres away — while the centroid
+    count stays small.
+    """
+
+    model_id = ModelId.GLOBAL_BASELINE.value
+    status = READY
+    hazard_type = "CF"
+
+    def __init__(self, scenario: str, year: int, iso3: str | None = None) -> None:
+        from climaterisk.physical_risk.metrics import load_config
+
+        cfg = load_config()["coastal_flood"]
+        self.scenario, self.year, self.iso3 = scenario, int(year), iso3
+        self.percentile, self.subsidence = (
+            int(cfg["sea_level_rise_percentile"]),
+            str(cfg["subsidence"]),
+        )
+        self.pad, self.snap = float(cfg["bbox_pad_deg"]), float(cfg["bbox_snap_deg"])
+        self.dataset, self.served_scenario, self.time_horizon, self.files = aqueduct_coastal_plan(
+            scenario, self.year, self.percentile, self.subsidence
+        )
+
+    def describe(self) -> HazardDescription:
+        slr = (
+            "no SLR percentile (historical)"
+            if self.served_scenario == "historical"
+            else f"sea-level rise {self.percentile}th percentile"
+        )
+        return HazardDescription(
+            hazard_type=self.hazard_type,
+            model_id=self.model_id,
+            status=self.status,
+            hazard_source=(
+                f"WRI Aqueduct Floods v2 coastal inundation ({self.subsidence}, {slr}), "
+                "30 arcsec — global product; the CLIMADA Data API has no coastal-flood type"
+            ),
+            hazard_dataset=self.dataset,
+            hazard_data_version="Aqueduct Floods v2 (2020)",
+            hazard_country=None,
+            requested_scenario=self.scenario,
+            served_scenario=self.served_scenario,
+            time_horizon=self.time_horizon,
+            detail="no coastal defences represented; one event per return period (2–1000 y)",
+        )
+
+    def _cache_path(self, box: tuple[float, float, float, float]) -> Path:
+        from climaterisk_worker._paths import paths
+
+        tag = "_".join(f"{v:g}" for v in box)
+        return paths.cache_dir("aqueduct", f"{self.dataset}__{tag}.npz")
+
+    def _layers(self, box: tuple[float, float, float, float]) -> dict[str, Any]:
+        """``lat, lon (1-D grid axes), rps, depth[rp, row, col]`` — cache, else Aqueduct."""
+        import numpy as np
+
+        from climaterisk_worker import ingest
+        from climaterisk_worker._params import offline
+
+        cache = self._cache_path(box)
+        if cache.exists():
+            with np.load(cache) as z:
+                return {k: z[k] for k in z.files}
+        if offline():
+            raise HazardUnavailable(
+                f"offline mode and no cached Aqueduct coastal layer for {self.dataset} over "
+                f"{box} — run once online to cache it"
+            )
+        import rasterio
+        from rasterio.windows import from_bounds
+
+        stack, rps, axes = [], [], None
+        for rp, name in self.files:
+            with rasterio.open(f"/vsicurl/{ingest._AQ_BASE}/{name}") as ds:
+                win = from_bounds(*box, ds.transform).round_offsets().round_lengths()
+                arr = ds.read(1, window=win).astype("float32")
+                nd = ds.nodata
+                if axes is None:
+                    wt = ds.window_transform(win)
+                    nrows, ncols = arr.shape
+                    axes = (
+                        wt.f + (np.arange(nrows) + 0.5) * wt.e,  # latitude, north → south
+                        wt.c + (np.arange(ncols) + 0.5) * wt.a,  # longitude, west → east
+                    )
+            if nd is not None:
+                arr[arr == nd] = 0.0
+            arr[~np.isfinite(arr) | (arr < 0)] = 0.0
+            stack.append(arr)
+            rps.append(rp)
+        assert axes is not None
+        out = {
+            "lat": np.asarray(axes[0]),
+            "lon": np.asarray(axes[1]),
+            "rps": np.asarray(rps),
+            "depth": np.stack(stack),
+        }
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        np.savez_compressed(cache, **out)
+        return out
+
+    def load(
+        self,
+        bbox: tuple[float, float, float, float] | None = None,
+        points: list[tuple[float, float]] | None = None,
+    ) -> Any:
+        import numpy as np
+        from climada.hazard import Hazard
+        from scipy import sparse
+
+        from climaterisk_worker import ingest
+        from climaterisk_worker.hazard_convert import _centroids
+
+        if bbox is None:
+            raise ValueError("the Aqueduct coastal adapter reads a bbox; none was given")
+        box = snapped_bbox(bbox, self.pad, self.snap)
+        layers = self._layers(box)
+        lat_axis, lon_axis = layers["lat"], layers["lon"]
+        depth = layers["depth"]  # (n_rp, n_lat, n_lon)
+        n_lat, n_lon = depth.shape[1:]
+        keep = (depth > 0).any(axis=0)
+        dlat, dlon = float(lat_axis[1] - lat_axis[0]), float(lon_axis[1] - lon_axis[0])
+        for lat, lon in points or []:
+            i = int(np.clip(np.floor((lat - (lat_axis[0] - dlat / 2)) / dlat), 0, n_lat - 1))
+            j = int(np.clip(np.floor((lon - (lon_axis[0] - dlon / 2)) / dlon), 0, n_lon - 1))
+            keep[i, j] = True
+        ii, jj = np.nonzero(keep)
+        intensity = depth[:, ii, jj].astype(float)
+        rps = [int(r) for r in layers["rps"]]
+        hazard = Hazard(
+            haz_type="CF",
+            units="m",
+            centroids=_centroids(lat_axis[ii], lon_axis[jj]),
+            event_id=np.arange(1, len(rps) + 1),
+            event_name=[f"rp{rp}" for rp in rps],
+            date=np.zeros(len(rps), dtype=int),
+            frequency=ingest._incremental_frequency(rps),
+            frequency_unit="1/year",
+            intensity=sparse.csr_matrix(intensity),
+            fraction=sparse.csr_matrix((intensity > 0).astype(float)),
+        )
+        hazard.check()
+        return hazard
+
+    def spatial_resolution(self, hazard: Any) -> dict[str, Any] | None:
+        """The GeoTIFF pixel size (30 arcsec), checked against the centroids."""
+        if hazard is None:
+            return None
+        return resolution_record(
+            30.0,
+            "arcsec",
+            "grid cell",
+            source="Aqueduct Floods v2 GeoTIFF pixel size (1/120°)",
+            measured_deg=measure_grid_spacing(hazard),
+            dataset_family=self.dataset,
+        )
+
+
+class _NoCoastalDataApiAdapter:
+    """Coastal flood under DATA_API_COUNTRY: the Data API carries no such type."""
+
+    model_id = ModelId.DATA_API_COUNTRY.value
+    status = NO_HAZARD_DATA
+    hazard_type = "CF"
+
+    def __init__(self, scenario: str | None = None) -> None:
+        self.scenario = scenario
+
+    def describe(self) -> HazardDescription:
+        why = "the CLIMADA Data API has no coastal-flood hazard type"
+        return HazardDescription(
+            hazard_type=self.hazard_type,
+            model_id=self.model_id,
+            status=self.status,
+            hazard_source=f"none — {why}",
+            hazard_dataset=None,
+            hazard_data_version=None,
+            hazard_country=None,
+            requested_scenario=self.scenario,
+            served_scenario=None,
+            time_horizon=None,
+            detail=why,
+        )
+
+    def load(
+        self,
+        bbox: tuple[float, float, float, float] | None = None,
+        points: list[tuple[float, float]] | None = None,
+    ) -> None:
+        return None
+
+    def spatial_resolution(self, hazard: Any) -> dict[str, Any] | None:
+        return None
+
+
+# --------------------------------------------------------------------------- #
 # KOREA_LOCAL — interfaces for flood and TC, a real hazard-only adapter for heat  #
 # --------------------------------------------------------------------------- #
 class _NotImplementedAdapter:
@@ -360,7 +634,11 @@ class _NotImplementedAdapter:
             detail=self.reason,
         )
 
-    def load(self, bbox: tuple[float, float, float, float] | None = None) -> None:
+    def load(
+        self,
+        bbox: tuple[float, float, float, float] | None = None,
+        points: list[tuple[float, float]] | None = None,
+    ) -> None:
         """Always None. Never raises, never fabricates, never downloads."""
         return None
 
@@ -376,6 +654,15 @@ class KoreaLocalFloodAdapter(_NotImplementedAdapter):
         "(출처표시 + 상업적 이용금지 + 변경금지; confirmed 2026-09-23), which does not permit "
         "the grid conversion or commercial use without separate permission — the map is not "
         "downloaded, copied or computed until it is granted"
+    )
+
+
+class KoreaLocalCoastalFloodAdapter(_NotImplementedAdapter):
+    hazard_type = "CF"
+    source = "국립해양조사원 해안침수예상도 (adapter interface only)"
+    reason = (
+        "no domestic coastal-inundation dataset connected; the licence and access of the "
+        "국립해양조사원 해안침수예상도 have not been investigated"
     )
 
 
@@ -413,7 +700,11 @@ class _NoHeatDataAdapter:
             detail=why,
         )
 
-    def load(self, bbox: tuple[float, float, float, float] | None = None) -> None:
+    def load(
+        self,
+        bbox: tuple[float, float, float, float] | None = None,
+        points: list[tuple[float, float]] | None = None,
+    ) -> None:
         return None
 
     def spatial_resolution(self, hazard: Any) -> dict[str, Any] | None:
@@ -491,7 +782,11 @@ class KoreaLocalHeatAdapter:
             detail=why,
         )
 
-    def load(self, bbox: tuple[float, float, float, float] | None = None) -> Any:
+    def load(
+        self,
+        bbox: tuple[float, float, float, float] | None = None,
+        points: list[tuple[float, float]] | None = None,
+    ) -> Any:
         from climaterisk_worker import catalog
 
         return catalog.load_hazard(
@@ -535,6 +830,12 @@ def adapter_for(hazard_type: str, model_id: str, scenario: str, year: int, iso3:
         table = {g: GlobalFloodAdapter, c: CountryFloodAdapter, k: KoreaLocalFloodAdapter}
     elif hazard_type == "TC":
         table = {g: GlobalTCAdapter, c: CountryTCAdapter, k: KoreaLocalTCAdapter}
+    elif hazard_type == "CF":
+        if model_id == g:
+            return GlobalCoastalFloodAdapter(scenario, year, iso3)
+        if model_id == c:
+            return _NoCoastalDataApiAdapter(scenario)
+        return KoreaLocalCoastalFloodAdapter(scenario, year, iso3)
     elif hazard_type in ("HW", "HM"):
         if model_id == k:
             return KoreaLocalHeatAdapter(hazard_type, scenario, year, iso3)
@@ -549,8 +850,8 @@ def adapter_for(hazard_type: str, model_id: str, scenario: str, year: int, iso3:
 
 def adapter_statuses() -> dict[str, dict[str, str]]:
     """Static status of every adapter, in the readiness table's shape — for the cross-check."""
-    out: dict[str, dict[str, str]] = {"RF": {}, "TC": {}, "HEAT": {}}
-    for haz, key in (("RF", "RF"), ("TC", "TC"), ("HW", "HEAT")):
+    out: dict[str, dict[str, str]] = {"RF": {}, "CF": {}, "TC": {}, "HEAT": {}}
+    for haz, key in (("RF", "RF"), ("CF", "CF"), ("TC", "TC"), ("HW", "HEAT")):
         for model in (m.value for m in ModelId):
             out[key][model] = adapter_for(haz, model, "rcp45", 2050, "KOR").status
     return out

@@ -40,8 +40,8 @@ import type {
  */
 
 const MODELS = ["GLOBAL_BASELINE", "DATA_API_COUNTRY", "KOREA_LOCAL"] as const;
-const HAZARD_KEYS = ["RF", "TC", "HEAT"] as const;
-const TAG_OF: Record<string, string> = { RF: "RF", TC: "TC", HEAT: "HW" };
+const HAZARD_KEYS = ["RF", "CF", "TC", "HEAT"] as const;
+const TAG_OF: Record<string, string> = { RF: "RF", CF: "CF", TC: "TC", HEAT: "HW" };
 const LOCAL_FIRST = ["KOREA_LOCAL", "DATA_API_COUNTRY", "GLOBAL_BASELINE"];
 const PAGE = 25;
 type Target = "MUNICIPALITY" | "FACILITY";
@@ -292,7 +292,10 @@ export function ModelsView({ model }: { model: Portfolio }) {
     target === "MUNICIPALITY"
       ? (wantRep ? muniSelected.size : 0) + (wantOffice ? selectedWithOffice.length : 0)
       : selected.size;
-  const nCalc = nPoints * hazards.size * modelsToRun.length * (mode === "custom" && baseline ? 2 : 1);
+  const nCalc =
+    nPoints *
+    (mode === "recommended" ? [...hazards].filter((h) => recommended[h]).length : hazards.size * modelsToRun.length) *
+    (mode === "custom" && baseline ? 2 : 1);
 
   async function openRun(r: Run) {
     const o = r.output as PhysicalRiskModelsOutput | null;
@@ -317,6 +320,14 @@ export function ModelsView({ model }: { model: Portfolio }) {
       const common = {
         hazards: [...hazards],
         models: [...modelsToRun],
+        // Recommended: each hazard only under its own pick (not the union of the picks)
+        ...(mode === "recommended"
+          ? {
+              hazard_models: Object.fromEntries(
+                [...hazards].filter((h) => recommended[h]).map((h) => [h, [recommended[h]]]),
+              ),
+            }
+          : {}),
         ...(mode === "custom" && baseline ? { baseline_scenario: "historical" } : {}),
         ...(mode === "custom" && growthValue !== null && growthValid ? { annual_growth_pct: growthValue } : {}),
       };
@@ -1432,6 +1443,22 @@ function PointDetail({
                     muted={r.potential_loss_usd == null}
                   />
                   <Line k="Return period" v={`${r.potential_loss_return_period_years ?? r.return_period_years ?? 100} years`} />
+                  {r.flood_protection_return_period_years != null && (
+                    <>
+                      <Line
+                        k="Defences assumed"
+                        v={`up to the ${r.flood_protection_return_period_years}-year event (national design standard, not this site's)`}
+                        muted
+                      />
+                      <Line k="EAL without defences" v={fmtUsdFull(r.eal_undefended_usd, ccy)} muted />
+                      {r.undefended_frequent_flooding && (
+                        <div className="hint">
+                          Without defences this cell floods even in a 2-year event — land that must sit behind
+                          sea walls, levees or pumps in reality.
+                        </div>
+                      )}
+                    </>
+                  )}
                   <Line k="Impact function" v={r.impact_function_name ?? "—"} muted />
                 </>
               ) : (

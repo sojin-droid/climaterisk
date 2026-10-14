@@ -1,8 +1,8 @@
 {
   "_meta": {
     "purpose": "Physical-risk engine configuration. Thresholds and mappings live here, not buried in code, so they can be changed without touching the calculation (docs/physical-risk-methodology.md).",
-    "version": "1.2.0",
-    "updated": "2026-10-13"
+    "version": "1.4.0",
+    "updated": "2026-10-14"
   },
   "risk_levels": {
     "metric": "eal_as_pct_of_assets",
@@ -35,6 +35,26 @@
   "portfolio_loss_curve": {
     "return_periods_years": [10, 25, 50, 100, 250],
     "note": "Return periods of the portfolio (and per-province) loss curve: per-event losses of every priced asset under one hazard set are added, then read through CLIMADA Impact.calc_freq_curve. Not the sum of per-asset return-period losses. A return period outside the curve's own range is null (RETURN_PERIOD_NOT_RESOLVABLE / SHORTER_THAN_CURVE), never the clamped end value."
+  },
+  "coastal_flood": {
+    "sea_level_rise_percentile": 50,
+    "subsidence": "wtsub",
+    "bbox_pad_deg": 0.1,
+    "bbox_snap_deg": 0.5,
+    "note": "Models-tab coastal flood (CF) = WRI Aqueduct Floods v2 inuncoast GeoTIFFs. Future layers use the 50th-percentile sea-level-rise projection (Aqueduct token 0_perc_50; the bare 0 is the 95th); historical layers carry no SLR percentile. wtsub = with land subsidence. The portfolio bbox is padded and snapped outward so nearby portfolios reuse one cached read."
+  },
+  "flood_protection": {
+    "enabled": true,
+    "presumed_defended_return_period_years": 2,
+    "rule": "A location protected to a design return period P does not flood in events up to P; rarer events overtop and flood with their full depth (CLIMADA / ISIMIP-FLOPROS protection-standard rule). Applied per hazard grid cell via Hazard.local_exceedance_intensity (stepfunction). One national value per hazard — not the defence actually in place at a site. A cell that floods even at the 2-year event without defences is flagged: in reality it must sit behind sea walls, levees or pumps.",
+    "RF": {
+      "return_period_years": 50,
+      "basis": "Lowest plan scale in 하천기본계획 수립지침 (환경부고시, 2023.10.31), §4.1 하천의 계획규모: A급 200년 이상, B급 100~200년, C급(지방하천) 50~200년; older practice 지방하천 50년 / 국가하천 100년 (KDI 2002). The national minimum is used so protection is never overstated; 한강 and other A-grade reaches are protected well beyond it."
+    },
+    "CF": {
+      "return_period_years": 50,
+      "basis": "Port outer facilities (breakwaters) were designed to a 50-year wave until the 2021-11-08 uplift to 100 years for major trade ports (press report; KDS 64 clause not verified). No published return period was found for 방조제 (Saemangeum sea-wall data give design wave/level and freeboard only). The lower, pre-2021 value is used so protection is never overstated."
+    }
   },
   "property_type_to_jrc_sector": {
     "_note": "Maps portfolio property_type onto the JRC sectors ImpfRiverFlood exposes. The mapping is a platform choice, not a JRC one — see methodology 5.",

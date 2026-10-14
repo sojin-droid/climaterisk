@@ -154,7 +154,7 @@ def test_runner_tags_rows_and_records_resolution(monkeypatch: pytest.MonkeyPatch
                 None,
             )
 
-        def load(self, bbox=None):  # type: ignore[no-untyped-def]
+        def load(self, bbox=None, points=None):  # type: ignore[no-untyped-def]
             return grid_hazard("RF", "m", 150 / 3600, 1.0)
 
         def spatial_resolution(self, hazard):  # type: ignore[no-untyped-def]
