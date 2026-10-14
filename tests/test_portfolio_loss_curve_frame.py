@@ -36,6 +36,7 @@ def _curve(level: str, name: str | None, model: str, **extra: object) -> dict[st
         "group_name": name,
         "points_assessed": 3,
         "points_priced": 2,
+        "points_with_hazard": 2,
         "priced_asset_value": 3000.0,
         "status": "OK",
         "eal": 2.3,
@@ -128,3 +129,14 @@ def test_workbook_writes_the_sheet_second_with_money_formats() -> None:
     assert loss.value == 100.0 and loss.number_format == '"$"#,##0'
     blank = ws.cell(row=2, column=header.index("250-yr Loss") + 1)
     assert blank.value is None  # never written as 0
+
+
+def test_a_group_the_dataset_never_reaches_is_flagged_not_read_as_no_risk() -> None:
+    (line,) = portfolio_loss_curve_frame(
+        [_curve("ASSET_CLASS", "industrial", COUNTRY, points_with_hazard=0)]
+    )
+    assert line["Assets with Modeled Hazard"] == 0
+    assert "not evidence of no risk" in line["Note"]
+    (covered,) = portfolio_loss_curve_frame([_curve("PORTFOLIO", None, COUNTRY)])
+    assert covered["Assets with Modeled Hazard"] == 2
+    assert "not evidence of no risk" not in (covered["Note"] or "")

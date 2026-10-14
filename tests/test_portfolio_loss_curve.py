@@ -211,3 +211,5 @@ def test_runner_groups_by_class_and_province_and_skips_unpriced_points() -> None
         by_row["S1"],
         by_row["B1"],
     }
+    # Seoul (event 0, 3 m) and B1 (event 1, 2 m) both sit in wet cells.
+    assert portfolio["points_with_hazard"] == 2

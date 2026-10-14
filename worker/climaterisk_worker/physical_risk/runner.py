@@ -344,6 +344,10 @@ def _loss_curves(
     Each group records which impact functions and asset classes its priced points used:
     a flood portfolio mixes JRC sector curves, which is correct (each point's event losses
     come from its own function; only money is added), but the reader must be able to see it.
+
+    ``points_with_hazard`` counts priced points whose nearest hazard centroid is non-zero in
+    at least one event (``hazard_intensity > 0``). A group with none has a zero curve
+    because the dataset has no hazard there — a coverage statement, not a "no risk" one.
     """
     cfg = load_config()
     return_periods = [float(rp) for rp in cfg["portfolio_loss_curve"]["return_periods_years"]]
@@ -385,6 +389,9 @@ def _loss_curves(
                 "group_level": level,
                 "group_name": name,
                 "points_assessed": len(members),
+                "points_with_hazard": sum(
+                    1 for i in ids if (priced[i].hazard_intensity or 0.0) > 0.0
+                ),
                 "impact_functions": [
                     {"impact_function_id": fid, "impact_function_name": fname, "assets": n}
                     for (fid, fname), n in sorted(functions.items(), key=lambda kv: str(kv[0]))

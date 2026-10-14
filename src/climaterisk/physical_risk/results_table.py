@@ -1107,6 +1107,9 @@ def portfolio_loss_curve_frame(
     each other: their event sets are unrelated, so there is no all-hazards line. A return
     period outside a curve is an empty cell with the reason in ``Note``.
 
+    ``Assets with Modeled Hazard`` counts the priced assets the dataset reaches at all; when
+    it is 0 the zero losses are flagged in ``Note`` as a coverage gap, not an absence of risk.
+
     Each line also says which **asset classes** (JRC sector of the property type —
     commercial / residential / industrial / …) and which **impact functions** its priced
     assets used: a flood curve mixes the JRC sector curves of its assets (each asset's event
@@ -1160,6 +1163,7 @@ def portfolio_loss_curve_frame(
                 "Scenario": c.get("requested_scenario"),
                 "Assets Assessed": c.get("points_assessed"),
                 "Assets Priced": c.get("points_priced"),
+                "Assets with Modeled Hazard": c.get("points_with_hazard"),
                 "Asset Classes": " · ".join(
                     f"{_class_label(k)} {n}" for k, n in (c.get("asset_classes") or {}).items()
                 )
@@ -1189,6 +1193,12 @@ def portfolio_loss_curve_frame(
             notes = [str(c["detail"])] if c.get("detail") else []
             if c.get("status") == "NO_PRICED_POINTS":
                 notes.append("no asset was priced under this data scope")
+            elif c.get("points_with_hazard") == 0:
+                notes.append(
+                    "this hazard dataset shows no hazard at any of these assets, so every loss "
+                    "is 0 — a data-coverage result, not evidence of no risk (the river-flood "
+                    "sets carry no pluvial, coastal or small-river flooding)"
+                )
             above = [f"{rp:g}" for rp, x in cells.items() if x.get("status") == _RP_ABOVE]
             below = [f"{rp:g}" for rp, x in cells.items() if x.get("status") == _RP_BELOW]
             if above:
