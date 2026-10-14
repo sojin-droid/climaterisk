@@ -155,6 +155,11 @@ def kma_dir() -> Path:
     return _as_path(value) if value else external_dir("kma")
 
 
+def osm_dir(*parts: str) -> Path:
+    """``<DATA_ROOT>/external/osm[/…]`` — OpenStreetMap extracts (Geofabrik ``*.osm.pbf``)."""
+    return external_dir("osm", *parts)
+
+
 def municipality_dir(*parts: str) -> Path:
     """``<DATA_ROOT>/external/municipality[/…]`` — raw government downloads (sgis/, source/)."""
     return external_dir("municipality", *parts)

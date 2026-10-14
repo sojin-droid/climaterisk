@@ -1,34 +1,42 @@
-# Synthetic 1,000-asset portfolio — balanced asset classes and the portfolio loss curve
+# 1,000 real OSM buildings — balanced asset classes and the portfolio loss curve
 
-Written 2026-10-14. **Every asset here is synthetic.** The portfolio exists to read the
-portfolio / asset-class / 시도 loss curves (Portfolio Loss Curve sheet) on a sample in which
-every asset class has hundreds of assets. The 5-asset
-[validation fixture](../tests/fixtures/asset_level_validation/validation_portfolio.csv) is a
-set of golden regression cases A–E with one industrial asset; it is not reshaped for this.
+Written 2026-10-14. The portfolio exists to read the portfolio / asset-class / 시도 loss
+curves (Portfolio Loss Curve sheet) on a sample in which every asset class has hundreds of
+assets. The 5-asset [validation fixture](../tests/fixtures/asset_level_validation/validation_portfolio.csv)
+is a set of golden regression cases A–E with one industrial asset; it is not reshaped for this.
+
+**Buildings are real, values are not.** Every asset is an existing OpenStreetMap building
+with a use tag — its location, footprint, use and (when tagged) floor count are OSM's. Its
+`asset_value_usd` is an assumption: footprint × floors × a class unit value. Read the money
+as a method test, never as a valuation.
 
 ## 1. Construction
 
 | item | value |
 |---|---|
-| file | [`tests/fixtures/sample_portfolio_1000/portfolio.csv`](../tests/fixtures/sample_portfolio_1000/portfolio.csv) |
-| builder | [`scripts/build_sample_portfolio.py`](../scripts/build_sample_portfolio.py) (worker env, geopandas) |
-| spec | [`assets/libraries/sample_portfolio_spec.json`](../assets/libraries/sample_portfolio_spec.json) — seed `20261014`, no number in the script |
-| classes | commercial **334** (office / retail / hotel) · residential **333** (apartment / residential) · industrial **333** (warehouse / logistics / factory) |
-| class key | the JRC sector the engine maps the property type to (`property_type_to_jrc_sector`) — tested, so a class is never a second taxonomy |
-| location | a 시군구 uniformly at random (SGIS `bnd_sigungu_00_2025_2Q`, 252 units), then a point uniformly at random **inside its official polygon** (rejection sampling in EPSG:5179); 1,000 draws reach 248 of the 252 units, in all 17 시도 |
-| value | lognormal per class (medians $30 M / $20 M / $25 M; log-σ 0.8 / 0.7 / 0.9), clipped to $1 M–$500 M, rounded to $10 k — total $34.2 B |
-| determinism | same spec + same boundary files ⇒ byte-identical CSV (checked by rebuilding: md5 `db4d2d1d…`) |
+| file | [`tests/fixtures/sample_portfolio_1000/portfolio.csv`](../tests/fixtures/sample_portfolio_1000/portfolio.csv) (+ [README](../tests/fixtures/sample_portfolio_1000/README.md), ODbL) |
+| builder | [`scripts/build_sample_portfolio.py`](../scripts/build_sample_portfolio.py) (worker env: geopandas, pyogrio + GDAL OSM driver) |
+| spec | [`assets/libraries/sample_portfolio_spec.json`](../assets/libraries/sample_portfolio_spec.json) v2.0.0 — seed `20261014`; no number in the script |
+| OSM extract | Geofabrik `south-korea-261013.osm.pbf` (data as of 2026-10-13, 289,218,262 bytes, md5 `08b0d3fd8b2fe3ee8e18be02522c88e6`) in `<DATA_ROOT>/external/osm/` — not in the repository. © OpenStreetMap contributors, ODbL 1.0 |
+| eligible buildings | OSM `multipolygons` with one of the spec's `building=*` tags whose interior point lies inside an SGIS 2025_2Q 시군구: residential 336,271 · commercial 67,204 · industrial 54,817. `building=yes` (use unknown) is never used |
+| classes | commercial **334** (tags commercial 300, retail 23, office 9, hotel 2) · residential **333** (apartments 148, house 104, residential 75, detached 4, dormitory 2) · industrial **333** (industrial 312, warehouse 20, factory 1) |
+| class key | the OSM tag → a `property_type` → the JRC sector the engine uses (`property_type_to_jrc_sector`); tested, so a class is never a second taxonomy |
+| draw | per class, uniformly at random without replacement over the eligible buildings (seeded); then shuffled |
+| location | the footprint's interior point (`representative_point`, EPSG:5179) → WGS84; 시도 / 시군구 from the SGIS polygon that contains it — 173 시군구 in all 17 시도 |
+| value | footprint (m², EPSG:5179) × floors × unit value: commercial $2,000 /m², residential $1,500 /m², industrial $900 /m²; floors = OSM `building:levels` when a positive number ≤ 120 (234 of 1,000 rows), else class default 4 / 3 / 1; clipped to $0.1 M–$500 M, rounded to $10 k. Total $3.44 B |
+| determinism | same spec + extract + boundaries ⇒ byte-identical CSV (rebuilt twice: md5 `2348f7aa…`) |
 
-Uniform per 시군구, not per km²: area weighting would put most assets in large rural
-counties. Points are **not** steered towards flooded cells — that would make the coverage
-figures below meaningless.
+Where the sample lands follows where OSM has *tagged* buildings, not where Korea's building
+stock is: 경기 386, 서울 141, 광주 66, 경남 51, 인천 45 … 충북 14. Urban areas and areas with
+building imports are over-represented; that is closer to a real-estate portfolio than a
+uniform spatial draw, but it is not a census of buildings.
 
 ```bash
 ./.climada-env/bin/python scripts/build_sample_portfolio.py
 ./.climada-env/bin/python scripts/physical_risk_batch.py tests/fixtures/sample_portfolio_1000/portfolio.csv --hazards flood,typhoon --models recommended --scenario rcp85 --year 2040 --country KOR --output sample1000.xlsx --json sample1000.json
 ```
 
-## 2. Run (2026-10-14, Mac mini, 26 s)
+## 2. Run (2026-10-14, Mac mini)
 
 Recommended data scope = Korea country dataset (Data API) for both perils; 2,000 rows, all
 `FULL`. Datasets: `river_flood_150arcsec_rcp85_KOR_2030_2050` v3 (480 events) and
@@ -40,63 +48,58 @@ portfolio, 3 classes, 17 시도) are in
 
 | group | assets | with modeled flood | value | EAL | EAL / value | 10-yr | 100-yr | 250-yr | Σ standalone 100-yr | diversification (100-yr) |
 |---|---|---|---|---|---|---|---|---|---|---|
-| Portfolio | 1,000 | **285** (28.5 %) | $34.21 B | $43.36 M | 0.127 % | $146.0 M | $790.2 M | $1,088.8 M | $1,342.3 M | 41.1 % |
-| Commercial | 334 | 103 (30.8 %) | $14.18 B | $20.34 M | 0.143 % | $61.0 M | $390.1 M | $524.1 M | $660.7 M | 41.0 % |
-| Industrial | 333 | **99** (29.7 %) | $12.22 B | $15.07 M | 0.123 % | $41.2 M | $282.0 M | $335.0 M | $418.3 M | 32.6 % |
-| Residential | 333 | 83 (24.9 %) | $7.80 B | $7.95 M | 0.102 % | $14.3 M | $178.9 M | $235.3 M | $263.3 M | 32.1 % |
+| Portfolio | 1,000 | **383** (38.3 %) | $3,438 M | $4.89 M | 0.142 % | $16.1 M | $59.5 M | $186.8 M | $117.3 M | 49.3 % |
+| Commercial | 334 | 134 (40.1 %) | $1,342 M | $2.74 M | 0.204 % | $3.9 M | $35.8 M | $97.7 M | $60.4 M | 40.8 % |
+| Industrial | 333 | **117** (35.1 %) | $338 M | $0.45 M | 0.133 % | $1.4 M | $8.4 M | $11.5 M | $13.0 M | 35.1 % |
+| Residential | 333 | 132 (39.6 %) | $1,759 M | $1.71 M | 0.097 % | $4.2 M | $23.9 M | $80.7 M | $44.0 M | 45.7 % |
 
-With a balanced sample the industrial class carries a real flood loss: **99 of 333**
-industrial assets sit in cells the river-flood set floods, and their 100-year loss is
-$282 M. The validation fixture's "Industrial = $0" was one asset (the Busan warehouse) in a
-dry cell — a sample-size and coverage artefact, not a property of the class.
-
-EAL ÷ value spans 0.10–0.14 % across the classes. The JRC Asia sector curves are close at
-the same depth (1 m: residential 49 %, commercial 54 %, industrial 48 % damage), so most of
-that spread comes from where each class's assets happened to land (30.8 / 29.7 / 24.9 % in
-flooded cells), not from the curves.
+With real buildings and a balanced sample every class carries a flood loss: 117 of 333
+industrial buildings sit in cells the river-flood set floods. The validation fixture's
+"Industrial = $0" was one asset (the Busan warehouse) in a dry cell — a sample-size and
+coverage artefact, not a property of the class. Industrial value is small because OSM
+industrial footprints are mostly single-storey sheds at the lowest unit value.
 
 ### 2.2 Tropical cyclone
 
 | group | assets | with modeled wind | EAL | EAL / value | 100-yr | Σ standalone 100-yr | diversification |
 |---|---|---|---|---|---|---|---|
-| Portfolio | 1,000 | 1,000 | $3.56 M | 0.010 % | $32.2 M | $87.7 M | 63.3 % |
-| Commercial | 334 | 334 | $1.48 M | 0.010 % | $12.8 M | $35.8 M | 64.3 % |
-| Industrial | 333 | 333 | $1.26 M | 0.010 % | $11.9 M | $31.3 M | 61.9 % |
-| Residential | 333 | 333 | $0.84 M | 0.011 % | $7.9 M | $20.6 M | 61.7 % |
+| Portfolio | 1,000 | 1,000 | $268 k | 0.008 % | $2.73 M | $6.93 M | 60.6 % |
+| Commercial | 334 | 334 | $89 k | 0.007 % | $1.12 M | $2.33 M | 51.9 % |
+| Industrial | 333 | 333 | $33 k | 0.010 % | $0.34 M | $0.86 M | 59.8 % |
+| Residential | 333 | 333 | $146 k | 0.008 % | $1.48 M | $3.74 M | 60.3 % |
 
-Wind reaches every asset; one regional function (North West Pacific, Eberenz 2021) applies to
-all classes, so EAL ÷ value is flat across classes. Diversification is larger than for flood
-because a single track hits a small part of the country.
+Wind reaches every asset and one regional function (North West Pacific, Eberenz 2021)
+applies to all classes, so EAL ÷ value differs only by where each class's buildings are.
 
 ## 3. Coverage by 시도 — what the river-flood set does not see
 
-Assets with a non-zero flood cell, of those placed in each 시도:
+Assets with a non-zero river-flood cell, of those in each 시도:
 
 | 시도 | assets | with flood | 시도 | assets | with flood |
 |---|---|---|---|---|---|
-| 서울특별시 | 106 | 77 | 경상남도 | 88 | 33 |
-| 경기도 | 165 | 35 | 경상북도 | 92 | 21 |
-| 충청북도 | 50 | 22 | 강원특별자치도 | 70 | 17 |
-| 대구광역시 | 35 | 17 | 전라남도 | 90 | 15 |
-| 전북특별자치도 | 69 | 11 | 충청남도 | 52 | 10 |
-| 광주광역시 | 18 | 9 | 대전광역시 | 24 | 8 |
-| 세종특별자치시 | 6 | 4 | **부산광역시** | **70** | **4** |
-| **인천광역시** | **39** | **1** | **제주특별자치도** | **8** | **1** |
-| **울산광역시** | **18** | **0** | | | |
+| 서울특별시 | 141 | 109 | 경기도 | 386 | 94 |
+| 광주광역시 | 66 | 43 | 경상북도 | 41 | 25 |
+| 대구광역시 | 38 | 23 | 세종특별자치시 | 25 | 22 |
+| 경상남도 | 51 | 18 | 대전광역시 | 20 | 15 |
+| 강원특별자치도 | 25 | 8 | 충청북도 | 14 | 8 |
+| 전라남도 | 38 | 6 | 전북특별자치도 | 24 | 6 |
+| **인천광역시** | **45** | **3** | **부산광역시** | **27** | **2** |
+| 충청남도 | 25 | 1 | **울산광역시** | **17** | **0** |
+| **제주특별자치도** | **17** | **0** | | | |
 
-The coastal metropolitan cities are almost invisible to the river-flood set: 부산 4 / 70,
-인천 1 / 39, 울산 0 / 18, 제주 1 / 8. Their flood exposure is coastal, storm-surge and pluvial
-— none of which the ISIMIP river-flood product carries (GAP_ANALYSIS G7; SCOPE `tc_surge`,
-`coastal_flood`). These zeros are coverage gaps, and the sheet now says so per line
-("Assets with Modeled Hazard"). This is the evidence for adding a coastal-flood data scope
-to the product model next.
+The coastal cities are almost invisible to the river-flood set: 인천 3 / 45, 부산 2 / 27,
+울산 0 / 17, 제주 0 / 17. Their flood exposure is coastal, storm-surge and pluvial — none of
+which the ISIMIP river-flood product carries (GAP_ANALYSIS G7; SCOPE `tc_surge`,
+`coastal_flood`). These zeros are coverage gaps, and the sheet says so per line ("Assets
+with Modeled Hazard"). This is the evidence for adding a coastal-flood data scope to the
+product model next.
 
 ## 4. Caveats
 
-- Synthetic values and locations: use the numbers to read the method, never as a market or
-  portfolio estimate.
+- Values are assumptions (footprint × floors × unit value); never a market or portfolio
+  estimate. OSM footprints and floor tags are volunteer data with uneven coverage.
 - Tier: river flood and tropical cyclone are SCOPE tier **I** (indicative) — see
   [SCOPE.md](SCOPE.md). No domestic loss validation backs these figures.
-- 150-arcsec (~4.6 km) grids, nearest-centroid reading: two assets in one cell share its
+- 150-arcsec (~4.6 km) grids, nearest-centroid reading: buildings in one cell share its
   depth; small rivers, levees and urban drainage are not represented.
 - Losses are in valuation-year values (no exposure growth applied).

@@ -1,7 +1,8 @@
-"""The synthetic 1,000-asset portfolio: balanced classes, consistent with the spec and config.
+"""The 1,000-asset OSM-building portfolio: balanced classes, consistent with spec and config.
 
 The committed CSV is checked without geopandas; the byte-for-byte rebuild needs the worker
-environment and the SGIS boundary files under the data root, and skips otherwise.
+environment, the OSM extract and the SGIS boundary files under the data root, and skips
+otherwise (conftest isolates the data root, so it runs only when pointed at real data).
 """
 
 from __future__ import annotations
@@ -56,23 +57,45 @@ def test_portfolio_matches_the_spec(rows: list[dict[str, str]]) -> None:
     classes = b.asset_classes(spec)
     assert len(rows) == spec["n_assets"]
     assert len({r["facility_id"] for r in rows}) == len(rows)
+    assert len({(r["osm_type"], r["osm_id"]) for r in rows}) == len(rows)  # no building twice
     counts: dict[str, int] = {}
     for r in rows:
         counts[r["asset_class"]] = counts.get(r["asset_class"], 0) + 1
     assert counts == b.class_counts(spec["n_assets"], list(classes))
-    lo, hi, step = spec["value_usd_min"], spec["value_usd_max"], spec["value_rounding_usd"]
     for r in rows:
-        value = int(r["asset_value_usd"])
-        assert lo <= value <= hi and value % step == 0, r["facility_id"]
-        assert r["property_type"] in classes[r["asset_class"]]["property_types"]
+        tags = classes[r["asset_class"]]["osm_building_to_property_type"]
+        assert tags[r["osm_building"]] == r["property_type"], r["facility_id"]
+
+
+def test_value_is_footprint_times_floors_times_unit_value(rows: list[dict[str, str]]) -> None:
+    """The one assumed number is reproducible from the row's own OSM fields and the spec."""
+    b = _builder()
+    spec = b.load_spec()
+    classes = b.asset_classes(spec)
+    for r in rows:
+        unit = float(classes[r["asset_class"]]["unit_value_usd_per_m2"])
+        expected = b.asset_value(float(r["footprint_m2"]), int(r["building_levels"]), unit, spec)
+        # footprint is written rounded to 0.1 m²: allow one rounding step either way
+        assert abs(int(r["asset_value_usd"]) - expected) <= spec["value_rounding_usd"], r
+        if r["levels_from_osm"] == "no":
+            assert int(r["building_levels"]) == classes[r["asset_class"]]["default_levels"]
+
+
+def test_levels_tag_parsing() -> None:
+    b = _builder()
+    assert b.levels_from('"building:levels"=>"12"', 3, 120) == (12, True)
+    assert b.levels_from('"building:levels"=>"2.5","name"=>"x"', 3, 120) == (3, True)
+    assert b.levels_from('"building:levels"=>"B1"', 3, 120) == (3, False)
+    assert b.levels_from('"building:levels"=>"999"', 3, 120) == (3, False)
+    assert b.levels_from(None, 4, 120) == (4, False)
 
 
 def test_every_property_type_maps_to_its_class_in_the_engine_config() -> None:
     """The class label is the JRC sector the engine will use — never a second taxonomy."""
     b = _builder()
     for cls, entry in b.asset_classes(b.load_spec()).items():
-        for ptype in entry["property_types"]:
-            assert jrc_sector_for(ptype) == cls, (ptype, cls)
+        for tag, ptype in entry["osm_building_to_property_type"].items():
+            assert jrc_sector_for(ptype) == cls, (tag, ptype, cls)
 
 
 def test_points_sit_in_korea_and_name_a_real_municipality(rows: list[dict[str, str]]) -> None:
@@ -84,8 +107,7 @@ def test_points_sit_in_korea_and_name_a_real_municipality(rows: list[dict[str, s
         unit = units[r["municipality_id"]]
         assert unit["municipality_name"] == r["municipality_name"]
         assert unit["province_name"] == r["province_name"]
-    # Uniform over units: 1,000 draws over 252 units reach well over half of them.
-    assert len({r["municipality_id"] for r in rows}) > 200
+    assert len({r["province_name"] for r in rows}) == 17
 
 
 def test_rebuild_is_byte_identical(tmp_path: Path) -> None:
@@ -93,10 +115,11 @@ def test_rebuild_is_byte_identical(tmp_path: Path) -> None:
     b = _builder()
     from climaterisk import paths
 
-    source = paths.municipality_sgis_dir()
-    version = b.load_spec()["boundary_version"]
-    if not (source / f"bnd_sigungu_00_{version}.shp").exists():
-        pytest.skip(f"SGIS boundary files not under {source}")
+    spec = b.load_spec()
+    osm = paths.osm_dir(spec["osm_extract"]["file"])
+    sgis = paths.municipality_sgis_dir()
+    if not osm.exists() or not (sgis / f"bnd_sigungu_00_{spec['boundary_version']}.shp").exists():
+        pytest.skip(f"OSM extract or SGIS boundaries not under {paths.data_root()}")
     out = tmp_path / "portfolio.csv"
-    assert b.main(["--source", str(source), "--output", str(out)]) == 0
+    assert b.main(["--osm", str(osm), "--sgis", str(sgis), "--output", str(out)]) == 0
     assert out.read_bytes() == CSV_PATH.read_bytes()
