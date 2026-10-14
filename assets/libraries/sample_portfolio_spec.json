@@ -1,0 +1,32 @@
+{
+  "_meta": {
+    "purpose": "Specification of the synthetic 1,000-asset Korea test portfolio built by scripts/build_sample_portfolio.py. Every asset is SYNTHETIC: random locations inside official SGIS 시군구 boundaries, random values. It exists to exercise the portfolio / asset-class / 시도 loss curves with a balanced class mix — it is not a real portfolio and its numbers are not a market estimate.",
+    "version": "1.0.0",
+    "updated": "2026-10-14"
+  },
+  "seed": 20261014,
+  "n_assets": 1000,
+  "boundary_version": "2025_2Q",
+  "location_rule": "Pick a 시군구 uniformly at random (each of the SGIS sigungu units equally likely), then a point uniformly at random inside its official polygon (rejection sampling in EPSG:5179, then to WGS84). Uniform per unit, not per km², so dense urban units are not swamped by large rural ones.",
+  "asset_classes": {
+    "_note": "Classes are the JRC sectors of physical_risk_config.json property_type_to_jrc_sector; the property types listed must map to their class (checked by tests/test_sample_portfolio.py). Counts are split as evenly as the total allows.",
+    "commercial": {
+      "property_types": ["office", "retail", "hotel"],
+      "value_usd_median": 30000000,
+      "value_log_sigma": 0.8
+    },
+    "residential": {
+      "property_types": ["apartment", "residential"],
+      "value_usd_median": 20000000,
+      "value_log_sigma": 0.7
+    },
+    "industrial": {
+      "property_types": ["warehouse", "logistics", "factory"],
+      "value_usd_median": 25000000,
+      "value_log_sigma": 0.9
+    }
+  },
+  "value_usd_min": 1000000,
+  "value_usd_max": 500000000,
+  "value_rounding_usd": 10000
+}
