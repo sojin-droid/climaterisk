@@ -32,13 +32,13 @@ from climaterisk_worker.physical import (
 
 def _tc_hazard(iso3: str | None, climate_scenario: str, ref_year: int | None):  # type: ignore[no-untyped-def]
     """Tropical-cyclone hazard: local catalog first (future only), then Data API."""
-    from climada.util.api_client import Client
+    from climaterisk_worker._dataapi import make_client
 
     if ref_year is not None:
         cat = catalog.load_hazard("tropical_cyclone", climate_scenario, iso3 or "global", ref_year)
         if cat is not None:
             return cat
-    client = Client()
+    client = make_client()
     props: dict[str, str] = {
         "event_type": "synthetic",
         "model_name": "random_walk",

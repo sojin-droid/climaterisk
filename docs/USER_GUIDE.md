@@ -173,8 +173,11 @@ new country should be read as *relative* until then (`RISK_REGISTER.md` §C).
 Set `CLIMATERISK_OFFLINE=1` in `.env` (or the shell) on a machine without network access.
 Then:
 
-- the worker uses the **local hazard catalog only** — a peril without a layer for your region
-  and scenario fails at once with "cache it first" instead of a network timeout;
+- the worker **never contacts the network**: it reads the local hazard catalog and CLIMADA's
+  own download cache (every Data API dataset fetched on an earlier online run — same files,
+  same numbers). Anything never fetched fails at once with "fetch it once while online"
+  instead of a network timeout. Running each analysis once while online is the simplest
+  preparation;
 - *Download here* and *Fetch & ingest* on the Data tab are refused with a message;
 - maps draw assets, municipalities and results on a plain background (OpenStreetMap's tile
   policy does not allow bundling tiles), and *Search location* is disabled.

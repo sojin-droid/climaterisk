@@ -496,6 +496,42 @@ def _output(rows: list[ResultRow], target: str = "MUNICIPALITY") -> dict:  # typ
     }
 
 
+def test_two_anchors_count_a_municipality_once_in_the_aggregates() -> None:
+    """Representative + official office point: same supplied value at both — aggregates
+    must count the municipality, its value and its loss once (the representative point)."""
+    common = {
+        "asset_value_usd": 100e6,
+        "hazard_intensity": 2.0,
+        "hazard_intensity_unit": "m",
+        "return_period_years": 100.0,
+        "impact_function_id": 22,
+        "calculation_status": "FULL",
+    }
+    rep = _muni_row(BUSAN, "RF", C, eal_usd=1.0e6, potential_loss_usd=1e7, **common)
+    office = _muni_row(
+        BUSAN,
+        "RF",
+        C,
+        facility_id=f"{BUSAN}#OFFICIAL_OFFICE",
+        point_type="OFFICIAL_OFFICE_POINT",
+        eal_usd=1.2e6,
+        potential_loss_usd=1.2e7,
+        **common,
+    )
+    flood = next(r for r in rt.portfolio_totals_frame([rep, office], target="MUNICIPALITY"))
+    assert flood["Municipalities Assessed"] == 1 and flood["Priced"] == 1
+    assert flood["Priced Asset Value"] == pytest.approx(100e6)  # not 200e6
+    assert flood["Total EAL"] == pytest.approx(1.0e6)  # the representative point, not 2.2e6
+    prov = rt.province_summary_frame([rep, office])[0]
+    assert prov["Municipalities Assessed"] == 1
+    assert prov["Flood High"] + prov["Flood Medium"] + prov["Flood Low"] == 1
+    # an office-only run still counts the municipality, at its only anchor
+    only = next(r for r in rt.portfolio_totals_frame([office], target="MUNICIPALITY"))
+    assert only["Priced"] == 1 and only["Total EAL"] == pytest.approx(1.2e6)
+    # facility runs (no municipality id) are untouched
+    assert rt.one_anchor_per_municipality([rep, office])[0].facility_id == BUSAN
+
+
 def test_province_summary_counts_bands_and_adds_no_money() -> None:
     frames = xl.frames_from_output(_output(_run_rows()))
     prov = {r["Province"]: r for r in frames["province_summary"]}

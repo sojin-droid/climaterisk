@@ -50,9 +50,10 @@ ONLINE_ONLY: tuple[dict[str, str], ...] = (
         "(docs/USER_GUIDE.md, Offline section).",
     },
     {
-        "feature": "CLIMADA Data API fallback in the worker",
-        "offline": "Not consulted: a peril without a local catalog layer fails fast with "
-        "'cache it first' instead of a network timeout.",
+        "feature": "CLIMADA Data API in the worker",
+        "offline": "Never contacted. Datasets fetched on an earlier online run are read from "
+        "CLIMADA's own download cache (same files, same numbers); anything never fetched "
+        "fails fast with 'fetch it once while online' instead of a network timeout.",
     },
     {
         "feature": "Fetch & ingest (Data tab), Data API index refresh",
@@ -176,8 +177,9 @@ def offline_status() -> dict[str, Any]:
             "dir": catalog["dir"],
             "n_layers": len(entries),
             "perils": perils,
-            "note": "A peril with a layer for the portfolio's region and scenario runs without "
-            "the Data API; the worker resolves the catalog first in every mode.",
+            "note": "Results-tab runners read this catalog first. The Models tab reads the "
+            "CLIMADA Data API datasets themselves, from CLIMADA's download cache when "
+            "offline — run each analysis once while online to fill it.",
         },
         "dataapi_index": read_dataapi_index(),
         "local_files": _local_files(),
