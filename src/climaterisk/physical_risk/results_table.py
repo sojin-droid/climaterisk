@@ -917,6 +917,28 @@ def _sum_or_none(values: list[float]) -> float | None:
     return float(sum(values)) if values else None
 
 
+def one_anchor_per_municipality(rows: list[ResultRow]) -> list[ResultRow]:
+    """Keep one spatial anchor per municipality, so an aggregate counts it once.
+
+    With the V0.3 office anchor a municipality is assessed at two points — its boundary
+    representative point and its government-published office point — and the same supplied
+    asset value is placed at both. Adding both would count the municipality, its value and
+    its loss twice. Aggregates therefore use the representative point when it was assessed
+    and the office point only when it is the sole anchor. Rows without a ``municipality_id``
+    (facility runs) are returned untouched.
+    """
+    office = "OFFICIAL_OFFICE_POINT"
+    best: dict[str, ResultRow] = {}
+    for r in rows:
+        if r.municipality_id is None:
+            continue
+        current = best.get(r.municipality_id)
+        if current is None or (current.point_type == office and r.point_type != office):
+            best[r.municipality_id] = r
+    keep = {r.facility_id for r in best.values()}
+    return [r for r in rows if r.municipality_id is None or r.facility_id in keep]
+
+
 def portfolio_totals_frame(
     rows: Iterable[ResultRow | dict[str, Any]],
     baseline_rows: Iterable[ResultRow | dict[str, Any]] | None = None,
@@ -948,10 +970,12 @@ def portfolio_totals_frame(
     exposure) → ``Climate-step EAL`` (future hazard, grown exposure), with the two deltas
     spelled out so they add up to the whole change. The scaling is exact: impact is linear
     in exposure value. ``EAL Change %`` stays the pure climate ratio.
+
+    A municipality assessed at two anchors counts once (:func:`one_anchor_per_municipality`).
     """
-    rs = _as_rows(rows)
+    rs = one_anchor_per_municipality(_as_rows(rows))
     prim = primary_rows(rs, preferred)
-    base_prim = primary_rows(_as_rows(baseline_rows or []), preferred)
+    base_prim = primary_rows(one_anchor_per_municipality(_as_rows(baseline_rows or [])), preferred)
     paired = bool(base_prim)
     factor = float(growth["factor"]) if growth else None
     point_label = "Municipalities" if target == "MUNICIPALITY" else "Assets"
@@ -1063,9 +1087,10 @@ def province_summary_frame(
     the province's assessed municipalities fall in each band, the highest band among
     them, how many were not priced, and for heat the highest indicator read. The
     province's own representative point (a 시도-tier municipality) is one of the points
-    counted under it, flagged in ``Includes Province Point``.
+    counted under it, flagged in ``Includes Province Point``. A municipality assessed at
+    two anchors counts once (:func:`one_anchor_per_municipality`).
     """
-    rs = _as_rows(rows)
+    rs = one_anchor_per_municipality(_as_rows(rows))
     prim = primary_rows(rs, preferred)
     first = _municipalities(rs)
     by_province: dict[str, list[str]] = {}

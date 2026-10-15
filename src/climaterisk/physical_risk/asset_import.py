@@ -24,10 +24,12 @@ from __future__ import annotations
 
 import csv
 import io
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
 from openpyxl import Workbook, load_workbook
+from pydantic import ValidationError
 
 from climaterisk.core.entities import Asset
 from climaterisk.core.enums import Sector
@@ -264,10 +266,14 @@ def _number(raw: str, what: str, line: int, errors: list[str]) -> float | None:
     if raw == "":
         return None
     try:
-        return float(raw.replace(",", ""))
+        value = float(raw.replace(",", ""))
     except ValueError:
         errors.append(f"line {line}: {what} is not a number ({raw!r})")
         return None
+    if not math.isfinite(value):  # "inf", "nan", "1e400": accepted by float(), never a value
+        errors.append(f"line {line}: {what} is not a finite number ({raw!r})")
+        return None
+    return value
 
 
 def parse_assets(
@@ -295,11 +301,17 @@ def parse_assets(
     seen: set[str] = set()
     for i, raw in enumerate(rows, start=2):
         row = {k: raw.get(col, "") for k, col in picked.items()}
-        asset = (
-            _latlon_asset(row, i, errors)
-            if kind == "latlon"
-            else _admin_asset(row, i, kind, errors)
-        )
+        try:
+            asset = (
+                _latlon_asset(row, i, errors)
+                if kind == "latlon"
+                else _admin_asset(row, i, kind, errors)
+            )
+        except ValidationError as exc:  # the Asset model's own checks, as a line error
+            first = exc.errors()[0]
+            field_name = ".".join(str(p) for p in first.get("loc", ()))
+            errors.append(f"line {i}: {field_name} {first.get('msg', 'is invalid')}")
+            continue
         if asset is None:
             continue
         if asset.id in seen:
