@@ -1,8 +1,8 @@
 {
   "_meta": {
     "purpose": "Specification of the 1,000-asset Korea test portfolio built by scripts/build_sample_portfolio.py from REAL OpenStreetMap buildings. Locations, footprints and use tags are OSM's; asset values are an assumption (footprint x floors x unit cost) — not a valuation. It exists to read the portfolio / asset-class / 시도 loss curves with a balanced class mix.",
-    "version": "2.0.0",
-    "updated": "2026-10-14"
+    "version": "2.1.0",
+    "updated": "2026-10-15"
   },
   "seed": 20261014,
   "n_assets": 1000,
@@ -12,7 +12,7 @@
     "source": "Geofabrik download server, https://download.geofabrik.de/asia/south-korea-261013.osm.pbf (OpenStreetMap data as of 2026-10-13)",
     "licence": "© OpenStreetMap contributors, Open Database License (ODbL) 1.0 — https://www.openstreetmap.org/copyright"
   },
-  "selection_rule": "Every OSM way/relation with a building tag listed below (building=yes and untagged uses are skipped: their use is unknown). Its class is fixed by the tag. Within each class buildings are drawn uniformly at random without replacement (seeded); a building whose interior point falls outside every SGIS 시군구 polygon is not eligible.",
+  "selection_rule": "Every OSM way/relation with a building tag listed below AND a usable building:levels tag (a positive number <= max_levels) — building=yes, untagged uses and buildings without a floor count are skipped: their use or size is unknown. Its class is fixed by the tag. Within each class buildings are drawn uniformly at random without replacement (seeded); a building whose interior point falls outside every SGIS 시군구 polygon is not eligible.",
   "asset_classes": {
     "_note": "Classes are the JRC sectors of physical_risk_config.json property_type_to_jrc_sector; each OSM tag maps to a property_type that maps to its class (checked by tests/test_sample_portfolio.py). Counts are split as evenly as the total allows.",
     "commercial": {
@@ -50,6 +50,7 @@
   },
   "value_rule": "asset_value_usd = footprint area (m², EPSG:5179) × floors × class unit value; floors = the OSM building:levels tag when it is a positive number ≤ 120, else the class default. Clipped to [value_usd_min, value_usd_max] and rounded to value_rounding_usd.",
   "max_levels": 120,
+  "require_levels_tag": true,
   "value_usd_min": 100000,
   "value_usd_max": 500000000,
   "value_rounding_usd": 10000

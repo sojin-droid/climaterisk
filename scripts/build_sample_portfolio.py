@@ -11,7 +11,10 @@ per class; the 5-asset validation fixture stays the golden regression set.
 Everything that shapes the sample — seed, size, which OSM ``building=*`` tags belong to
 which class, default floors, unit values, bounds — lives in
 ``assets/libraries/sample_portfolio_spec.json``; this script holds no tuning number. Same
-spec + same extract + same boundaries ⇒ byte-identical CSV.
+spec + same extract + same boundaries + same GDAL / GEOS / PROJ build ⇒ byte-identical CSV.
+A different library build can assemble a multipolygon or place an interior point on the
+other side of a 시군구 edge, which changes the eligible pool by a building and so the draw;
+the versions used are written next to the CSV as ``build_env.json``.
 
 Algorithm:
     $$n_c = \\lfloor N/C \\rfloor + [\\,c < N \\bmod C\\,], \\qquad
@@ -22,9 +25,11 @@ Algorithm:
     value V_b = footprint A_b × floors L_b × unit value u_c, clipped and rounded.
 
     ``B_c``: OSM buildings whose tag maps to class c and whose interior point lies in a
-    시군구; ``A_b``: footprint area (m², EPSG:5179); ``L_b``: ``building:levels`` when a
-    positive number ≤ max_levels, else the class default (floors); ``u_c``: unit value
-    (USD / m²); ``V_min`` / ``V_max``: clip bounds (USD).
+    시군구 — and, when the spec sets ``require_levels_tag``, that carry a usable
+    ``building:levels``; ``A_b``: footprint area (m², EPSG:5179); ``L_b``:
+    ``building:levels`` when a positive number ≤ max_levels, else the class default (floors;
+    never used under ``require_levels_tag``); ``u_c``: unit value (USD / m²); ``V_min`` /
+    ``V_max``: clip bounds (USD).
 
 Data: ``<DATA_ROOT>/external/osm/<spec osm_extract.file>`` (Geofabrik, ODbL — "©
 OpenStreetMap contributors") and ``<DATA_ROOT>/external/municipality/sgis``. Runs in the
@@ -54,6 +59,7 @@ from climaterisk import paths  # noqa: E402
 
 SPEC_PATH = REPO / "assets" / "libraries" / "sample_portfolio_spec.json"
 DEFAULT_OUTPUT = REPO / "tests" / "fixtures" / "sample_portfolio_1000" / "portfolio.csv"
+ENV_FILENAME = "build_env.json"
 COLUMNS: tuple[str, ...] = (
     "facility_id",
     "facility_name",
@@ -118,6 +124,23 @@ def asset_value(footprint_m2: float, levels: int, unit_value: float, spec: dict[
     return int(round(min(max(raw, lo), hi) / step) * step)
 
 
+def build_environment() -> dict[str, str]:
+    """Versions of the geometry libraries the draw depends on (written as build_env.json)."""
+    import geopandas
+    import pyogrio
+    import pyproj
+    import shapely
+
+    return {
+        "gdal": pyogrio.__gdal_version_string__,
+        "geos": shapely.geos_version_string,
+        "proj": pyproj.proj_version_str,
+        "pyogrio": pyogrio.__version__,
+        "shapely": shapely.__version__,
+        "geopandas": geopandas.__version__,
+    }
+
+
 def _read_buildings(osm_path: Path, tags: list[str]) -> Any:
     """OSM building polygons with one of ``tags``, in EPSG:5179 with area and interior point."""
     import pyogrio
@@ -162,12 +185,19 @@ def build(spec: dict[str, Any], osm_path: Path, sgis_dir: Path) -> list[dict[str
     placed = gpd.sjoin(buildings, units, how="inner", predicate="within")
     placed = placed[~placed.index.duplicated(keep="first")].sort_index()
     placed["asset_class"] = placed["building"].map(lambda t: tag_class[t][0])
+    max_levels = int(spec["max_levels"])
+    if spec.get("require_levels_tag"):
+        # Only buildings whose floor count OpenStreetMap records: the value then uses an
+        # observed number of floors, never a class default.
+        tagged = placed["other_tags"].map(lambda t: levels_from(t, 1, max_levels)[1])
+        placed = placed[tagged.to_numpy(dtype=bool)]
 
     rng = np.random.default_rng(int(spec["seed"]))
     counts = class_counts(int(spec["n_assets"]), list(classes))
     picks = []
     for cls in classes:
         pool = placed[placed["asset_class"] == cls]
+        print(f"eligible {cls}: {len(pool):,} buildings -> drawing {counts[cls]}")
         if len(pool) < counts[cls]:
             raise SystemExit(f"only {len(pool)} eligible {cls} buildings for {counts[cls]}")
         idx = np.sort(rng.choice(len(pool), size=counts[cls], replace=False))
@@ -176,7 +206,6 @@ def build(spec: dict[str, Any], osm_path: Path, sgis_dir: Path) -> list[dict[str
     chosen = chosen.iloc[rng.permutation(len(chosen))].reset_index(drop=True)
     wgs = chosen.geometry.to_crs(4326)
 
-    max_levels = int(spec["max_levels"])
     rows: list[dict[str, Any]] = []
     for i, b in enumerate(chosen.itertuples()):
         cls, ptype = tag_class[str(b.building)]
@@ -235,6 +264,8 @@ def main(argv: list[str] | None = None) -> int:
         writer = csv.DictWriter(fh, fieldnames=list(COLUMNS), lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
+    env_path = out.parent / ENV_FILENAME
+    env_path.write_text(json.dumps(build_environment(), indent=2) + "\n", encoding="utf-8")
     by_class: dict[str, int] = {}
     for r in rows:
         by_class[r["asset_class"]] = by_class.get(r["asset_class"], 0) + 1

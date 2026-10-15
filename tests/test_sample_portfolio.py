@@ -1,14 +1,16 @@
 """The 1,000-asset OSM-building portfolio: balanced classes, consistent with spec and config.
 
 The committed CSV is checked without geopandas; the byte-for-byte rebuild needs the worker
-environment, the OSM extract and the SGIS boundary files under the data root, and skips
-otherwise (conftest isolates the data root, so it runs only when pointed at real data).
+environment, the OSM extract and the SGIS boundary files under the data root, and the
+GDAL / GEOS / PROJ build recorded in build_env.json — it skips otherwise (conftest isolates
+the data root, so it runs only when pointed at real data).
 """
 
 from __future__ import annotations
 
 import csv
 import importlib.util
+import json
 import sys
 from pathlib import Path
 from typing import Any
@@ -81,6 +83,16 @@ def test_value_is_footprint_times_floors_times_unit_value(rows: list[dict[str, s
             assert int(r["building_levels"]) == classes[r["asset_class"]]["default_levels"]
 
 
+def test_every_building_uses_an_observed_floor_count(rows: list[dict[str, str]]) -> None:
+    """Spec 2.1: only buildings whose OSM record carries building:levels are eligible, so no
+    value rests on a class-default floor count."""
+    spec = _builder().load_spec()
+    assert spec["require_levels_tag"] is True
+    defaulted = [r["facility_id"] for r in rows if r["levels_from_osm"] != "yes"]
+    assert not defaulted, f"{len(defaulted)} rows use a default floor count: {defaulted[:5]}"
+    assert all(1 <= int(r["building_levels"]) <= spec["max_levels"] for r in rows)
+
+
 def test_levels_tag_parsing() -> None:
     b = _builder()
     assert b.levels_from('"building:levels"=>"12"', 3, 120) == (12, True)
@@ -110,7 +122,16 @@ def test_points_sit_in_korea_and_name_a_real_municipality(rows: list[dict[str, s
     assert len({r["province_name"] for r in rows}) == 17
 
 
+def test_build_env_is_recorded() -> None:
+    """The committed CSV names the GDAL / GEOS / PROJ build it was drawn with."""
+    env = json.loads((CSV_PATH.parent / _builder().ENV_FILENAME).read_text(encoding="utf-8"))
+    assert {"gdal", "geos", "proj", "pyogrio", "shapely", "geopandas"} <= set(env)
+
+
 def test_rebuild_is_byte_identical(tmp_path: Path) -> None:
+    """Byte identity is promised only on the recorded library build: another GDAL / GEOS can
+    assemble a multipolygon or place an interior point across a 시군구 edge, moving the
+    eligible pool by a building and with it the seeded draw (docs/sample-portfolio-1000.md)."""
     pytest.importorskip("geopandas")
     b = _builder()
     from climaterisk import paths
@@ -120,6 +141,12 @@ def test_rebuild_is_byte_identical(tmp_path: Path) -> None:
     sgis = paths.municipality_sgis_dir()
     if not osm.exists() or not (sgis / f"bnd_sigungu_00_{spec['boundary_version']}.shp").exists():
         pytest.skip(f"OSM extract or SGIS boundaries not under {paths.data_root()}")
+    recorded = json.loads((CSV_PATH.parent / b.ENV_FILENAME).read_text(encoding="utf-8"))
+    current = b.build_environment()
+    differs = {k: (v, current.get(k)) for k, v in recorded.items() if current.get(k) != v}
+    if differs:
+        pytest.skip(f"library build differs from the one that drew the CSV: {differs}")
     out = tmp_path / "portfolio.csv"
     assert b.main(["--osm", str(osm), "--sgis", str(sgis), "--output", str(out)]) == 0
     assert out.read_bytes() == CSV_PATH.read_bytes()
+    assert json.loads((tmp_path / b.ENV_FILENAME).read_text(encoding="utf-8")) == recorded
