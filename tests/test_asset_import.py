@@ -52,6 +52,25 @@ def test_every_template_downloads_and_round_trips_through_the_parser(kind: str) 
     assert report.added == [a.id for a in assets]
 
 
+@pytest.mark.parametrize("raw", ["inf", "-inf", "nan", "1e400", "Infinity"])
+def test_non_finite_values_are_line_errors_not_a_broken_session(raw: str) -> None:
+    text = f"facility_id,lat,lon,value\nA,37.5,127,1\nB,35.1,129,{raw}\n"
+    with pytest.raises(ai.AssetImportError) as exc:
+        ai.parse_assets("p.csv", _csv(text), "latlon")
+    assert any(m.startswith("line 3:") and "finite" in m for m in exc.value.errors)
+
+
+def test_the_asset_model_itself_refuses_inf_and_nan_on_every_path(client) -> None:  # type: ignore[no-untyped-def]
+    """inf passes ge=0 but serialises to JSON null; a session holding it could never be read."""
+    with pytest.raises(ValueError):
+        Asset(id="A", lat=37.0, lon=127.0, value=float("inf"))
+    sid = client.post("/api/session").json()["id"]
+    model = client.get(f"/api/session/{sid}").json()
+    model["assets"] = [{"id": "A", "lat": 37.0, "lon": 127.0, "value": "Infinity"}]
+    assert client.put(f"/api/session/{sid}", json=model).status_code == 422
+    assert client.get(f"/api/session/{sid}").status_code == 200  # still readable
+
+
 def test_unknown_template_kind_is_refused() -> None:
     with pytest.raises(KeyError):
         ai.template_workbook("nuts2")
