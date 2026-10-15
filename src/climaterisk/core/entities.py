@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from climaterisk.core.enums import (
     ClimateScenario,
@@ -101,6 +101,10 @@ class FinancialProfile(BaseModel):
 
 class Asset(BaseModel):
     """A located facility — one CLIMADA exposure point (or footprint)."""
+
+    # inf / nan pass ``ge=0`` but serialise to JSON ``null``: a stored session holding one
+    # can never be read back. Refuse them at the door, for every path (PUT, import).
+    model_config = ConfigDict(allow_inf_nan=False)
 
     id: str = Field(default_factory=_new_id)
     name: str = "Untitled asset"

@@ -80,11 +80,9 @@ def compute_uncertainty(request: dict[str, Any]) -> dict[str, Any]:
     # Present-day baseline hazard for the climate-change delta (best-effort: Data API / cache).
     present_haz = None
     try:
-        from climada.util.api_client import Client
+        from climaterisk_worker._dataapi import make_client, resilient_get_hazard
 
-        from climaterisk_worker._dataapi import resilient_get_hazard
-
-        client = Client()
+        client = make_client()
         base_props = {
             "event_type": "synthetic",
             "model_name": "random_walk",

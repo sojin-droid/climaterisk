@@ -287,10 +287,16 @@ class DataApiAdapter:
     def load(self, bbox: tuple[float, float, float, float] | None = None) -> Any:
         from climada.util.api_client import Client
 
-        from climaterisk_worker._dataapi import resilient_get_hazard
+        from climaterisk_worker._dataapi import OfflineError, make_client, resilient_get_hazard
 
-        client = Client()
-        info = client.get_dataset_info(name=self.dataset)
+        client = make_client()
+        try:
+            info = client.get_dataset_info(name=self.dataset)
+        except Client.NoConnection as exc:  # offline, and this dataset was never looked up
+            raise OfflineError(
+                f"offline mode (CLIMATERISK_OFFLINE): {self.dataset} was never fetched on this "
+                "machine — run this analysis once while online"
+            ) from exc
         self._version = str(info.version)
         try:
             self._res_arcsec = float((info.properties or {}).get("res_arcsec"))

@@ -68,16 +68,18 @@ def test_manager_injects_the_flag_into_the_worker_env(
 # What offline refuses — fast, with the reason                                 #
 # --------------------------------------------------------------------------- #
 def test_worker_never_consults_the_data_api_when_offline(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A client that could reach the network is refused offline (make_client builds the
+    cache-only one; tests/test_offline_worker.py exercises it with CLIMADA)."""
+
     class _Client:
         def get_hazard(self, *a: Any, **k: Any) -> str:
             raise AssertionError("network call attempted in offline mode")
 
     monkeypatch.setenv(_params.OFFLINE_ENV, "1")
-    with pytest.raises(_dataapi.OfflineError, match="cache it while online") as exc:
+    with pytest.raises(_dataapi.OfflineError, match="could reach the network"):
         _dataapi.resilient_get_hazard(
             _Client(), "tropical_cyclone", properties={"country_iso3alpha": "KOR"}
         )
-    assert "tropical_cyclone" in str(exc.value) and "KOR" in str(exc.value)
     out = ingest.run_ingest({"source": "dataapi", "peril": "river_flood"})
     assert out["status"] == "error" and "offline mode" in out["detail"]
     assert dataapi_index.compute_dataapi_index({})["status"] == "error"

@@ -214,7 +214,8 @@ export function MapView({
 
   async function doSearch() {
     const q = searchQ.trim();
-    if (!q || searchBusy) return;
+    // Offline: never send the query to Nominatim — whether from the button or the Enter key.
+    if (offline || !q || searchBusy) return;
     setSearchBusy(true);
     setSearchErr(null);
     setSearchHits([]);
