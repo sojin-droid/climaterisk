@@ -57,9 +57,14 @@ def test_a_dataset_never_fetched_fails_fast_with_the_reason(offline: None) -> No
 
 
 def _validation_run() -> dict[str, Any]:
+    """The validation portfolio, undefended — the engine the frozen evidence was recorded
+    with (flood defences off, as in tests/test_asset_level_validation.py)."""
+    import copy
     import importlib.util
 
     from climaterisk_worker.physical_risk import runner
+
+    from climaterisk.physical_risk.metrics import load_config
 
     spec = importlib.util.spec_from_file_location(
         "prb", REPO / "scripts" / "physical_risk_batch.py"
@@ -67,16 +72,20 @@ def _validation_run() -> dict[str, Any]:
     assert spec is not None and spec.loader is not None
     cli = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(cli)
-    return runner.compute_physical_risk_models(
-        {
-            "facilities": cli.read_facilities(FIX / "validation_portfolio.csv"),
-            "climate_scenario": "rcp85",
-            "target_year": 2040,
-            "hazards": ["RF", "TC"],
-            "models": ["DATA_API_COUNTRY"],
-            "country": "KOR",
-        }
-    )
+    cfg = copy.deepcopy(load_config())
+    cfg.setdefault("flood_protection", {})["enabled"] = False
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(runner, "load_config", lambda: cfg)
+        return runner.compute_physical_risk_models(
+            {
+                "facilities": cli.read_facilities(FIX / "validation_portfolio.csv"),
+                "climate_scenario": "rcp85",
+                "target_year": 2040,
+                "hazards": ["RF", "TC"],
+                "models": ["DATA_API_COUNTRY"],
+                "country": "KOR",
+            }
+        )
 
 
 def test_offline_run_reproduces_the_online_evidence(offline: None) -> None:
