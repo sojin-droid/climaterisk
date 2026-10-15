@@ -54,7 +54,9 @@ COLUMNS: tuple[str, ...] = (
     "source_licence",
     "source_modified",
 )
-_NAME = re.compile(r"시설명|펌프장명|배수장명|명칭|^이름$|^명$|펌프장$")
+_NAME = re.compile(
+    r"시설명|시설물명|펌프장명|배수장명|명칭|^이름$|^명$|펌프장$|설치구역|지구명|^구분$|^펌프$"
+)
 _LAT = re.compile(r"위도|^lat", re.I)
 _LON = re.compile(r"경도|^lon|^lng", re.I)
 _FREQ = re.compile(r"빈도")
@@ -79,7 +81,12 @@ def read_table(path: Path) -> Any:
 
 
 def _first(cols: list[str], pattern: re.Pattern[str]) -> str | None:
-    return next((c for c in cols if pattern.search(c)), None)
+    """The first column whose name (spaces removed — "펌 프 장 명") matches."""
+    return next((c for c in cols if pattern.search(re.sub(r"\s+", "", c))), None)
+
+
+def _all(cols: list[str], pattern: re.Pattern[str]) -> list[str]:
+    return [c for c in cols if pattern.search(re.sub(r"\s+", "", c))]
 
 
 def _float(value: Any) -> float | None:
@@ -193,12 +200,14 @@ def build(
             cols = [str(c).strip() for c in table.columns]
             table.columns = cols
             name_c, lat_c, lon_c = _first(cols, _NAME), _first(cols, _LAT), _first(cols, _LON)
-            freq_c, addr_c = _first(cols, _FREQ), _first(cols, _ADDR)
+            freq_c, addr_cs = _first(cols, _FREQ), _all(cols, _ADDR)
             for i, r in enumerate(table.itertuples(index=False), start=1):
                 rec_row = dict(zip(cols, r, strict=True))
                 name = str(rec_row.get(name_c) or "").strip() if name_c else ""
                 if not name or name.lower() == "nan":
-                    continue
+                    # no name column recognised, or a blank cell: keep the facility under
+                    # a neutral label rather than drop it unseen
+                    name = f"{rec['title'].split('_')[0].strip()} #{i}"
                 if exclude_name.search(name):
                     skipped.append(
                         (f"{did}-{i:03d}", f"{name}: excluded by name (not levee drainage)")
@@ -209,9 +218,9 @@ def build(
                     if lat_c and lon_c
                     else (None, None)
                 )
-                address = str(rec_row.get(addr_c) or "").strip() if addr_c else ""
-                if address.lower() == "nan":
-                    address = ""
+                # one address column, or parts such as 위치(읍면) + 위치(리동), joined in order
+                parts = [str(rec_row.get(c) or "").strip() for c in addr_cs]
+                address = " ".join(p for p in parts if p and p.lower() != "nan")
                 if lat is not None and lon is not None and check is not None and address:
                     off = check.distance_km(address, lat, lon)
                     if off is not None and off > max_km:
