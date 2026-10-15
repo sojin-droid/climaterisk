@@ -1,7 +1,7 @@
 {
   "_meta": {
-    "purpose": "Specification of the 1,000-asset Korea test portfolio built by scripts/build_sample_portfolio.py from REAL OpenStreetMap buildings. Locations, footprints and use tags are OSM's; asset values are an assumption (footprint x floors x unit cost) — not a valuation. It exists to read the portfolio / asset-class / 시도 loss curves with a balanced class mix.",
-    "version": "2.2.0",
+    "purpose": "Specification of the 1,000-asset Korea test portfolio built by scripts/build_sample_portfolio.py from REAL OpenStreetMap buildings. Locations, footprints and use tags are OSM's; asset values are footprint x floors x the official 2026 building construction cost per m² (행정안전부 건물신축가격기준액) — a replacement-cost proxy, not a valuation. It exists to read the portfolio / asset-class / 시도 loss curves with a balanced class mix.",
+    "version": "2.3.0",
     "updated": "2026-10-16"
   },
   "seed": 20261014,
@@ -25,7 +25,8 @@
         "hotel": "hotel"
       },
       "default_levels": 4,
-      "unit_value_usd_per_m2": 2000
+      "building_cost_category": "상업용 건물",
+      "building_cost_krw_per_m2": 860000
     },
     "residential": {
       "n_assets": 405,
@@ -37,7 +38,8 @@
         "dormitory": "residential"
       },
       "default_levels": 3,
-      "unit_value_usd_per_m2": 1500
+      "building_cost_category": "주거용 건물",
+      "building_cost_krw_per_m2": 860000
     },
     "industrial": {
       "n_assets": 190,
@@ -48,10 +50,28 @@
         "manufacture": "factory"
       },
       "default_levels": 1,
-      "unit_value_usd_per_m2": 900
+      "building_cost_category": "공업용 건물",
+      "building_cost_krw_per_m2": 840000
     }
   },
-  "value_rule": "asset_value_usd = footprint area (m², EPSG:5179) × floors × class unit value; floors = the OSM building:levels tag when it is a positive number ≤ 120, else the class default. Clipped to [value_usd_min, value_usd_max] and rounded to value_rounding_usd.",
+  "building_cost_source": {
+    "name": "2026년 건물신축가격기준액 (행정안전부장관 고시; 지방세 건축물 시가표준액 산정의 ㎡당 신축 건축비)",
+    "values_krw_per_m2": {
+      "주거용 건물": 860000,
+      "상업용 건물": 860000,
+      "공업용 건물": 840000
+    },
+    "cited_from": "여수시, 「2026년 건축물 시가표준액 산정기준」, Ⅲ-1 건물신축가격기준액 및 붙임1 신구대비표 (2025년: 주거 840,000 · 상업 830,000 · 공업 820,000원/㎡)",
+    "url": "https://yscms.yeosu.go.kr/contents/2422/value_260530_1.pdf",
+    "retrieved": "2026-10-16"
+  },
+  "fx": {
+    "krw_per_usd": 1422.22,
+    "source": "한국은행 경제통계시스템(ECOS) 731Y004 「3.1.2.1. 주요국 통화의 대원화환율」, 원/미국달러(매매기준율), 2025년 평균자료",
+    "url": "https://ecos.bok.or.kr/",
+    "retrieved": "2026-10-16"
+  },
+  "value_rule": "asset_value_usd = footprint area (m², EPSG:5179) × floors × building_cost_krw_per_m2 ÷ krw_per_usd, rounded to the whole dollar. No lower or upper bound. floors = the OSM building:levels tag when it is a positive number ≤ max_levels, else the class default (never used under require_levels_tag). The cost is new-build cost per m² of floor area (재조달원가): the 시가표준액 structure / use / location indices and age depreciation (경과연수별 잔가율) are not applied.",
   "max_levels": 120,
   "require_levels_tag": true,
   "hazard_cell_reference": {
@@ -61,8 +81,5 @@
     "_note": "Same 5,708-centroid 150-arcsec grid as tropical_cyclone_10synth_tracks_150arcsec_rcp85_KOR_2040 v2.1 (checked 2026-10-16), so one cell rule serves both perils."
   },
   "max_per_cell_per_class": 1,
-  "cell_rule": "A cell is the centroid of the hazard_cell_reference set a building is read from, matched with CLIMADA's match_coordinates exactly as Exposures.assign_centroids does it. The Korea Data API sets hold 5,708 of the 10,904 nodes of the 150-arcsec rectangle, so a coastal building can be read from a neighbouring node; rounding to the grid would miss that. Buildings in one cell share every hazard value, so more than one building of a class per cell adds no spatial information and concentrates the class's loss. The matched centroid is written to the CSV as hazard_centroid.",
-  "value_usd_min": 100000,
-  "value_usd_max": 500000000,
-  "value_rounding_usd": 10000
+  "cell_rule": "A cell is the centroid of the hazard_cell_reference set a building is read from, matched with CLIMADA's match_coordinates exactly as Exposures.assign_centroids does it. The Korea Data API sets hold 5,708 of the 10,904 nodes of the 150-arcsec rectangle, so a coastal building can be read from a neighbouring node; rounding to the grid would miss that. Buildings in one cell share every hazard value, so more than one building of a class per cell adds no spatial information and concentrates the class's loss. The matched centroid is written to the CSV as hazard_centroid."
 }

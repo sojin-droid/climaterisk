@@ -3,14 +3,15 @@
 
 Every asset is a **real OSM building** with a use tag: its location (interior point of the
 footprint), footprint and use come from OpenStreetMap; its 시도 / 시군구 from the official
-SGIS boundaries. Only the **value** is an assumption — footprint × floors × a class unit
-value from the spec — so the numbers are a method test, never a valuation. Each class has
+SGIS boundaries. The **value** is footprint × floors × the official 2026 new-build cost per
+m² for the building's use (행정안전부 건물신축가격기준액, converted at the Bank of Korea 2025
+average rate) — a replacement-cost proxy without depreciation, never a valuation. Each class has
 hundreds of assets (spec counts) so the portfolio / asset-class / 시도 loss curves can be
 read per class, and no class puts two buildings in one hazard grid cell; the 5-asset
 validation fixture stays the golden regression set.
 
 Everything that shapes the sample — seed, size, which OSM ``building=*`` tags belong to
-which class, default floors, unit values, bounds — lives in
+which class, default floors, building costs and their sources, the exchange rate — lives in
 ``assets/libraries/sample_portfolio_spec.json``; this script holds no tuning number. Same
 spec + same extract + same boundaries + same GDAL / GEOS / PROJ build ⇒ byte-identical CSV.
 A different library build can assemble a multipolygon or place an interior point on the
@@ -22,11 +23,11 @@ Algorithm:
       \\lVert (\\varphi_b, \\lambda_b) - (\\varphi_g, \\lambda_g) \\rVert,$$
     $$S_c = \\text{first } n_c \\text{ of } \\pi(B_c) \\text{ accepted while }
       |\\{b' \\in S_c : k(b') = k(b)\\}| < m,$$
-    $$V_b = \\mathrm{clip}\\big(A_b \\cdot L_b \\cdot u_c,\\ V_{min},\\ V_{max}\\big)$$
+    $$V_b = \\mathrm{round}\\big(A_b \\cdot L_b \\cdot k_c / r\\big)$$
     ASCII: cell k(b) = the nearest centroid of the reference hazard grid G (CLIMADA
     match_coordinates, as assign_centroids); visit B_c in a seeded random order π and accept
     a building while its cell holds fewer than m of class c, until n_c are accepted;
-    value V_b = footprint A_b × floors L_b × unit value u_c, clipped, rounded.
+    value V_b = footprint A_b × floors L_b × cost k_c ÷ rate r, to the whole dollar.
 
     ``n_c``: class count (spec ``asset_classes.<c>.n_assets``, else an even split);
     ``G``: centroids of the spec's ``hazard_cell_reference`` Data API set (degrees);
@@ -36,8 +37,10 @@ Algorithm:
     시군구 — and, when the spec sets ``require_levels_tag``, that carry a usable
     ``building:levels``; ``A_b``: footprint area (m², EPSG:5179); ``L_b``:
     ``building:levels`` when a positive number ≤ max_levels, else the class default (floors;
-    never used under ``require_levels_tag``); ``u_c``: unit value (USD / m²); ``V_min`` /
-    ``V_max``: clip bounds (USD).
+    never used under ``require_levels_tag``); ``k_c``: 건물신축가격기준액 for the class's
+    use (KRW / m² of floor area, spec ``building_cost_krw_per_m2``); ``r``: exchange rate
+    (KRW / USD, spec ``fx.krw_per_usd``); ``V_b``: asset value (USD). No lower or upper
+    bound is applied.
 
 Data: ``<DATA_ROOT>/external/osm/<spec osm_extract.file>`` (Geofabrik, ODbL — "©
 OpenStreetMap contributors") and ``<DATA_ROOT>/external/municipality/sgis``. Runs in the
@@ -167,12 +170,15 @@ def levels_from(other_tags: str | None, default: int, max_levels: int) -> tuple[
     return default, False
 
 
-def asset_value(footprint_m2: float, levels: int, unit_value: float, spec: dict[str, Any]) -> int:
-    """Footprint × floors × unit value, clipped to the spec bounds and rounded."""
-    lo, hi = float(spec["value_usd_min"]), float(spec["value_usd_max"])
-    step = float(spec["value_rounding_usd"])
-    raw = footprint_m2 * levels * unit_value
-    return int(round(min(max(raw, lo), hi) / step) * step)
+def unit_value_usd(spec: dict[str, Any], asset_class: str) -> float:
+    """New-build cost of the class's use in USD per m² of floor area (KRW cost ÷ KRW/USD)."""
+    krw_per_m2 = float(asset_classes(spec)[asset_class]["building_cost_krw_per_m2"])
+    return krw_per_m2 / float(spec["fx"]["krw_per_usd"])
+
+
+def asset_value(footprint_m2: float, levels: int, unit_value: float) -> int:
+    """Footprint × floors × unit value (USD / m²), to the whole dollar; no bounds."""
+    return round(footprint_m2 * levels * unit_value)
 
 
 def build_environment() -> dict[str, str]:
@@ -284,9 +290,7 @@ def build(spec: dict[str, Any], osm_path: Path, sgis_dir: Path) -> list[dict[str
                 "facility_name": f"OSM {b.osm_type} {b.osm_ref} ({b.building})",
                 "latitude": round(float(wgs.iloc[i].y), 6),
                 "longitude": round(float(wgs.iloc[i].x), 6),
-                "asset_value_usd": asset_value(
-                    area, levels, float(entry["unit_value_usd_per_m2"]), spec
-                ),
+                "asset_value_usd": asset_value(area, levels, unit_value_usd(spec, cls)),
                 "asset_value_currency": "USD",
                 "property_type": ptype,
                 "asset_class": cls,

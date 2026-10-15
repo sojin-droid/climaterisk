@@ -127,16 +127,33 @@ def test_portfolio_matches_the_spec(rows: list[dict[str, str]]) -> None:
         assert tags[r["osm_building"]] == r["property_type"], r["facility_id"]
 
 
+def test_unit_values_are_the_cited_building_costs_at_the_cited_rate() -> None:
+    """Spec 2.3: 2026 건물신축가격기준액 (KRW / m²) ÷ BOK 2025 average KRW / USD."""
+    b = _builder()
+    spec = b.load_spec()
+    assert spec["fx"]["krw_per_usd"] == 1422.22
+    cited = spec["building_cost_source"]["values_krw_per_m2"]
+    for cls, entry in b.asset_classes(spec).items():
+        assert entry["building_cost_krw_per_m2"] == cited[entry["building_cost_category"]], cls
+    approx = pytest.approx
+    assert b.unit_value_usd(spec, "residential") == approx(860000 / 1422.22, rel=1e-12)
+    assert b.unit_value_usd(spec, "commercial") == approx(604.69, abs=0.005)
+    assert b.unit_value_usd(spec, "industrial") == approx(590.63, abs=0.005)
+    assert not {"value_usd_min", "value_usd_max"} & set(spec)  # no bounds
+
+
 def test_value_is_footprint_times_floors_times_unit_value(rows: list[dict[str, str]]) -> None:
-    """The one assumed number is reproducible from the row's own OSM fields and the spec."""
+    """Each value is reproducible from the row's own OSM fields and the spec's cited costs."""
     b = _builder()
     spec = b.load_spec()
     classes = b.asset_classes(spec)
     for r in rows:
-        unit = float(classes[r["asset_class"]]["unit_value_usd_per_m2"])
-        expected = b.asset_value(float(r["footprint_m2"]), int(r["building_levels"]), unit, spec)
-        # footprint is written rounded to 0.1 m²: allow one rounding step either way
-        assert abs(int(r["asset_value_usd"]) - expected) <= spec["value_rounding_usd"], r
+        unit = b.unit_value_usd(spec, r["asset_class"])
+        levels = int(r["building_levels"])
+        expected = b.asset_value(float(r["footprint_m2"]), levels, unit)
+        # footprint is written rounded to 0.1 m²: ±0.05 m² of floor plate on every floor
+        assert abs(int(r["asset_value_usd"]) - expected) <= 0.05 * levels * unit + 1, r
+        assert int(r["asset_value_usd"]) > 0, r["facility_id"]
         if r["levels_from_osm"] == "no":
             assert int(r["building_levels"]) == classes[r["asset_class"]]["default_levels"]
 
