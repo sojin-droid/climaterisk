@@ -4,9 +4,10 @@
 Every asset is a **real OSM building** with a use tag: its location (interior point of the
 footprint), footprint and use come from OpenStreetMap; its 시도 / 시군구 from the official
 SGIS boundaries. Only the **value** is an assumption — footprint × floors × a class unit
-value from the spec — so the numbers are a method test, never a valuation. Classes are
-balanced (334 / 333 / 333) so the portfolio / asset-class / 시도 loss curves can be read
-per class; the 5-asset validation fixture stays the golden regression set.
+value from the spec — so the numbers are a method test, never a valuation. Each class has
+hundreds of assets (spec counts) so the portfolio / asset-class / 시도 loss curves can be
+read per class, and no class puts two buildings in one hazard grid cell; the 5-asset
+validation fixture stays the golden regression set.
 
 Everything that shapes the sample — seed, size, which OSM ``building=*`` tags belong to
 which class, default floors, unit values, bounds — lives in
@@ -17,13 +18,20 @@ other side of a 시군구 edge, which changes the eligible pool by a building an
 the versions used are written next to the CSV as ``build_env.json``.
 
 Algorithm:
-    $$n_c = \\lfloor N/C \\rfloor + [\\,c < N \\bmod C\\,], \\qquad
-      S_c \\subset B_c,\\ |S_c| = n_c \\text{ uniformly without replacement},$$
+    $$k(b) = \\arg\\min_{g \\in G}
+      \\lVert (\\varphi_b, \\lambda_b) - (\\varphi_g, \\lambda_g) \\rVert,$$
+    $$S_c = \\text{first } n_c \\text{ of } \\pi(B_c) \\text{ accepted while }
+      |\\{b' \\in S_c : k(b') = k(b)\\}| < m,$$
     $$V_b = \\mathrm{clip}\\big(A_b \\cdot L_b \\cdot u_c,\\ V_{min},\\ V_{max}\\big)$$
-    ASCII: n per class = N // C (+1 for the first N % C classes); S_c = n_c buildings drawn
-    uniformly without replacement from B_c (the class's eligible OSM buildings);
-    value V_b = footprint A_b × floors L_b × unit value u_c, clipped and rounded.
+    ASCII: cell k(b) = the nearest centroid of the reference hazard grid G (CLIMADA
+    match_coordinates, as assign_centroids); visit B_c in a seeded random order π and accept
+    a building while its cell holds fewer than m of class c, until n_c are accepted;
+    value V_b = footprint A_b × floors L_b × unit value u_c, clipped, rounded.
 
+    ``n_c``: class count (spec ``asset_classes.<c>.n_assets``, else an even split);
+    ``G``: centroids of the spec's ``hazard_cell_reference`` Data API set (degrees);
+    ``m``: buildings of one class allowed per cell (spec ``max_per_cell_per_class``);
+    ``φ_b, λ_b``: the building's WGS84 latitude / longitude (degrees, as in the CSV);
     ``B_c``: OSM buildings whose tag maps to class c and whose interior point lies in a
     시군구 — and, when the spec sets ``require_levels_tag``, that carry a usable
     ``building:levels``; ``A_b``: footprint area (m², EPSG:5179); ``L_b``:
@@ -78,6 +86,7 @@ COLUMNS: tuple[str, ...] = (
     "province_name",
     "municipality_name",
     "municipality_id",
+    "hazard_centroid",
 )
 _LEVELS = re.compile(r'"building:levels"=>"([^"]*)"')
 
@@ -97,6 +106,48 @@ def class_counts(n_assets: int, classes: list[str]) -> dict[str, int]:
     """Split ``n_assets`` across ``classes`` as evenly as possible (first classes get +1)."""
     base, extra = divmod(n_assets, len(classes))
     return {c: base + (1 if i < extra else 0) for i, c in enumerate(classes)}
+
+
+def planned_counts(spec: dict[str, Any]) -> dict[str, int]:
+    """Assets per class: each class's ``n_assets`` when the spec sets it, else an even split.
+
+    Raises:
+        SystemExit: when the per-class counts do not add up to the spec's ``n_assets``.
+    """
+    classes = asset_classes(spec)
+    if not all("n_assets" in entry for entry in classes.values()):
+        return class_counts(int(spec["n_assets"]), list(classes))
+    counts = {c: int(entry["n_assets"]) for c, entry in classes.items()}
+    if sum(counts.values()) != int(spec["n_assets"]):
+        raise SystemExit(f"class counts {counts} do not sum to n_assets {spec['n_assets']}")
+    return counts
+
+
+def centroid_label(latitude: float, longitude: float) -> str:
+    """How a hazard centroid is written to the CSV (``hazard_centroid``)."""
+    return f"{latitude:.6f},{longitude:.6f}"
+
+
+def hazard_centroids(spec: dict[str, Any], latitude: Any, longitude: Any) -> list[str | None]:
+    """The hazard centroid each point is read from, exactly as the engine assigns it.
+
+    Uses CLIMADA's own ``match_coordinates`` (what ``Exposures.assign_centroids`` calls,
+    euclidean, default 100 km threshold) against the centroids of the spec's
+    ``hazard_cell_reference`` Data API set. The Korea sets hold only some nodes of the
+    150-arcsec rectangle, so a coastal point can be read from a neighbouring node — plain
+    rounding to the grid would miss that. ``None`` marks a point no centroid reaches.
+    """
+    import numpy as np
+    from climada.util.api_client import Client
+    from climada.util.coordinates import match_coordinates
+
+    ref = spec["hazard_cell_reference"]
+    hazard = Client().get_hazard(ref["hazard_type"], name=ref["name"], version=ref["version"])
+    lat = np.asarray(hazard.centroids.lat, dtype=float)
+    lon = np.asarray(hazard.centroids.lon, dtype=float)
+    points = np.column_stack([np.asarray(latitude, float), np.asarray(longitude, float)])
+    idx = match_coordinates(points, np.column_stack([lat, lon]))
+    return [centroid_label(lat[i], lon[i]) if i >= 0 else None for i in idx]
 
 
 def levels_from(other_tags: str | None, default: int, max_levels: int) -> tuple[int, bool]:
@@ -192,16 +243,30 @@ def build(spec: dict[str, Any], osm_path: Path, sgis_dir: Path) -> list[dict[str
         tagged = placed["other_tags"].map(lambda t: levels_from(t, 1, max_levels)[1])
         placed = placed[tagged.to_numpy(dtype=bool)]
 
+    # The hazard cell is matched from the coordinates exactly as the CSV will carry them.
+    wgs_pool = placed.geometry.to_crs(4326)
+    placed = placed.assign(
+        cell=hazard_centroids(spec, np.round(wgs_pool.y, 6), np.round(wgs_pool.x, 6))
+    )
+    placed = placed[placed["cell"].notna()]
+    cap = int(spec["max_per_cell_per_class"])
+
     rng = np.random.default_rng(int(spec["seed"]))
-    counts = class_counts(int(spec["n_assets"]), list(classes))
+    counts = planned_counts(spec)
     picks = []
     for cls in classes:
         pool = placed[placed["asset_class"] == cls]
-        print(f"eligible {cls}: {len(pool):,} buildings -> drawing {counts[cls]}")
-        if len(pool) < counts[cls]:
-            raise SystemExit(f"only {len(pool)} eligible {cls} buildings for {counts[cls]}")
-        idx = np.sort(rng.choice(len(pool), size=counts[cls], replace=False))
-        picks.append(pool.iloc[idx])
+        visit = pool.iloc[rng.permutation(len(pool))]
+        allowed = visit[visit.groupby("cell", sort=False).cumcount().to_numpy() < cap]
+        n_cells = pool["cell"].nunique()
+        print(
+            f"eligible {cls}: {len(pool):,} buildings in {n_cells:,} cells -> drawing {counts[cls]}"
+        )
+        if len(allowed) < counts[cls]:
+            raise SystemExit(
+                f"only {len(allowed)} {cls} buildings fit {cap} per cell for {counts[cls]}"
+            )
+        picks.append(allowed.iloc[: counts[cls]].sort_index())
     chosen = gpd.GeoDataFrame(pd.concat(picks), crs=buildings.crs)
     chosen = chosen.iloc[rng.permutation(len(chosen))].reset_index(drop=True)
     wgs = chosen.geometry.to_crs(4326)
@@ -234,6 +299,7 @@ def build(spec: dict[str, Any], osm_path: Path, sgis_dir: Path) -> list[dict[str
                 "province_name": province_by_code.get(code[:2], ""),
                 "municipality_name": str(b.SIGUNGU_NM),
                 "municipality_id": f"SGIS-{code}",
+                "hazard_centroid": str(b.cell),
             }
         )
     return rows
@@ -265,7 +331,8 @@ def main(argv: list[str] | None = None) -> int:
         writer.writeheader()
         writer.writerows(rows)
     env_path = out.parent / ENV_FILENAME
-    env_path.write_text(json.dumps(build_environment(), indent=2) + "\n", encoding="utf-8")
+    # LF on every platform (write_text would emit CRLF on Windows).
+    env_path.write_bytes((json.dumps(build_environment(), indent=2) + "\n").encode("utf-8"))
     by_class: dict[str, int] = {}
     for r in rows:
         by_class[r["asset_class"]] = by_class.get(r["asset_class"], 0) + 1

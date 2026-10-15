@@ -53,6 +53,64 @@ def test_class_counts_split_evenly() -> None:
     assert sum(b.class_counts(7, ["a", "b", "c"]).values()) == 7
 
 
+def test_planned_counts_come_from_the_spec() -> None:
+    b = _builder()
+    spec = b.load_spec()
+    assert b.planned_counts(spec) == {"commercial": 405, "residential": 405, "industrial": 190}
+    broken = {**spec, "n_assets": 999}
+    with pytest.raises(SystemExit):
+        b.planned_counts(broken)
+    no_counts = {
+        **spec,
+        "asset_classes": {
+            c: {k: v for k, v in e.items() if k != "n_assets"} if isinstance(e, dict) else e
+            for c, e in spec["asset_classes"].items()
+        },
+    }
+    assert b.planned_counts(no_counts) == b.class_counts(1000, list(b.asset_classes(spec)))
+
+
+def test_no_class_puts_two_buildings_in_one_hazard_cell(rows: list[dict[str, str]]) -> None:
+    """Spec 2.2: buildings in one cell share every hazard value, so each class keeps at most
+    ``max_per_cell_per_class`` per cell. The cell is the centroid CLIMADA assigns, written
+    by the builder; the worker-env test below re-derives it with CLIMADA."""
+    spec = _builder().load_spec()
+    per_cell: dict[tuple[str, str], int] = {}
+    for r in rows:
+        assert r["hazard_centroid"], r["facility_id"]
+        key = (r["asset_class"], r["hazard_centroid"])
+        per_cell[key] = per_cell.get(key, 0) + 1
+    assert max(per_cell.values()) <= spec["max_per_cell_per_class"]
+
+
+def test_hazard_centroid_is_the_one_climada_assigns(rows: list[dict[str, str]]) -> None:
+    """The written cell equals ``Exposures.assign_centroids`` on the CSV coordinates."""
+    pytest.importorskip("climada")
+    import pandas as pd
+    from climada.entity import Exposures
+    from climada.util.api_client import Client
+
+    b = _builder()
+    ref = b.load_spec()["hazard_cell_reference"]
+    try:
+        hazard = Client().get_hazard(ref["hazard_type"], name=ref["name"], version=ref["version"])
+    except Exception as exc:  # offline and not cached
+        pytest.skip(f"reference hazard not available: {exc}")
+    exp = Exposures(
+        pd.DataFrame(
+            {
+                "latitude": [float(r["latitude"]) for r in rows],
+                "longitude": [float(r["longitude"]) for r in rows],
+                "value": 1.0,
+            }
+        )
+    )
+    exp.assign_centroids(hazard)
+    lat, lon = hazard.centroids.lat, hazard.centroids.lon
+    assigned = [b.centroid_label(lat[i], lon[i]) for i in exp.gdf[f"centr_{hazard.haz_type}"]]
+    assert assigned == [r["hazard_centroid"] for r in rows]
+
+
 def test_portfolio_matches_the_spec(rows: list[dict[str, str]]) -> None:
     b = _builder()
     spec = b.load_spec()
@@ -63,7 +121,7 @@ def test_portfolio_matches_the_spec(rows: list[dict[str, str]]) -> None:
     counts: dict[str, int] = {}
     for r in rows:
         counts[r["asset_class"]] = counts.get(r["asset_class"], 0) + 1
-    assert counts == b.class_counts(spec["n_assets"], list(classes))
+    assert counts == b.planned_counts(spec)
     for r in rows:
         tags = classes[r["asset_class"]]["osm_building_to_property_type"]
         assert tags[r["osm_building"]] == r["property_type"], r["facility_id"]

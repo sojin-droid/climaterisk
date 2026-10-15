@@ -1,8 +1,8 @@
 {
   "_meta": {
     "purpose": "Specification of the 1,000-asset Korea test portfolio built by scripts/build_sample_portfolio.py from REAL OpenStreetMap buildings. Locations, footprints and use tags are OSM's; asset values are an assumption (footprint x floors x unit cost) — not a valuation. It exists to read the portfolio / asset-class / 시도 loss curves with a balanced class mix.",
-    "version": "2.1.0",
-    "updated": "2026-10-15"
+    "version": "2.2.0",
+    "updated": "2026-10-16"
   },
   "seed": 20261014,
   "n_assets": 1000,
@@ -12,10 +12,11 @@
     "source": "Geofabrik download server, https://download.geofabrik.de/asia/south-korea-261013.osm.pbf (OpenStreetMap data as of 2026-10-13)",
     "licence": "© OpenStreetMap contributors, Open Database License (ODbL) 1.0 — https://www.openstreetmap.org/copyright"
   },
-  "selection_rule": "Every OSM way/relation with a building tag listed below AND a usable building:levels tag (a positive number <= max_levels) — building=yes, untagged uses and buildings without a floor count are skipped: their use or size is unknown. Its class is fixed by the tag. Within each class buildings are drawn uniformly at random without replacement (seeded); a building whose interior point falls outside every SGIS 시군구 polygon is not eligible.",
+  "selection_rule": "Every OSM way/relation with a building tag listed below AND a usable building:levels tag (a positive number <= max_levels) — building=yes, untagged uses and buildings without a floor count are skipped: their use or size is unknown. Its class is fixed by the tag. Within each class buildings are visited in a seeded random order and accepted until the class count is reached, skipping any building whose hazard grid cell already holds max_per_cell_per_class buildings of that class; a building whose interior point falls outside every SGIS 시군구 polygon is not eligible.",
   "asset_classes": {
-    "_note": "Classes are the JRC sectors of physical_risk_config.json property_type_to_jrc_sector; each OSM tag maps to a property_type that maps to its class (checked by tests/test_sample_portfolio.py). Counts are split as evenly as the total allows.",
+    "_note": "Classes are the JRC sectors of physical_risk_config.json property_type_to_jrc_sector; each OSM tag maps to a property_type that maps to its class (checked by tests/test_sample_portfolio.py). n_assets per class sums to the top-level n_assets. Industrial is 190, not a third: floor-tagged industrial buildings fall in only 192 cells of the reference hazard grid, so one per cell cannot reach 333.",
     "commercial": {
+      "n_assets": 405,
       "osm_building_to_property_type": {
         "office": "office",
         "commercial": "commercial",
@@ -27,6 +28,7 @@
       "unit_value_usd_per_m2": 2000
     },
     "residential": {
+      "n_assets": 405,
       "osm_building_to_property_type": {
         "apartments": "apartment",
         "residential": "residential",
@@ -38,6 +40,7 @@
       "unit_value_usd_per_m2": 1500
     },
     "industrial": {
+      "n_assets": 190,
       "osm_building_to_property_type": {
         "industrial": "industrial",
         "warehouse": "warehouse",
@@ -51,6 +54,14 @@
   "value_rule": "asset_value_usd = footprint area (m², EPSG:5179) × floors × class unit value; floors = the OSM building:levels tag when it is a positive number ≤ 120, else the class default. Clipped to [value_usd_min, value_usd_max] and rounded to value_rounding_usd.",
   "max_levels": 120,
   "require_levels_tag": true,
+  "hazard_cell_reference": {
+    "hazard_type": "river_flood",
+    "name": "river_flood_150arcsec_rcp85_KOR_2030_2050",
+    "version": "v3",
+    "_note": "Same 5,708-centroid 150-arcsec grid as tropical_cyclone_10synth_tracks_150arcsec_rcp85_KOR_2040 v2.1 (checked 2026-10-16), so one cell rule serves both perils."
+  },
+  "max_per_cell_per_class": 1,
+  "cell_rule": "A cell is the centroid of the hazard_cell_reference set a building is read from, matched with CLIMADA's match_coordinates exactly as Exposures.assign_centroids does it. The Korea Data API sets hold 5,708 of the 10,904 nodes of the 150-arcsec rectangle, so a coastal building can be read from a neighbouring node; rounding to the grid would miss that. Buildings in one cell share every hazard value, so more than one building of a class per cell adds no spatial information and concentrates the class's loss. The matched centroid is written to the CSV as hazard_centroid.",
   "value_usd_min": 100000,
   "value_usd_max": 500000000,
   "value_rounding_usd": 10000
