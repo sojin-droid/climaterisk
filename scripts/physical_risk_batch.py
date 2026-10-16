@@ -14,8 +14,9 @@ typhoon, KMA local data for heatwave — hazard only). ``all`` runs the three sc
 RF/TC/HEAT hazard keys keep working.
 
 The CSV needs ``facility_id, facility_name, lat, lon, asset_value_usd`` (``latitude`` /
-``longitude`` are accepted aliases); ``property_type`` and ``asset_value_currency`` are
-optional. Every facility is priced against every hazard (RF, TC, HEAT) under every model
+``longitude`` are accepted aliases); ``property_type``, ``asset_value_currency`` and
+``province_name`` (시도, for the per-province loss curves) are optional. Every facility is
+priced against every hazard (RF, TC, HEAT) under every model
 (GLOBAL_BASELINE, DATA_API_COUNTRY, KOREA_LOCAL) with the same published impact function;
 rows that cannot be priced carry a status and null numbers, never zeros.
 
@@ -52,6 +53,7 @@ _ALIASES = {
     "asset_value_usd": ("asset_value_usd", "value", "asset_value"),
     "property_type": ("property_type", "type", "sector"),
     "asset_value_currency": ("asset_value_currency", "currency"),
+    "province_name": ("province_name", "province", "시도명"),
 }
 _REQUIRED = ("facility_id", "latitude", "longitude", "asset_value_usd")
 
@@ -90,6 +92,8 @@ def read_facilities(path: str | Path) -> list[dict[str, Any]]:
                     "asset_value_currency": row.get("asset_value_currency") or "USD",
                     "property_type": row.get("property_type") or None,
                 }
+                if row.get("province_name"):  # 시도 — gives the loss curve its province lines
+                    fac["province_name"] = row["province_name"]
             except ValueError as exc:
                 raise ValueError(f"line {i}: {exc}") from exc
             if not fac["facility_id"]:
