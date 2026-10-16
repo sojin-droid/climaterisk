@@ -7,7 +7,8 @@ Perils (climada v6.x, all hazard data from the CLIMADA Data API — no petals ne
 Each peril computes the FUTURE horizon and a PRESENT-day baseline, and reports the
 delta. Future estimation comes from the Data API's future hazard sets:
   - TC: climate_scenario (rcp26/45/60/85) × ref_year (2040/2060/2080); present = "None".
-  - RF: climate_scenario (rcp26/60/85) × year_range; present = historical / 1980_2000.
+  - RF: climate_scenario (rcp26/60/85) × year_range; present = same RCP, earliest window
+    (2010_2030, same GHM x GCM chain; the reanalysis-forced historical set is not used).
 
 Per-asset vulnerability params (``tc_v_half``, flood depth-damage curve) are resolved
 by the backend and arrive in each asset dict — this module reads them directly.
@@ -525,7 +526,10 @@ def _run_river_flood(
 
     cat_haz = catalog.load_hazard("river_flood", climate_scenario, iso3 or "global", target)
     future = _impact(exp, impf_set, cat_haz or fetch(scenario, year_range))
-    present = _impact(exp, impf_set, fetch("historical", "1980_2000"))
+    # Present = the same RCP product's earliest window (same 24 GHM x GCM chain). The Data
+    # API "historical" flood set is reanalysis-forced, so a delta against it mixes the
+    # model-chain change with the climate change (14x vs 2.9x on the 1,000-building sample).
+    present_window = _RF_YEAR_RANGES[0]
     src = "local catalog" if cat_haz is not None else f"{iso3 or 'global'} {scenario} {year_range}"
 
     eai = _eai_by_asset(future, src_idx, len(assets))
@@ -533,9 +537,15 @@ def _run_river_flood(
     fc = future.calc_freq_curve(_rps)
     _ys = _yearset_summary(future)
     _warn = getattr(future, "_warn", None)
-    present_aai = float(present.aai_agg)
     future_aai = float(future.aai_agg)
-    delta = ((future_aai - present_aai) / present_aai * 100.0) if present_aai > 0 else None
+    present_aai: float | None = None
+    if year_range != present_window:  # the earliest window has no earlier one to compare to
+        present_aai = float(_impact(exp, impf_set, fetch(scenario, present_window)).aai_agg)
+    delta = (
+        ((future_aai - present_aai) / present_aai * 100.0)
+        if present_aai is not None and present_aai > 0
+        else None
+    )
 
     return {
         "peril": "river_flood",
@@ -543,6 +553,7 @@ def _run_river_flood(
         "target_year": int(year_range[5:]),
         "aai_agg": future_aai,
         "present_aai_agg": present_aai,
+        "present_period": f"{scenario} {present_window}",
         "delta_pct": delta,
         "total_value": float(sum(a["value"] for a in assets)),
         "per_asset": [
@@ -559,7 +570,11 @@ def _run_river_flood(
             "max_resolvable_return_period": _max_rp,
             "record_years": _rec_yrs,
         },
-        "detail": f"{src} RF set; {curve_note}",
+        "detail": (
+            f"{src} RF set; present = {scenario} {present_window}"
+            + ("" if present_aai is not None else " (target is the present window: no delta)")
+            + f"; {curve_note}"
+        ),
     }
 
 

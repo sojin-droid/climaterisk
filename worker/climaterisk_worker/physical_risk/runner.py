@@ -33,6 +33,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from climaterisk_worker._params import RF_YEAR_RANGES
 from climaterisk_worker.physical_risk import adapters, aggregate, engine, protection
 
 _SRC = Path(__file__).resolve().parents[3] / "src"
@@ -53,6 +54,38 @@ from climaterisk.physical_risk.results_table import comparison_frame  # noqa: E4
 
 #: Request ``hazards`` keys → CLIMADA tags this runner prices. ``HEAT`` = the heatwave layer.
 HAZARD_TAGS: dict[str, str] = {"RF": "RF", "CF": "CF", "TC": "TC", "HEAT": "HW"}
+
+#: ``baseline_scenario`` value asking for the like-for-like present climate of each hazard.
+PRESENT_BASELINE = "present"
+
+
+def baseline_groups(
+    baseline_scenario: str, future_scenario: str, year: int, hazards: list[str]
+) -> list[tuple[str, int, list[str]]]:
+    """``(scenario, year, hazards)`` runs that make up a baseline, in request order.
+
+    Any named scenario (``"historical"``, ``"rcp26"`` …) is one run of every hazard. The
+    ``"present"`` baseline picks, per hazard, the present climate **of the same model chain**
+    as the future run, so a multiplier carries the climate change and nothing else:
+
+    * river flood — the future request's own RCP product at its earliest 20-year window
+      (``RF_YEAR_RANGES[0]``, 2010–2030), i.e. the same 24 GHM × GCM combinations. The
+      Data API ``historical`` flood set is forced by observed reanalyses instead and is
+      therefore not a like-for-like baseline (``metrics.hazard_forcing_family``);
+    * tropical cyclone, coastal flood, heat — their ``historical`` sets, which share the
+      future sets' tracks / model (the future sets are those scaled to the scenario).
+
+    A future window that *is* the earliest window gives the baseline the same dataset; the
+    multiplier then refuses ("nothing to multiply") rather than reporting 1.0.
+    """
+    if baseline_scenario != PRESENT_BASELINE:
+        return [(baseline_scenario, year, list(hazards))]
+    present_rf_year = int(RF_YEAR_RANGES[0][:4])
+    groups: dict[tuple[str, int], list[str]] = {}
+    for h in hazards:
+        key = (future_scenario, present_rf_year) if h == "RF" else ("historical", year)
+        groups.setdefault(key, []).append(h)
+    return [(s, y, hs) for (s, y), hs in groups.items()]
 
 
 def _bbox(facilities: list[dict[str, Any]]) -> tuple[float, float, float, float] | None:
@@ -251,19 +284,23 @@ def compute_physical_risk_models(request: dict[str, Any]) -> dict[str, Any]:
     multipliers: list[dict[str, Any]] = []
     if baseline_scenario and str(baseline_scenario) != scenario:
         progress.extend(n_calc)
-        baseline_rows, used_base = _all_model_rows(
-            facilities,
-            str(baseline_scenario),
-            year,
-            hazards,
-            models,
-            iso3,
-            bbox,
-            progress=progress,
-            curves=baseline_curves,
-            hazard_models=hazard_models,
-        )
-        used.extend({**d, "role": "baseline"} for d in used_base)
+        for b_scenario, b_year, b_hazards in baseline_groups(
+            str(baseline_scenario), scenario, year, hazards
+        ):
+            b_rows, used_base = _all_model_rows(
+                facilities,
+                b_scenario,
+                b_year,
+                b_hazards,
+                models,
+                iso3,
+                bbox,
+                progress=progress,
+                curves=baseline_curves,
+                hazard_models=hazard_models,
+            )
+            baseline_rows.extend(b_rows)
+            used.extend({**d, "role": "baseline"} for d in used_base)
         multipliers = attach_climate_multipliers(rows, baseline_rows)
 
     # Economic-growth step: a scalar record, never a change to the rows (impact is linear

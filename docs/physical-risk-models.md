@@ -294,15 +294,35 @@ API (HTTP 400) and by the worker (`ValueError`) — exposure is not grown backwa
   button on the Models tab serve it.
 * **Batch CLI (Phase 5)** — `scripts/physical_risk_batch.py` (worker env): facilities CSV
   (`facility_id, facility_name, lat, lon, asset_value_usd[, property_type]`) → all hazards ×
-  all models → workbook + raw JSON. `--baseline-scenario historical` runs the same models a
-  second time and fills `climate_change_multiplier = future_EAL / baseline_EAL` **within each
-  model** — the only form that ratio takes; without it the column is empty.
+  all models → workbook + raw JSON. `--baseline-scenario present` runs the same models a
+  second time against each hazard's like-for-like present climate and fills
+  `climate_change_multiplier = future_EAL / baseline_EAL` **within each model** — the only
+  form that ratio takes; without it the column is empty. See *Climate-change baseline* below.
 
   ```bash
   ./.climada-env/bin/python scripts/physical_risk_batch.py --facilities facilities.csv \
       --out results.xlsx --json results.json --scenario rcp45 --year 2040 --country KOR \
-      --baseline-scenario historical
+      --baseline-scenario present
   ```
+
+### Climate-change baseline (`present`)
+
+A multiplier is only a climate signal when the baseline and future hazard sets come from the
+same model chain. `runner.baseline_groups` builds the `present` baseline per hazard:
+
+| hazard | present = | why |
+|---|---|---|
+| river flood | the future request's own RCP product, earliest window `RF_YEAR_RANGES[0]` (2010–2030) | same 24 GHM × GCM combinations as the future window. The Data API `historical` 1980–2000 set is forced by observed reanalyses (gswp3, princeton, watch, wfdei; 46 combinations) |
+| tropical cyclone, coastal flood, heat | their `historical` sets | the future sets are the same tracks / model scaled to the scenario |
+
+Evidence (1,000-building sample, `DATA_API_COUNTRY`, JRC Asia curves): portfolio flood EAL
+$772,738 (hist 1980–2000) · $3,809,858 (rcp85 2010–2030) · $11,147,286 (rcp85 2030–2050) —
+14.4× against the historical set, 2.93× within the chain (per GHM × GCM combination: median
+2.06, range 0.13–122). `metrics.climate_change_multiplier` refuses a flood pair whose sets
+come from different forcing families (`hazard_forcing_family`, read from the dataset name),
+so an explicit `--baseline-scenario historical` still runs but reports no flood multiplier,
+with the reason. When the target year falls in the present window itself, baseline and
+future are the same set and the multiplier refuses ("nothing to multiply").
 
 ### Non-expert workflow (Phase 6)
 
@@ -327,7 +347,7 @@ and states the reason per hazard; the matrix shows asset value; the detail shows
 period and Impact function, "Why High?" quotes the row's own `risk_level_criteria`, the
 Global vs Country table carries the "pipeline-consistency check" note, Korea Local is stated
 as not implemented (flood/TC) or hazard-available/financial-comparison-unavailable (heat),
-and a climate-change block appears only when a historical baseline was run. Non-expert
+and a climate-change block appears only when the present-climate baseline was run. Non-expert
 guide: [`PHYSICAL_RISK_USER_GUIDE.md`](PHYSICAL_RISK_USER_GUIDE.md).
 
 "Financial loss: Not available (not $0)" is written wherever a hazard is unpriced;

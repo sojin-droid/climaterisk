@@ -15,7 +15,8 @@ Everything below explains what you will see; nothing here changes how the number
 3. **Analysis** — leave **Recommended**. The tool picks, for each hazard, the most local data
    that can actually run (today: the Korea country dataset for flood and typhoon; KMA data
    for heat). Nothing large is downloaded. **Custom** lets you add the Global reference (for
-   a data comparison) or the historical baseline (for a climate-change multiplier); anything
+   a data comparison) or the present-climate baseline (for a climate-change multiplier: the same
+   models' present — flood 2010–2030 of the same scenario, typhoon 1980–2020 tracks); anything
    that cannot run is greyed out with the reason.
 4. **RUN ASSESSMENT** — one batch for every asset × hazard. The line under the button counts
    the calculations; a progress line shows "n / N calculations complete".
@@ -53,7 +54,7 @@ Everything below explains what you will see; nothing here changes how the number
 | Global vs Country | the data comparison, where both were run |
 | Global vs Korea Local | kept for structure; today it says NOT_IMPLEMENTED for flood/typhoon |
 | Portfolio Loss Curve | asset runs only: the portfolio's own 10 / 25 / 50 / 100 / 250-year losses for each hazard and data scope, then the same per asset class (Commercial / Residential / Industrial / … — the JRC sector your property type maps to, which also picks the flood damage curve) and per 시도 when assets carry a province. *Asset Classes* and *Impact Functions* show what each line's assets used: a flood portfolio mixes the sector curves, one per asset. *Assets with Modeled Hazard* counts the assets the hazard data reaches at all — when it is 0 the line's losses are 0 because the dataset has no hazard there (e.g. a coastal site outside the river-flood model), which is **not** evidence of no risk; the Note says so. Computed from each event's loss added across the assets — so it is a true portfolio figure, unlike adding the assets' own 100-year losses. *Sum of Standalone 100-yr Losses* shows that naive sum and *Diversification Benefit %* the gap. A blank cell means the hazard data does not reach that return period (the Note says which). Hazards are not added to each other |
-| Climate Change | only when a historical baseline was run (per asset × data scope multipliers; the portfolio-level pairing is on Portfolio Totals) |
+| Climate Change | only when the present-climate baseline was run (per asset × data scope multipliers; the portfolio-level pairing is on Portfolio Totals). A flood multiplier against the Data API *historical* set is refused — it is built from a different model chain |
 | Methodology | what was assessed, data sources, CLIMADA method, impact functions, EAL, potential loss, risk levels, climate multiplier, limitations, statuses |
 | Run Info | scenario, year, country, readiness |
 
