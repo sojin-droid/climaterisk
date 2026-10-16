@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum
@@ -560,15 +561,38 @@ def relabel_comparison(cmp: dict[str, Any], label: str) -> dict[str, Any]:
 # --------------------------------------------------------------------------- #
 # Climate-change multiplier — same model, two periods                          #
 # --------------------------------------------------------------------------- #
+def hazard_forcing_family(hazard_type: str, dataset_name: str | None) -> str | None:
+    """Which model chain produced a Data API hazard set, read from its name; None if unknown.
+
+    The river-flood ``hist`` sets (``river_flood_150arcsec_hist_<ISO3>_1980_2000``) are ISIMIP
+    runs forced by observed reanalyses (gswp3, princeton, watch, wfdei; 46 GHM combinations),
+    while every ``rcp`` set is forced by four GCMs (24 combinations). Event names carry the
+    forcing (``year_ghm_forcing``), the dataset names carry the split used here.
+    """
+    if hazard_type != "RF" or not dataset_name:
+        return None
+    name = dataset_name.lower()
+    if "_hist_" in name:
+        return "observed-reanalysis-forced (ISIMIP historical)"
+    if re.search(r"_rcp\d{2}_", name):
+        return "GCM-forced (ISIMIP RCP)"
+    return None
+
+
 def climate_change_multiplier(baseline: ResultRow, future: ResultRow) -> dict[str, Any]:
     """``future_eal / baseline_eal`` from two runs of the **same model**, or null with a reason.
 
     Refused, with the reason recorded, when the two rows come from different models — that
     ratio is a hazard-source comparison (:func:`comparison_row`), not a climate signal —
-    when either run has no EAL, or when the baseline is zero. Never a configured constant.
+    when either run has no EAL, when the baseline is zero, or when the two hazard sets come
+    from different model chains (:func:`hazard_forcing_family`): a reanalysis-forced flood
+    baseline against a GCM-forced future mixes the chain change into the ratio (on the
+    1,000-building sample: 14.4x against the like-for-like 2.9x). Never a configured constant.
     """
     value: float | None = None
     detail: str | None = None
+    base_family = hazard_forcing_family(baseline.hazard_type, baseline.hazard_dataset)
+    future_family = hazard_forcing_family(future.hazard_type, future.hazard_dataset)
     if baseline.model_id != future.model_id:
         detail = (
             f"rows come from different models ({baseline.model_id} vs {future.model_id}); "
@@ -580,6 +604,12 @@ def climate_change_multiplier(baseline: ResultRow, future: ResultRow) -> dict[st
         detail = "one of the two runs produced no EAL"
     elif baseline.eal_usd == 0:
         detail = "baseline EAL is zero — ratio undefined"
+    elif base_family and future_family and base_family != future_family:
+        detail = (
+            f"baseline set is {base_family}, future set is {future_family}: the ratio would mix "
+            "the model-chain change with the climate change — use the 'present' baseline "
+            "(same chain, earliest window)"
+        )
     elif (baseline.served_scenario or baseline.scenario, baseline.time_horizon) == (
         future.served_scenario or future.scenario,
         future.time_horizon,

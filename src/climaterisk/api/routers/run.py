@@ -96,7 +96,8 @@ class PhysicalRiskModelsBody(BaseModel):
     hazard_models: dict[str, list[str]] | None = None
     target_year: int | None = None
     country: str | None = None  # ISO3; resolved from the assets when omitted
-    baseline_scenario: str | None = None  # e.g. "historical": enables climate_change_multiplier
+    # "present" (like-for-like present climate per hazard) enables climate_change_multiplier
+    baseline_scenario: str | None = None
     facility_ids: list[str] | None = None  # subset of the session's assets; all when omitted
     # V0.2 — municipality mode: the bundled representative points instead of the assets.
     assessment_target: str = "FACILITY"  # FACILITY | MUNICIPALITY

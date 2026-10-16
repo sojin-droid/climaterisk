@@ -5,7 +5,7 @@ Runs in the CLIMADA worker environment (it prices with CLIMADA and needs the Dat
 
     ./.climada-env/bin/python scripts/physical_risk_batch.py assets.csv \\
         --hazards flood,coastal,typhoon,heatwave --models recommended --output risk_report.xlsx \\
-        [--scenario rcp60 --year 2050 --country KOR --baseline-scenario historical --json raw.json]
+        [--scenario rcp60 --year 2050 --country KOR --baseline-scenario present --json raw.json]
 
 ``--models recommended`` (the default) reads the readiness registry and picks, per hazard,
 the most local data scope that can actually run (Korea today: country dataset for flood and
@@ -22,7 +22,10 @@ rows that cannot be priced carry a status and null numbers, never zeros.
 
 ``--baseline-scenario`` runs the same models for a second scenario and fills
 ``climate_change_multiplier`` = future_EAL / baseline_EAL **within each model** — the only
-form that ratio may take. Without it the column stays empty.
+form that ratio may take. Without it the column stays empty. Use ``present``: the
+like-for-like present climate per hazard (flood = the same RCP's 2010–2030 window, same
+model chain; typhoon / coastal = their historical sets). A flood ``historical`` baseline is
+reanalysis-forced and its multiplier is refused (``metrics.hazard_forcing_family``).
 
 Legacy runners, catalog layers and results are untouched; this is the Phase 3 engine
 (``worker/climaterisk_worker/physical_risk``) and the Phase 5 exporter
@@ -233,7 +236,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument(
         "--baseline-scenario",
         default=None,
-        help="run the same models for this scenario too and fill climate_change_multiplier",
+        help="run the same models for this baseline too and fill climate_change_multiplier "
+        "('present' = like-for-like present climate per hazard; recommended)",
     )
     ap.add_argument(
         "--annual-growth-pct",

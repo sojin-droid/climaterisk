@@ -328,7 +328,7 @@ export function ModelsView({ model }: { model: Portfolio }) {
               ),
             }
           : {}),
-        ...(mode === "custom" && baseline ? { baseline_scenario: "historical" } : {}),
+        ...(mode === "custom" && baseline ? { baseline_scenario: "present" } : {}),
         ...(mode === "custom" && growthValue !== null && growthValid ? { annual_growth_pct: growthValue } : {}),
       };
       const body =
@@ -891,10 +891,10 @@ export function ModelsView({ model }: { model: Portfolio }) {
             <label style={{ display: "flex", gap: 10, alignItems: "flex-start", cursor: "pointer" }}>
               <input type="checkbox" checked={baseline} onChange={(e) => setBaseline(e.target.checked)} />
               <span>
-                <b>Also run the historical baseline</b>
+                <b>Also run the present-climate baseline</b>
                 <div className="hint">
-                  Enables the climate change multiplier (future EAL ÷ baseline EAL within the same data scope). Doubles
-                  the calculations.
+                  Enables the climate change multiplier (future EAL ÷ present EAL within the same data scope and the same
+                  model chain: flood 2010–2030 of the same RCP, typhoon 1980–2020 tracks). Doubles the calculations.
                 </div>
               </span>
             </label>

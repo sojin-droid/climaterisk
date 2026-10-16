@@ -424,7 +424,7 @@ Uncertainty · Adaptation · Validation · Status · Main gap.
 | Impact function | `ImpactFunc(haz_type="RF", intensity=flood_depth_m, mdd=…, paa=1)` built by `_flood_impf_set`; `mdd` = explicit override → **JRC regional residential preset by ISO3** (default; KOR → Asia) → class curve (generic fallback, JRC-Europe-like `[0,.25,.40,.60,.75,.85,.92,.95]`). Preset values baked offline from petals `ImpfRiverFlood.from_jrc_region_sector` | `[CLIMADA NATIVE]` preset values; `[CLIMATERISK CUSTOM]` selection + fallback arrays |
 | CLIMADA component | `ImpactCalc`, `calc_freq_curve`, `impact_yearset` | `[CLIMADA NATIVE]` |
 | Custom component | Scenario remap `rcp45→rcp60` (`_params.py`), year-range snapping, Aqueduct frequency model | `[CLIMATERISK CUSTOM]` |
-| Main risk metric | Future `aai_agg`, `eai`, RP curve, yearset, `delta_pct` vs Data API `historical/1980_2000` | — |
+| Main risk metric | Future `aai_agg`, `eai`, RP curve, yearset, `delta_pct` vs the same RCP product's earliest window `2010_2030` (same GHM × GCM chain; since 2026-10-16 — the reanalysis-forced `historical/1980_2000` set mixed the model-chain change into the delta, 14.4× vs 2.9× on the 1,000-building sample) | — |
 | Future scenario | Data API `rcp × year_range` (window containing `max(anchor_years)`, default `2030_2050`) | `[EXTERNAL]` |
 | Calibration | None; 6 JRC continental presets opt-in | `[NOT IMPLEMENTED]` |
 | Uncertainty | None (Sobol is TC-only) | `[NOT IMPLEMENTED]` |
@@ -602,7 +602,7 @@ There is no single platform baseline. Each runner defines "present" by its hazar
 | Peril | Present hazard | Code |
 |---|---|---|
 | TC | Data API `climate_scenario="None"` synthetic set | `P:395` |
-| River flood | Data API `historical`, `year_range=1980_2000` | `P:503` |
+| River flood | Data API same RCP, `year_range=2010_2030` (the `historical` 1980_2000 set is reanalysis-forced — not a like-for-like present; `metrics.hazard_forcing_family`) | `P:532` |
 | Windstorm | Data API CMIP6 `climate_scenario="None"` (best-effort) | `P:649-659` |
 | Coastal flood | Catalog `historical` | `P:821` |
 | Heat mortality | Catalog `historical` (E-OBS 1980→latest; KMA MK-PRISM 2000–2019 filed as year 2020) | `P:1159`, `heat_korea.py` |
