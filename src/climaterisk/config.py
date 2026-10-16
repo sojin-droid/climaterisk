@@ -85,6 +85,11 @@ class Settings(BaseSettings):
     # Open-data fetcher (Data tab → "Download here"): per-request HTTP read timeout.
     download_timeout_seconds: int = Field(default=180, ge=10)
 
+    # Display exchange rate for the simple-mode summary (억 원). Default: Bank of Korea ECOS
+    # 731Y004 「주요국 통화의 대원화환율」 원/미국달러(매매기준율), 2025 annual average —
+    # the same rate the sample portfolio's values are converted with.
+    krw_per_usd: float = Field(default=1422.22, gt=0)
+
     # Logging
     log_level: str = "INFO"
 
