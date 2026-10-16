@@ -295,6 +295,8 @@ def export_frames(
     target: str = "FACILITY",
     baseline_rows: Iterable[ResultRow | dict[str, Any]] | None = None,
     growth: dict[str, Any] | None = None,
+    loss_curves: Iterable[dict[str, Any]] | None = None,
+    baseline_loss_curves: Iterable[dict[str, Any]] | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     """Every export frame, keyed by frame name (the aggregate tier and non-expert views first).
 
@@ -304,6 +306,9 @@ def export_frames(
     ``baseline_rows`` (the same-model baseline run, when one was made) gives *Portfolio
     Totals* its paired present-vs-future columns; ``growth`` (the worker's
     ``exposure_growth`` record) adds the economic-growth step to the same sheet.
+    ``loss_curves`` (the worker's ``portfolio_loss_curves``) add *Portfolio Loss Curve*
+    to a facility workbook; a run without them (older results, municipality runs) simply
+    has no such sheet.
     """
     rs = _as_rows(rows)
     from climaterisk.physical_risk.display_copy import recommended_models
@@ -334,8 +339,19 @@ def export_frames(
             frames["official_office_comparison"] = official_office_comparison_frame(rs, preferred)
         frames["methodology"] = methodology_frame(config)
         return frames
+    curves = list(loss_curves or [])
+    curve_frame = (
+        {
+            "portfolio_loss_curve": portfolio_loss_curve_frame(
+                curves, baseline_loss_curves, preferred, config
+            )
+        }
+        if curves
+        else {}
+    )
     return {
         "portfolio_totals": totals,
+        **curve_frame,
         "portfolio_summary": portfolio_summary_frame(rs, preferred),
         "asset_risk_matrix": asset_risk_matrix_frame(rs, preferred),
         "hazard_results": hazard_results_frame(rs),
@@ -909,7 +925,8 @@ def portfolio_totals_frame(
 
     Only **expected annual loss adds across points** (expectation is linear), so it is the
     only money summed. A return-period loss is deliberately absent: per-point 100-year
-    losses come from different events, and their sum is not a portfolio 100-year loss.
+    losses come from different events, and their sum is not a portfolio 100-year loss —
+    that figure is read from the summed event losses in :func:`portfolio_loss_curve_frame`.
     Every line says how many points the sum covers (``Priced``) out of how many were
     assessed, and ``Priced Asset Value`` is the value behind it, so a total over 3 of 30
     points cannot read as a total over 30. Counts are per point, one primary row per
@@ -1076,3 +1093,149 @@ def province_summary_frame(
             line[f"{label} Not Priced"] = sum(1 for c in cells if c.risk_level is None)
         out.append(line)
     return out
+
+
+# --------------------------------------------------------------------------- #
+# Portfolio loss curve — the non-additive aggregate                            #
+# --------------------------------------------------------------------------- #
+#: Cell statuses written by the worker's ``aggregate`` module. Repeated as strings: the
+#: backend reads the worker's JSON and imports no worker code (GPL boundary).
+_RP_ABOVE = "RETURN_PERIOD_NOT_RESOLVABLE"
+_RP_BELOW = "SHORTER_THAN_CURVE"
+#: Group levels the worker writes, in sheet order, with the label the reader sees.
+_CURVE_LEVEL_ORDER: tuple[str, ...] = ("PORTFOLIO", "ASSET_CLASS", "PROVINCE")
+_CURVE_LEVEL_LABEL: dict[str, str] = {
+    "PORTFOLIO": "Portfolio",
+    "ASSET_CLASS": "Asset class",
+    "PROVINCE": "Province",
+}
+
+
+def _class_label(sector: Any) -> str:
+    """``commercial`` → ``Commercial`` (the JRC sector, as the reader sees it)."""
+    return str(sector or "").replace("_", " ").capitalize()
+
+
+def portfolio_loss_curve_frame(
+    curves: Iterable[dict[str, Any]],
+    baseline_curves: Iterable[dict[str, Any]] | None = None,
+    preferred: dict[str, str] | None = None,
+    config: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """One line per (run x area x hazard x data scope): the portfolio's return-period losses.
+
+    The worker builds each curve from **event-level** losses added across the priced
+    assets of one hazard set (``climaterisk_worker.physical_risk.aggregate``), so a
+    ``100-yr Loss`` here is the portfolio's own 100-year loss — not the sum of the assets'
+    100-year losses, which is shown beside it as ``Sum of Standalone`` with the
+    diversification benefit ``1 - portfolio / standalone sum``. Hazards are never added to
+    each other: their event sets are unrelated, so there is no all-hazards line. A return
+    period outside a curve is an empty cell with the reason in ``Note``.
+
+    ``Assets with Modeled Hazard`` counts the priced assets the dataset reaches at all; when
+    it is 0 the zero losses are flagged in ``Note`` as a coverage gap, not an absence of risk.
+
+    Each line also says which **asset classes** (JRC sector of the property type —
+    commercial / residential / industrial / …) and which **impact functions** its priced
+    assets used: a flood curve mixes the JRC sector curves of its assets (each asset's event
+    losses come from its own function; only the money is added). The ``Asset class`` lines
+    are the same curve restricted to one class.
+
+    Ordering: the run (future, then baseline), the portfolio, then each asset class, then
+    each 시도; the recommended data scope first.
+    """
+    from climaterisk.physical_risk.display_copy import HAZARD_LABEL, SCOPE_LABEL
+
+    cfg = config or load_config()
+    rps = [float(rp) for rp in cfg["portfolio_loss_curve"]["return_periods_years"]]
+    representative = float(cfg["potential_loss"]["return_period_years"])
+    preferred = preferred or {}
+    hazard_order = [tag for tag, _ in PORTFOLIO_HAZARDS]
+
+    def sort_key(c: dict[str, Any]) -> tuple[Any, ...]:
+        tag = str(c.get("hazard_type"))
+        level = str(c.get("group_level"))
+        return (
+            _CURVE_LEVEL_ORDER.index(level)
+            if level in _CURVE_LEVEL_ORDER
+            else len(_CURVE_LEVEL_ORDER),
+            str(c.get("group_name") or ""),
+            hazard_order.index(tag) if tag in hazard_order else len(hazard_order),
+            preferred.get(tag) != c.get("model_id"),
+            str(c.get("model_id")),
+        )
+
+    lines: list[dict[str, Any]] = []
+    for run, batch in (("Future", curves), ("Baseline", baseline_curves or [])):
+        for c in sorted(batch, key=sort_key):
+            tag = str(c.get("hazard_type"))
+            cells = {float(x["return_period_years"]): x for x in c.get("losses") or []}
+            level = str(c.get("group_level"))
+            name = c.get("group_name")
+            line: dict[str, Any] = {
+                "Run": run,
+                "Level": _CURVE_LEVEL_LABEL.get(level, level),
+                "Group": (
+                    "Portfolio"
+                    if level == "PORTFOLIO"
+                    else _class_label(name)
+                    if level == "ASSET_CLASS"
+                    else name
+                ),
+                "Hazard": HAZARD_LABEL.get(tag, tag),
+                "Data Scope": SCOPE_LABEL.get(str(c.get("model_id")), c.get("model_id")),
+                "Recommended": "Yes" if preferred.get(tag) == c.get("model_id") else "No",
+                "Scenario": c.get("requested_scenario"),
+                "Assets Assessed": c.get("points_assessed"),
+                "Assets Priced": c.get("points_priced"),
+                "Assets with Modeled Hazard": c.get("points_with_hazard"),
+                "Asset Classes": " · ".join(
+                    f"{_class_label(k)} {n}" for k, n in (c.get("asset_classes") or {}).items()
+                )
+                or None,
+                "Impact Functions": " · ".join(
+                    f"{f.get('impact_function_name')} (id {f.get('impact_function_id')}) "
+                    f"×{f.get('assets')}"
+                    for f in c.get("impact_functions") or []
+                )
+                or None,
+                "Priced Asset Value": c.get("priced_asset_value"),
+                "Portfolio EAL": c.get("eal"),
+            }
+            for rp in rps:
+                line[f"{rp:g}-yr Loss"] = (cells.get(rp) or {}).get("loss")
+            rep = cells.get(representative) or {}
+            line[f"Sum of Standalone {representative:g}-yr Losses"] = rep.get(
+                "sum_of_standalone_losses"
+            )
+            line[f"Diversification Benefit % ({representative:g}-yr)"] = rep.get(
+                "diversification_pct"
+            )
+            lo, hi = c.get("curve_return_period_min"), c.get("curve_return_period_max")
+            line["Curve Range (years)"] = (
+                f"{lo:.3g} – {hi:.3g}" if lo is not None and hi is not None else None
+            )
+            notes = [str(c["detail"])] if c.get("detail") else []
+            if c.get("status") == "NO_PRICED_POINTS":
+                notes.append("no asset was priced under this data scope")
+            elif c.get("points_with_hazard") == 0:
+                notes.append(
+                    "this hazard dataset shows no hazard at any of these assets, so every loss "
+                    "is 0 — a data-coverage result, not evidence of no risk (the river-flood "
+                    "sets carry no pluvial, coastal or small-river flooding)"
+                )
+            above = [f"{rp:g}" for rp, x in cells.items() if x.get("status") == _RP_ABOVE]
+            below = [f"{rp:g}" for rp, x in cells.items() if x.get("status") == _RP_BELOW]
+            if above:
+                notes.append(
+                    f"{', '.join(above)}-yr beyond the rarest event of this curve — left blank, "
+                    "not the largest event's loss"
+                )
+            if below:
+                notes.append(
+                    f"{', '.join(below)}-yr shorter than the most frequent point of this curve "
+                    "— left blank"
+                )
+            line["Note"] = "; ".join(notes) or None
+            lines.append(line)
+    return lines

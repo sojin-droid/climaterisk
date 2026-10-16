@@ -267,6 +267,16 @@ API (HTTP 400) and by the worker (`ValueError`) — exposure is not grown backwa
   hazard and overall — points assessed / priced / hazard-only / not available, priced asset
   value, EAL summed as the only additive money, no summed return-period loss; paired
   Baseline EAL / Future EAL / EAL Change % when a baseline scenario was run),
+  **Portfolio Loss Curve** (facility runs only, 2026-10-13: the portfolio's, each asset
+  class's (JRC sector of the property type — commercial / residential / industrial / …) and
+  each 시도's own 10/25/50/100/250-year losses per hazard × data scope, each line listing
+  the asset classes and impact functions its priced assets used, read by CLIMADA's
+  `calc_freq_curve` from the per-event losses summed across the priced assets — the
+  worker's [`aggregate.py`](../worker/climaterisk_worker/physical_risk/aggregate.py); beside
+  it the sum of standalone 100-year losses and the diversification benefit
+  `1 − portfolio / standalone sum`; a return period outside the curve is blank, never the
+  clamped end value; hazards and data scopes are never added together; municipality runs
+  get no curve — no money crosses municipalities),
   **Portfolio Summary** (non-expert:
   one line per facility — Asset Value, per-hazard Status / Risk / EAL / EAL ÷ Assets / Data
   Source, Heatwave Tmax p95, Overall EAL as a plain sum), **Asset Risk Matrix** (facility ×

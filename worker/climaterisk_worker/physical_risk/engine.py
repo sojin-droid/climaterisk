@@ -133,6 +133,7 @@ def calculate(
     status_detail: str | None = None,
     spatial_resolution: dict[str, Any] | None = None,
     config: dict[str, Any] | None = None,
+    event_losses: dict[str, Any] | None = None,
 ) -> ResultRow:
     """Price one facility against one hazard set, or say why it cannot be priced.
 
@@ -152,6 +153,11 @@ def calculate(
             no calculation is attempted.
         spatial_resolution: What the adapter measured/read for the dataset's grid
             (``value``, ``unit``, ``unit_type``, ``description``); copied onto the row.
+        event_losses: When given, the facility's per-event losses (``Impact.at_event``,
+            in the hazard set's event order) are stored under its ``facility_id`` once an
+            impact is computed — the input of the portfolio loss curve
+            (:mod:`climaterisk_worker.physical_risk.aggregate`). The caller decides from
+            the returned row whether the point counts as priced.
 
     Returns:
         A finalised :class:`ResultRow`; financial fields are null unless the status is
@@ -284,6 +290,8 @@ def calculate(
         return row.finalise(cfg)
 
     row.eal_usd = float(impact.aai_agg)
+    if event_losses is not None:
+        event_losses[row.facility_id] = impact.at_event
     target_rp = float(cfg["potential_loss"]["return_period_years"])
     loss, refusal = _potential_loss(impact, target_rp)
     if loss is None:

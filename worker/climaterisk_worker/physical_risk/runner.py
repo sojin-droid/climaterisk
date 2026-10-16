@@ -10,11 +10,20 @@ yields ``ERROR`` rows with the exception text. One failing model never aborts th
 Output (``result.json``)::
 
     {"status": "ok", "rows": [...ResultRow...],
+     "portfolio_loss_curves": [...], "baseline_portfolio_loss_curves": [...],
      "comparisons": {"global_vs_country": [...], "global_vs_korea_local": [...]},
      "readiness": {...}, "adapters": [...descriptions...], "detail": ...}
 
 The comparison frames are built by the backend-side ``results_table`` (pure), so the
 worker and the API cannot disagree on their columns.
+
+``portfolio_loss_curves`` (facility runs only) are the non-additive aggregates: for every
+(hazard x model) the priced facilities' event losses are added on the shared event axis and
+read through CLIMADA's frequency curve, for the whole portfolio, per asset class (JRC
+sector of the property type) and per 시도 when the facilities carry ``province_name``
+(:mod:`climaterisk_worker.physical_risk.aggregate`).
+Municipality runs get none: a municipality result is a representative-point screening, and
+no money crosses municipalities (V0.2 policy).
 """
 
 from __future__ import annotations
@@ -24,7 +33,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from climaterisk_worker.physical_risk import adapters, engine
+from climaterisk_worker.physical_risk import adapters, aggregate, engine
 
 _SRC = Path(__file__).resolve().parents[3] / "src"
 if str(_SRC) not in sys.path:
@@ -36,6 +45,8 @@ from climaterisk.physical_risk.metrics import (  # noqa: E402
     ResultRow,
     attach_climate_multipliers,
     exposure_growth_record,
+    jrc_sector_for,
+    load_config,
 )
 from climaterisk.physical_risk.models import readiness  # noqa: E402
 from climaterisk.physical_risk.results_table import comparison_frame  # noqa: E402
@@ -76,8 +87,13 @@ def _rows_for(
     facilities: list[dict[str, Any]],
     iso3: str | None,
     bbox: tuple[float, float, float, float] | None,
+    curves: list[dict[str, Any]] | None = None,
 ) -> tuple[list[ResultRow], dict[str, Any]]:
-    """Every facility's row for one adapter, plus the adapter description actually used."""
+    """Every facility's row for one adapter, plus the adapter description actually used.
+
+    When ``curves`` is given, the portfolio, per-asset-class and per-시도 loss curves of
+    this hazard set are appended to it.
+    """
     desc = adapter.describe()
     common: dict[str, Any] = {
         "model_id": desc.model_id,
@@ -129,10 +145,15 @@ def _rows_for(
     except Exception as exc:  # resolution is metadata; never a reason to lose the result
         resolution = None
         resolution_error = f"{type(exc).__name__}: {exc}"
+    event_losses: dict[str, Any] | None = {} if curves is not None else None
     rows = [
-        engine.calculate(f, hazard, tag, spatial_resolution=resolution, **common)
+        engine.calculate(
+            f, hazard, tag, spatial_resolution=resolution, event_losses=event_losses, **common
+        )
         for f in facilities
     ]
+    if curves is not None and event_losses is not None:
+        curves.extend(_loss_curves(rows, event_losses, hazard.frequency, tag, common))
     record = {**desc.to_dict(), "spatial_resolution": resolution}
     if resolution_error:
         record["spatial_resolution_error"] = resolution_error
@@ -174,8 +195,9 @@ def compute_physical_risk_models(request: dict[str, Any]) -> dict[str, Any]:
         )
 
     progress = _Progress(request.get("out_dir"), len(facilities) * len(hazards) * len(models))
+    curves: list[dict[str, Any]] | None = [] if target == "FACILITY" else None
     rows, used = _all_model_rows(
-        facilities, scenario, year, hazards, models, iso3, bbox, progress=progress
+        facilities, scenario, year, hazards, models, iso3, bbox, progress=progress, curves=curves
     )
 
     # Optional same-model baseline run: the only legitimate source of a climate-change
@@ -183,11 +205,20 @@ def compute_physical_risk_models(request: dict[str, Any]) -> dict[str, Any]:
     # apart from ``rows`` so the model comparisons stay one-row-per-model.
     baseline_scenario = request.get("baseline_scenario")
     baseline_rows: list[ResultRow] = []
+    baseline_curves: list[dict[str, Any]] | None = [] if target == "FACILITY" else None
     multipliers: list[dict[str, Any]] = []
     if baseline_scenario and str(baseline_scenario) != scenario:
         progress.extend(len(facilities) * len(hazards) * len(models))
         baseline_rows, used_base = _all_model_rows(
-            facilities, str(baseline_scenario), year, hazards, models, iso3, bbox, progress=progress
+            facilities,
+            str(baseline_scenario),
+            year,
+            hazards,
+            models,
+            iso3,
+            bbox,
+            progress=progress,
+            curves=baseline_curves,
         )
         used.extend({**d, "role": "baseline"} for d in used_base)
         multipliers = attach_climate_multipliers(rows, baseline_rows)
@@ -236,6 +267,8 @@ def compute_physical_risk_models(request: dict[str, Any]) -> dict[str, Any]:
         "country": iso3,
         "rows": [r.to_dict() for r in rows],
         "baseline_rows": [r.to_dict() for r in baseline_rows],
+        "portfolio_loss_curves": curves or [],
+        "baseline_portfolio_loss_curves": (baseline_curves or []) if baseline_rows else [],
         "climate_change_multipliers": multipliers,
         "exposure_growth": growth,
         "comparisons": {
@@ -258,8 +291,12 @@ def _all_model_rows(
     iso3: str | None,
     bbox: tuple[float, float, float, float] | None,
     progress: _Progress | None = None,
+    curves: list[dict[str, Any]] | None = None,
 ) -> tuple[list[ResultRow], list[dict[str, Any]]]:
-    """Every (hazard x model) adapter once, every facility priced against it."""
+    """Every (hazard x model) adapter once, every facility priced against it.
+
+    ``curves``, when given, collects each loaded hazard set's portfolio loss curves.
+    """
     rows: list[ResultRow] = []
     used: list[dict[str, Any]] = []
     for key in hazards:
@@ -282,10 +319,88 @@ def _all_model_rows(
                     )
                 continue
             adapter = adapters.adapter_for(tag, model, scenario, year, iso3 or "")
-            model_rows, desc = _rows_for(adapter, tag, facilities, iso3, bbox)
+            model_rows, desc = _rows_for(adapter, tag, facilities, iso3, bbox, curves)
             rows.extend(model_rows)
             used.append(desc)
     return rows, used
+
+
+def _loss_curves(
+    rows: list[ResultRow],
+    event_losses: dict[str, Any],
+    frequency: Any,
+    tag: str,
+    common: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Portfolio, per-asset-class and per-시도 loss curves for one hazard set.
+
+    A point counts when its finalised row carries an EAL (``FULL`` or
+    ``RETURN_PERIOD_NOT_RESOLVABLE``); a ``SCENARIO_MISMATCH`` row is left out exactly as it
+    is left out of the EAL sums. Every group says how many points it was assessed over.
+
+    The asset class is the JRC sector the property type maps to (commercial / residential /
+    industrial / …, ``property_type_to_jrc_sector`` in the configuration) — the same key
+    that picks the flood curve, so an asset-class curve is also a one-flood-function curve.
+    Each group records which impact functions and asset classes its priced points used:
+    a flood portfolio mixes JRC sector curves, which is correct (each point's event losses
+    come from its own function; only money is added), but the reader must be able to see it.
+
+    ``points_with_hazard`` counts priced points whose nearest hazard centroid is non-zero in
+    at least one event (``hazard_intensity > 0``). A group with none has a zero curve
+    because the dataset has no hazard there — a coverage statement, not a "no risk" one.
+    """
+    cfg = load_config()
+    return_periods = [float(rp) for rp in cfg["portfolio_loss_curve"]["return_periods_years"]]
+    priced = {
+        r.facility_id: r for r in rows if r.eal_usd is not None and r.facility_id in event_losses
+    }
+    sector = {r.facility_id: jrc_sector_for(r.property_type, cfg) for r in rows}
+    groups: list[tuple[str, str | None, list[ResultRow]]] = [("PORTFOLIO", None, rows)]
+    groups += [
+        ("ASSET_CLASS", s, [r for r in rows if sector[r.facility_id] == s])
+        for s in sorted(set(sector.values()))
+    ]
+    provinces = sorted({r.province_name for r in rows if r.province_name})
+    groups += [("PROVINCE", p, [r for r in rows if r.province_name == p]) for p in provinces]
+    out: list[dict[str, Any]] = []
+    for level, name, members in groups:
+        ids = [r.facility_id for r in members if r.facility_id in priced]
+        functions: dict[tuple[int | None, str | None], int] = {}
+        classes: dict[str, int] = {}
+        for i in ids:
+            key = (priced[i].impact_function_id, priced[i].impact_function_name)
+            functions[key] = functions.get(key, 0) + 1
+            classes[sector[i]] = classes.get(sector[i], 0) + 1
+        curve = aggregate.group_loss_curve(
+            {i: event_losses[i] for i in ids},
+            frequency,
+            return_periods,
+            currencies={i: priced[i].asset_value_currency for i in ids},
+            asset_values={i: priced[i].asset_value_usd for i in ids},
+        )
+        out.append(
+            {
+                "hazard_type": tag,
+                "model_id": common["model_id"],
+                "requested_scenario": common["requested_scenario"],
+                "served_scenario": common["served_scenario"],
+                "time_horizon": common["time_horizon"],
+                "hazard_dataset": common["hazard_dataset"],
+                "group_level": level,
+                "group_name": name,
+                "points_assessed": len(members),
+                "points_with_hazard": sum(
+                    1 for i in ids if (priced[i].hazard_intensity or 0.0) > 0.0
+                ),
+                "impact_functions": [
+                    {"impact_function_id": fid, "impact_function_name": fname, "assets": n}
+                    for (fid, fname), n in sorted(functions.items(), key=lambda kv: str(kv[0]))
+                ],
+                "asset_classes": dict(sorted(classes.items())),
+                **curve,
+            }
+        )
+    return out
 
 
 class _Progress:
