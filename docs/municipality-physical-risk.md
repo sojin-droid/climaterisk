@@ -97,6 +97,7 @@ on the cached layers.
 | hazard | source | grid | approx. size in Korea | financial |
 |---|---|---|---|---|
 | Flood | Data API `river_flood_150arcsec` (ISIMIP) | **150 arcsec** grid cell | ~4–5 km | yes |
+| Coastal flood (2026-10-14) | WRI Aqueduct Floods v2 `inuncoast` (Global reference) | **30 arcsec** grid cell | ~0.7–0.9 km | yes |
 | Tropical cyclone | Data API `tropical_cyclone_10synth_tracks_150arcsec` | **150 arcsec** grid cell | ~4–5 km | yes |
 | Heatwave | KMA 남한상세 TAMAX via the KOR catalog layer | **0.05°** grid (source 0.005° obs / 0.01° SSP, block-averaged when the layer is built) | ~4–6 km | no |
 | Drought | none connected | N/A | — | no |
@@ -120,6 +121,7 @@ sheet and the "What this tool covers today" lines are all that one function.
 | Hazard | Hazard data | Financial loss | Risk level | Resolution | Status |
 |---|---|---|---|---|---|
 | Flood | Available | Available | Available | 150 arcsec (~4–5 km) | READY |
+| Coastal Flood | Available | Available | Available | 30 arcsec (~0.7–0.9 km) | READY |
 | Tropical Cyclone | Available | Available | Available | 150 arcsec (~4–5 km) | READY |
 | Heatwave | Available | Not available | Not available | 0.05 degree (~4–6 km) | HAZARD_ONLY |
 | Drought | Not connected | Not available | Not available | N/A | NOT_READY |

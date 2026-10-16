@@ -84,6 +84,7 @@ HazardAdapter.load(bbox)  ->  canonical CLIMADA Hazard | None
 | hazard | `GLOBAL_BASELINE` | `DATA_API_COUNTRY` | `KOREA_LOCAL` |
 |---|---|---|---|
 | RF | `GlobalFloodAdapter` — READY | `CountryFloodAdapter` — READY | `KoreaLocalFloodAdapter` — **NOT_IMPLEMENTED** |
+| CF | `GlobalCoastalFloodAdapter` — READY (WRI Aqueduct Floods v2 inuncoast, 30 arcsec; the Data API has no coastal-flood type, so the global product is Aqueduct — as in EIOPA's CLIMADA-App) | `_NoCoastalDataApiAdapter` — NO_HAZARD_DATA (live Data API type list, 2026-10-14) | `KoreaLocalCoastalFloodAdapter` — **NOT_IMPLEMENTED** (국립해양조사원 해안침수예상도 not investigated) |
 | TC | `GlobalTCAdapter` — READY | `CountryTCAdapter` — READY | `KoreaLocalTCAdapter` — **NOT_IMPLEMENTED** |
 | HEAT | `_NoHeatDataAdapter` — NO_HAZARD_DATA | `_NoHeatDataAdapter` — NO_HAZARD_DATA | `KoreaLocalHeatAdapter` — HAZARD_ONLY |
 
@@ -464,3 +465,32 @@ hazard grid size, not model accuracy ([`municipality-physical-risk.md`](municipa
 [x] Heatwave remains HAZARD_ONLY             [x] legacy regression passes
                                              [x] methodology documentation updated
 ```
+
+## Coastal flood and flood defences (2026-10-14)
+
+**Coastal flood (`CF`)** is the fourth hazard key. The CLIMADA Data API has no coastal-flood
+type (live type list, 2026-10-14), so the Global reference reads WRI Aqueduct Floods v2
+`inuncoast` GeoTIFFs over the portfolio's bbox (padded 0.1°, snapped to 0.5° so nearby
+portfolios share a cached read under `<DATA_ROOT>/cache/aqueduct`; offline with no cache →
+`NO_HAZARD_DATA`). One event per return period (2–1000 y), frequency
+`1/RP_i − 1/RP_{i+1}`. The hazard keeps the flooded cells plus each facility's own cell, so a
+dry facility reads 0 m, never a wet cell kilometres away. Future layers use the 50th
+percentile sea-level rise (`0_perc_50`; Aqueduct's bare `0` is the 95th), with subsidence.
+Priced with the same JRC sector curve as river flood, tagged `CF`. Aqueduct moved from the
+wri-projects S3 bucket (emptied) to `aqueduct.wridata.org/AqueductFloods20`.
+
+**Flood defences** (`flood_protection` in the configuration) apply to RF and CF: at each grid
+cell, events at or below the design-return-period depth (`Hazard.local_exceedance_intensity`,
+stepfunction) are removed; rarer events overtop with their full depth. One national value
+per hazard — 50 years for both, the lowest documented standard — not the defence in place
+at a site ([FLOOD_DEFENCE_DATA_KR.md](FLOOD_DEFENCE_DATA_KR.md)). Every RF / CF row carries
+`flood_protection_return_period_years`, `eal_undefended_usd` and
+`undefended_frequent_flooding` (the undefended cell floods at the 2-year event: land that must
+sit behind defences in reality). The recorded asset-level evidence is the undefended engine
+and is compared like for like (`test_live_results_reproduce_the_recorded_evidence` runs with
+defences off); a separate test checks the defended run keeps the recorded EAL as
+`eal_undefended_usd` and never raises it.
+
+**Recommended mode** now sends `hazard_models` (one model per hazard). Before, the union of
+the picks was applied to every hazard — harmless while every pick was the country dataset,
+wrong once coastal flood recommends Global (it added a Global run of flood and typhoon).

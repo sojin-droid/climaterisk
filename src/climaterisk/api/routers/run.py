@@ -89,8 +89,11 @@ def submit_litpop(
 class PhysicalRiskModelsBody(BaseModel):
     """Options for a three-model run; every field has the platform default."""
 
-    hazards: list[str] | None = None  # subset of RF / TC / HEAT
+    hazards: list[str] | None = None  # subset of RF / CF / TC / HEAT
     models: list[str] | None = None  # subset of GLOBAL_BASELINE / DATA_API_COUNTRY / KOREA_LOCAL
+    # Per-hazard models (Recommended mode: one model per hazard). Overrides ``models`` for
+    # the hazards it names; without it every hazard runs under every model in ``models``.
+    hazard_models: dict[str, list[str]] | None = None
     target_year: int | None = None
     country: str | None = None  # ISO3; resolved from the assets when omitted
     baseline_scenario: str | None = None  # e.g. "historical": enables climate_change_multiplier
@@ -213,6 +216,7 @@ def submit_physical_risk_models(
             portfolio,
             hazards=body.hazards,
             models=body.models,
+            hazard_models=body.hazard_models,
             target_year=body.target_year,
             country=body.country.upper() if body.country else None,
             baseline_scenario=body.baseline_scenario,
@@ -236,6 +240,7 @@ def submit_physical_risk_models(
         portfolio,
         hazards=body.hazards,
         models=body.models,
+        hazard_models=body.hazard_models,
         target_year=body.target_year,
         country=body.country.upper() if body.country else None,
         baseline_scenario=body.baseline_scenario,

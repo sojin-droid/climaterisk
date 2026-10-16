@@ -327,7 +327,7 @@ def test_request_maps_assets_to_facilities_and_run_kind_is_a_sentinel() -> None:
     )
     req = PhysicalRiskModelsRequest.from_portfolio(pf)
     assert req.mode == "physical_risk_models"
-    assert req.models == [G, C, K] and req.hazards == ["RF", "TC", "HEAT"]
+    assert req.models == [G, C, K] and req.hazards == ["RF", "CF", "TC", "HEAT"]
     f = req.facilities[0]
     assert (f.latitude, f.longitude, f.asset_value_usd, f.property_type) == (
         37.5,

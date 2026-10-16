@@ -48,26 +48,37 @@ def _cli():  # type: ignore[no-untyped-def]
     return mod
 
 
-@pytest.fixture(scope="module")
-def live_run() -> dict:  # type: ignore[type-arg]
-    """The fixture portfolio under Recommended, rcp85 / 2040 — the same call the CLI makes."""
+def _run_fixture_portfolio(*, defences: bool) -> dict:  # type: ignore[type-arg]
+    """The fixture portfolio under Recommended, rcp85 / 2040 — the same call the CLI makes.
+
+    ``defences=False`` runs with ``flood_protection.enabled`` off: the recorded evidence is
+    the undefended v0.1.1 baseline, and it is compared like for like, never re-recorded.
+    """
+    import copy
+
+    from climaterisk.physical_risk.metrics import load_config
+
     cli = _cli()
     facilities = cli.read_facilities(FIX / "validation_portfolio.csv")
     models = cli.parse_models(["recommended"], ["RF", "TC", "HEAT"])
     assert models == [COUNTRY, LOCAL]
-    try:
-        out = runner.compute_physical_risk_models(
-            {
-                "facilities": facilities,
-                "climate_scenario": "rcp85",
-                "target_year": 2040,
-                "hazards": ["RF", "TC", "HEAT"],
-                "models": models,
-                "country": "KOR",
-            }
-        )
-    except Exception as exc:  # pragma: no cover - network / cache dependent
-        pytest.skip(f"Data API unavailable: {exc}")
+    cfg = copy.deepcopy(load_config())
+    cfg.setdefault("flood_protection", {})["enabled"] = defences
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(runner, "load_config", lambda: cfg)
+        try:
+            out = runner.compute_physical_risk_models(
+                {
+                    "facilities": facilities,
+                    "climate_scenario": "rcp85",
+                    "target_year": 2040,
+                    "hazards": ["RF", "TC", "HEAT"],
+                    "models": models,
+                    "country": "KOR",
+                }
+            )
+        except Exception as exc:  # pragma: no cover - network / cache dependent
+            pytest.skip(f"Data API unavailable: {exc}")
     if any(r["calculation_status"] == "ERROR" for r in out["rows"]):
         pytest.skip(
             "Data API KOR sets not cached: "
@@ -76,6 +87,18 @@ def live_run() -> dict:  # type: ignore[type-arg]
             )
         )
     return out
+
+
+@pytest.fixture(scope="module")
+def live_run() -> dict:  # type: ignore[type-arg]
+    """Undefended — the engine the evidence was recorded with."""
+    return _run_fixture_portfolio(defences=False)
+
+
+@pytest.fixture(scope="module")
+def live_run_defended() -> dict:  # type: ignore[type-arg]
+    """With the configured flood defences (the default)."""
+    return _run_fixture_portfolio(defences=True)
 
 
 def _by(out: dict) -> dict[tuple[str, str, str], dict]:  # type: ignore[type-arg]
@@ -110,6 +133,24 @@ def test_live_results_reproduce_the_recorded_evidence(live_run) -> None:  # type
             else:
                 assert now[f] == pytest.approx(rec[f], rel=1e-6), (key, f)
         assert now["risk_level"] == rec["risk_level"], key
+
+
+def test_defences_keep_the_recorded_undefended_eal_and_never_raise_it(  # type: ignore[no-untyped-def]
+    live_run_defended,
+) -> None:
+    """Defended flood rows carry the recorded (undefended) EAL beside a defended one ≤ it."""
+    recorded = _by(
+        json.loads((FIX / "run_rcp85_2040_recommended.json").read_text(encoding="utf-8"))
+    )
+    live = _by(live_run_defended)
+    for key, rec in recorded.items():
+        if key[1] != "RF" or rec["eal_usd"] is None:
+            continue
+        now = live[key]
+        if now["flood_protection_return_period_years"] is None:
+            pytest.skip("no river-flood design return period configured")
+        assert now["eal_undefended_usd"] == pytest.approx(rec["eal_usd"], rel=1e-6), key
+        assert now["eal_usd"] <= now["eal_undefended_usd"] + 1e-6, key
 
 
 def test_positive_and_zero_flood_cases_on_live_data(live_run) -> None:  # type: ignore[no-untyped-def]

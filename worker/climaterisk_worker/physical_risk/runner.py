@@ -33,7 +33,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from climaterisk_worker.physical_risk import adapters, aggregate, engine
+from climaterisk_worker.physical_risk import adapters, aggregate, engine, protection
 
 _SRC = Path(__file__).resolve().parents[3] / "src"
 if str(_SRC) not in sys.path:
@@ -52,7 +52,7 @@ from climaterisk.physical_risk.models import readiness  # noqa: E402
 from climaterisk.physical_risk.results_table import comparison_frame  # noqa: E402
 
 #: Request ``hazards`` keys → CLIMADA tags this runner prices. ``HEAT`` = the heatwave layer.
-HAZARD_TAGS: dict[str, str] = {"RF": "RF", "TC": "TC", "HEAT": "HW"}
+HAZARD_TAGS: dict[str, str] = {"RF": "RF", "CF": "CF", "TC": "TC", "HEAT": "HW"}
 
 
 def _bbox(facilities: list[dict[str, Any]]) -> tuple[float, float, float, float] | None:
@@ -121,7 +121,20 @@ def _rows_for(
         return rows, {**desc.to_dict(), "spatial_resolution": None}
 
     try:
-        hazard = adapter.load(bbox)
+        hazard = adapter.load(bbox, points=[(f["latitude"], f["longitude"]) for f in facilities])
+    except adapters.HazardUnavailable as exc:  # e.g. offline with nothing cached
+        rows = [
+            engine.calculate(
+                f,
+                None,
+                tag,
+                status_override=CalculationStatus.NO_HAZARD_DATA.value,
+                status_detail=str(exc),
+                **common,
+            )
+            for f in facilities
+        ]
+        return rows, {**desc.to_dict(), "spatial_resolution": None, "load_error": str(exc)}
     except Exception as exc:
         detail = f"{type(exc).__name__}: {exc}"
         rows = [
@@ -146,15 +159,31 @@ def _rows_for(
         resolution = None
         resolution_error = f"{type(exc).__name__}: {exc}"
     event_losses: dict[str, Any] | None = {} if curves is not None else None
+    hazard, defences = _with_defences(hazard, tag)
+    if defences is not None:
+        record_defences = {
+            "return_period_years": defences["national_return_period"],
+            "basis": defences["basis"],
+            "levee_protected_cells": defences["levee_cells"],
+            "levee_basis": defences["levee_basis"],
+        }
     rows = [
         engine.calculate(
-            f, hazard, tag, spatial_resolution=resolution, event_losses=event_losses, **common
+            f,
+            hazard,
+            tag,
+            spatial_resolution=resolution,
+            event_losses=event_losses,
+            defences=defences,
+            **common,
         )
         for f in facilities
     ]
     if curves is not None and event_losses is not None:
         curves.extend(_loss_curves(rows, event_losses, hazard.frequency, tag, common))
     record = {**desc.to_dict(), "spatial_resolution": resolution}
+    if defences is not None:
+        record["flood_protection"] = record_defences
     if resolution_error:
         record["spatial_resolution_error"] = resolution_error
     return rows, record
@@ -165,8 +194,10 @@ def compute_physical_risk_models(request: dict[str, Any]) -> dict[str, Any]:
 
     Request fields: ``facilities`` (``facility_id``, ``facility_name``, ``latitude``,
     ``longitude``, ``asset_value_usd``, ``asset_value_currency``, ``property_type``),
-    ``climate_scenario``, ``target_year``, optional ``hazards`` (subset of RF/TC/HEAT),
-    ``models`` (subset of the three ids), ``country`` (ISO3) and ``baseline_scenario``
+    ``climate_scenario``, ``target_year``, optional ``hazards`` (subset of RF/CF/TC/HEAT),
+    ``models`` (subset of the three ids), ``hazard_models`` (per-hazard model lists, e.g.
+    Recommended mode's one model per hazard; overrides ``models`` for the hazards it names),
+    ``country`` (ISO3) and ``baseline_scenario``
     (a second scenario run under the same models, the only source of a
     ``climate_change_multiplier``; its rows are returned separately as ``baseline_rows``).
     """
@@ -177,11 +208,12 @@ def compute_physical_risk_models(request: dict[str, Any]) -> dict[str, Any]:
     scenario = str(request.get("climate_scenario") or "rcp45")
     year = int(request.get("target_year") or 2050)
     hazards = [h for h in (request.get("hazards") or list(HAZARD_TAGS)) if h in HAZARD_TAGS]
-    models = [
-        m
-        for m in (request.get("models") or [x.value for x in ModelId])
-        if m in {x.value for x in ModelId}
-    ]
+    valid = {x.value for x in ModelId}
+    models = [m for m in (request.get("models") or [x.value for x in ModelId]) if m in valid]
+    hazard_models: dict[str, list[str]] = {
+        key: [m for m in ms if m in valid]
+        for key, ms in (request.get("hazard_models") or {}).items()
+    }
     iso3 = _iso3_for(facilities, request.get("country"))
     bbox = _bbox(facilities)
 
@@ -194,10 +226,20 @@ def compute_physical_risk_models(request: dict[str, Any]) -> dict[str, Any]:
             "and KOREA_LOCAL need one ISO3; those rows are NO_HAZARD_DATA"
         )
 
-    progress = _Progress(request.get("out_dir"), len(facilities) * len(hazards) * len(models))
+    n_calc = len(facilities) * sum(len(hazard_models.get(h, models)) for h in hazards)
+    progress = _Progress(request.get("out_dir"), n_calc)
     curves: list[dict[str, Any]] | None = [] if target == "FACILITY" else None
     rows, used = _all_model_rows(
-        facilities, scenario, year, hazards, models, iso3, bbox, progress=progress, curves=curves
+        facilities,
+        scenario,
+        year,
+        hazards,
+        models,
+        iso3,
+        bbox,
+        progress=progress,
+        curves=curves,
+        hazard_models=hazard_models,
     )
 
     # Optional same-model baseline run: the only legitimate source of a climate-change
@@ -208,7 +250,7 @@ def compute_physical_risk_models(request: dict[str, Any]) -> dict[str, Any]:
     baseline_curves: list[dict[str, Any]] | None = [] if target == "FACILITY" else None
     multipliers: list[dict[str, Any]] = []
     if baseline_scenario and str(baseline_scenario) != scenario:
-        progress.extend(len(facilities) * len(hazards) * len(models))
+        progress.extend(n_calc)
         baseline_rows, used_base = _all_model_rows(
             facilities,
             str(baseline_scenario),
@@ -219,6 +261,7 @@ def compute_physical_risk_models(request: dict[str, Any]) -> dict[str, Any]:
             bbox,
             progress=progress,
             curves=baseline_curves,
+            hazard_models=hazard_models,
         )
         used.extend({**d, "role": "baseline"} for d in used_base)
         multipliers = attach_climate_multipliers(rows, baseline_rows)
@@ -292,6 +335,7 @@ def _all_model_rows(
     bbox: tuple[float, float, float, float] | None,
     progress: _Progress | None = None,
     curves: list[dict[str, Any]] | None = None,
+    hazard_models: dict[str, list[str]] | None = None,
 ) -> tuple[list[ResultRow], list[dict[str, Any]]]:
     """Every (hazard x model) adapter once, every facility priced against it.
 
@@ -301,7 +345,7 @@ def _all_model_rows(
     used: list[dict[str, Any]] = []
     for key in hazards:
         tag = HAZARD_TAGS[key]
-        for model in models:
+        for model in (hazard_models or {}).get(key, models):
             if progress is not None:
                 progress.step(f"{key} / {model}", len(facilities))
             if iso3 is None and model != ModelId.GLOBAL_BASELINE.value:
@@ -323,6 +367,43 @@ def _all_model_rows(
             rows.extend(model_rows)
             used.append(desc)
     return rows, used
+
+
+def _with_defences(hazard: Any, tag: str) -> tuple[Any, dict[str, Any] | None]:
+    """The protected hazard and the defence record for RF / CF, or the hazard untouched.
+
+    Reads ``flood_protection`` from the configuration: a design return period per flood
+    tag (null = no defences applied) and the return period at which an undefended cell
+    counts as "floods so often it must be defended in reality".
+    """
+    cfg = load_config().get("flood_protection") or {}
+    entry = cfg.get(tag) or {}
+    rp = entry.get("return_period_years")
+    if tag not in ("RF", "CF") or not cfg.get("enabled") or rp is None:
+        return hazard, None
+    import numpy as np
+
+    frequent_rp = float(cfg["presumed_defended_return_period_years"])
+    per_cell = np.full(hazard.centroids.size, float(rp))
+    levee = entry.get("levee_protected") or {}
+    n_levee = 0
+    if levee.get("return_period_years") is not None:
+        from climaterisk.physical_risk.pump_stations import located
+
+        points = [(s.latitude, s.longitude) for s in located()]
+        near = protection.cells_near(hazard, points, float(levee["radius_km"]))
+        per_cell[near] = max(float(rp), float(levee["return_period_years"]))
+        n_levee = int(near.sum())
+    return protection.protect(hazard, per_cell), {
+        "return_period": per_cell,
+        "national_return_period": float(rp),
+        "levee_cells": n_levee,
+        "basis": str(entry.get("basis") or ""),
+        "levee_basis": str(levee.get("basis") or ""),
+        "undefended": hazard,
+        "frequent": protection.local_intensity(hazard, frequent_rp) > 0.0,
+        "pump_info": tag == "RF",
+    }
 
 
 def _loss_curves(

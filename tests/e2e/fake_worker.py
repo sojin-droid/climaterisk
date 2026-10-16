@@ -25,8 +25,8 @@ from climaterisk.physical_risk.models import HAZARD_TAGS, READINESS, readiness
 from climaterisk.physical_risk.results_table import comparison_frame
 
 #: Deterministic hazard reads and loss shares per hazard tag.
-_INTENSITY = {"RF": (1.5, "m"), "TC": (45.0, "m/s"), "HW": (36.2, "degC")}
-_EAL_SHARE = {"RF": 0.002, "TC": 0.0005}
+_INTENSITY = {"RF": (1.5, "m"), "CF": (0.8, "m"), "TC": (45.0, "m/s"), "HW": (36.2, "degC")}
+_EAL_SHARE = {"RF": 0.002, "CF": 0.0001, "TC": 0.0005}
 
 
 def _row(facility: dict[str, Any], key: str, model: str, scenario: str, year: int) -> ResultRow:
@@ -72,7 +72,7 @@ def _row(facility: dict[str, Any], key: str, model: str, scenario: str, year: in
         row.calculation_status = CalculationStatus.NO_EXPOSURE_DATA.value
         row.status_detail = "no asset value supplied"
         return row.finalise()
-    row.impact_function_id = 22 if tag == "RF" else 9
+    row.impact_function_id = 22 if tag in ("RF", "CF") else 9
     row.impact_function_name = "fake published function"
     row.impact_function_source = "fake worker (same id under every model)"
     row.eal_usd = float(value) * _EAL_SHARE[tag]
@@ -92,7 +92,15 @@ def physical_risk_models(request: dict[str, Any], run_dir: Path) -> dict[str, An
         m for m in (request.get("models") or [x.value for x in ModelId]) if m in READINESS["RF"]
     ]
     target = str(request.get("assessment_target") or "FACILITY")
-    rows = [_row(f, k, m, scenario, year) for f in facilities for k in hazards for m in models]
+    # Recommended mode sends one model per hazard; the real runner honours it the same way
+    per_hazard = request.get("hazard_models") or {}
+    rows = [
+        _row(f, k, m, scenario, year)
+        for f in facilities
+        for k in hazards
+        for m in per_hazard.get(k, models)
+        if m in READINESS[k]
+    ]
     n = len(rows)
     (run_dir / "progress.json").write_text(
         json.dumps({"done": n, "total": n, "current": None}), encoding="utf-8"

@@ -46,6 +46,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 from climaterisk.physical_risk.display_copy import LIMITATIONS, STATUS_COPY, risk_level_copy
 from climaterisk.physical_risk.metrics import MODEL_DEFINITIONS, ModelId
+from climaterisk.physical_risk.models import HAZARD_KEYS
 from climaterisk.physical_risk.results_table import HAZARD_RESULTS_COLUMNS, export_frames
 
 #: Frame key -> sheet title, in workbook order. A facility workbook uses the first two
@@ -128,7 +129,7 @@ _PLAIN_FORMATS: tuple[tuple[str, str], ...] = (  # first match wins: ratios befo
 )
 #: Columns whose cells get the risk-level colour scale.
 _RISK_COLUMNS: frozenset[str] = frozenset(
-    {"Flood", "Typhoon", "Tropical Cyclone", "Heatwave", "risk_level"}
+    {"Flood", "Coastal Flood", "Typhoon", "Tropical Cyclone", "Heatwave", "risk_level"}
 )
 
 _HEADER_FILL = PatternFill("solid", fgColor="1F3A5F")
@@ -239,7 +240,7 @@ def _plain_methodology(
                 "the impact function and its calculation status.",
             ),
         ]
-    for key in ("RF", "TC", "HEAT"):
+    for key in HAZARD_KEYS:
         lines.append((f"Hazards — {HAZARD_LABEL[key]}", HAZARD_COPY[key]))
     for model, label in SCOPE_LABEL.items():
         lines.append((f"Data sources — {label} ({model})", SCOPE_COPY[model]))

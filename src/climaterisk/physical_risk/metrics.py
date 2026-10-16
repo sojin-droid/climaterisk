@@ -92,8 +92,9 @@ class ModelId(StrEnum):
 #: One-line definitions, repeated in the exports so a sheet is self-describing.
 MODEL_DEFINITIONS: dict[str, str] = {
     ModelId.GLOBAL_BASELINE.value: (
-        "global reference calculation — CLIMADA Data API hazard, spatial_coverage=global, "
-        "user exposure, published CLIMADA impact function"
+        "global reference calculation — CLIMADA Data API hazard, spatial_coverage=global "
+        "(for coastal flood, which the Data API does not carry, the global WRI Aqueduct "
+        "Floods product), user exposure, published CLIMADA impact function"
     ),
     ModelId.DATA_API_COUNTRY.value: (
         "country-specific Data API calculation — CLIMADA Data API hazard, "
@@ -352,6 +353,20 @@ class ResultRow:
     # set only by pairing two runs of the same model (climate_change_multiplier); never configured
     climate_change_multiplier: float | None = None
 
+    # flood defences (RF / CF): the design return period applied, the EAL without it, and
+    # whether the undefended cell floods at the most frequent return period — land that in
+    # reality must sit behind defences (reclaimed land, levee-protected floodplain)
+    flood_protection_return_period_years: float | None = None
+    eal_undefended_usd: float | None = None
+    undefended_frequent_flooding: bool | None = None
+    # river flood: the cell is within the configured radius of a located 배수펌프장 (levee-
+    # protected 제내지 → urban plan scale), and the nearest pump station as published —
+    # its 계획빈도 is an interior-drainage rainfall frequency, reported, never applied
+    levee_protected: bool | None = None
+    nearest_pump_station: str | None = None
+    nearest_pump_station_km: float | None = None
+    nearest_pump_station_design_frequency_years: int | None = None
+
     calculation_status: str = CalculationStatus.ERROR.value
     status_detail: str | None = None
     confidence: str | None = None
@@ -411,6 +426,7 @@ class ResultRow:
             self.potential_loss_usd = None
             self.potential_loss_return_period_years = None
             self.eal_usd = None
+            self.eal_undefended_usd = None
             self.eal_as_pct_of_assets = None
             self.risk_level = None
             self.risk_level_criteria = None

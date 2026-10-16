@@ -167,3 +167,46 @@ adding a coastal-flood data scope to the product model next.
   represented, and loss = value × damage(depth) × flooded fraction is a cell-average
   expectation, not the building's own outcome.
 - Losses are in valuation-year values (no exposure growth applied).
+- §2–§3 are the **undefended** run (before flood defences were introduced); §5 is the
+  same portfolio with coastal flood added and the national design return periods applied.
+
+## 5. Coastal flood and flood defences (2026-10-14)
+
+Same 1,000 buildings, Recommended mode — each hazard under its own pick only (river flood
+and typhoon: Korea country dataset; coastal flood: WRI Aqueduct, the Global reference,
+because the Data API has no coastal-flood type). 3,000 rows, all `FULL`, 31 s once the
+Aqueduct read is cached. Coastal: `aqueduct_inuncoast_rcp8p5_wtsub_2030_0_perc_50`
+(rcp85 → Aqueduct rcp8p5, 2040 → nearest 2030, sea-level rise 50th percentile, with
+subsidence, 30 arcsec). Defences: national design return period **50 years** for both
+floods (`flood_protection`, basis in [FLOOD_DEFENCE_DATA_KR.md](FLOOD_DEFENCE_DATA_KR.md)).
+All curves: [`docs/evidence/sample1000_loss_curves_defended.csv`](evidence/sample1000_loss_curves_defended.csv).
+
+| hazard / class | assets in a hazard cell | EAL defended | EAL undefended | EAL / value defended → undefended | "floods at 2 y without defences" |
+|---|---|---|---|---|---|
+| River flood — portfolio | 383 | $3.06 M | $4.89 M | 0.089 % → 0.142 % | 0 |
+| — commercial | 134 | $1.56 M | $2.74 M | 0.117 % → 0.204 % | 0 |
+| — industrial | 117 | $0.28 M | $0.45 M | 0.082 % → 0.133 % | 0 |
+| — residential | 132 | $1.22 M | $1.71 M | 0.069 % → 0.097 % | 0 |
+| Coastal flood — portfolio | **9** | $0.15 M | $6.87 M | 0.004 % → 0.200 % | **8** |
+| — commercial | 0 | $0 | $0 | 0 → 0 | 0 |
+| — industrial | 8 | $0.08 M | $4.11 M | 0.025 % → 1.217 % | 7 |
+| — residential | 1 | $0.06 M | $2.76 M | 0.004 % → 0.157 % | 1 |
+
+**Coastal flood touches 9 of 1,000 buildings** (경기 4, 인천 3, 전북 2) — and 8 of them flood
+4–5 m already at the 2-year layer: reclaimed industrial land behind sea walls (시화·반월,
+남동, 군산 — inferred from the coordinates). Undefended, their EAL is 45–48 % of value per
+year, which no real factory carries; with 50-year defences it is about 2 % of that. The
+coastal-flood figures are therefore driven by the defence assumption, and coastal flood is
+SCOPE tier **S** (screening). The busy coastal cities (부산, 울산, 제주) still show no
+coastal hazard for these buildings: Aqueduct floods only a narrow low-lying strip at 30
+arcsec, and the sampled buildings are not in it.
+
+Two structural points for reading the Portfolio Loss Curve:
+
+- **Coastal diversification is 0 by construction.** Aqueduct is one map per return period,
+  so each "event" floods every location at that return period at once — a perfectly
+  correlated portfolio. The 0 % diversification is a property of the data, not a finding.
+- **Defences cut the frequent end, not the tail.** River-flood 10-year portfolio loss falls
+  to ~$0.08 M (from $16.1 M undefended) while the 100- and 250-year losses barely move
+  ($53.7 M / $154.3 M defended vs $59.5 M / $186.8 M undefended): events above the design
+  return period overtop with their full depth.

@@ -19,12 +19,18 @@ from typing import Any
 
 from climaterisk.physical_risk.metrics import MODEL_DEFINITIONS, ModelId
 
-#: Hazard keys of the readiness table. ``HEAT`` covers both CLIMADA tags the platform uses
-#: for heat (``HW`` season-p95 Tmax, ``HM`` exceedance degree-days).
-HAZARD_KEYS: tuple[str, ...] = ("RF", "TC", "HEAT")
+#: Hazard keys of the readiness table. ``RF`` is river flood, ``CF`` coastal flood (WRI
+#: Aqueduct, added 2026-10-14). ``HEAT`` covers both CLIMADA tags the platform uses for
+#: heat (``HW`` season-p95 Tmax, ``HM`` exceedance degree-days).
+HAZARD_KEYS: tuple[str, ...] = ("RF", "CF", "TC", "HEAT")
 
 #: CLIMADA hazard tags each key maps to.
-HAZARD_TAGS: dict[str, tuple[str, ...]] = {"RF": ("RF",), "TC": ("TC",), "HEAT": ("HW", "HM")}
+HAZARD_TAGS: dict[str, tuple[str, ...]] = {
+    "RF": ("RF",),
+    "CF": ("CF",),
+    "TC": ("TC",),
+    "HEAT": ("HW", "HM"),
+}
 
 _G, _C, _K = (
     ModelId.GLOBAL_BASELINE.value,
@@ -62,6 +68,38 @@ READINESS: dict[str, dict[str, dict[str, str]]] = {
                 "polygons to a hazard grid and using them in a commercial assessment are not "
                 "permitted without separate permission; nothing is downloaded or computed "
                 "until it is granted"
+            ),
+        },
+    },
+    "CF": {
+        _G: {
+            "status": "READY",
+            "hazard_source": (
+                "WRI Aqueduct Floods v2 coastal inundation (inuncoast, 30 arcsec, with "
+                "subsidence, sea-level rise 50th percentile), read for the portfolio's bbox"
+            ),
+            "detail": (
+                "global reference — the CLIMADA Data API carries no coastal-flood type, so the "
+                "global product is Aqueduct (as in EIOPA's CLIMADA-App); one event per return "
+                "period (2–1000 years); priced with the same JRC sector curve as river flood "
+                "(haz_type CF). No coastal defences are represented"
+            ),
+        },
+        _C: {
+            "status": "NO_HAZARD_DATA",
+            "hazard_source": "none — the CLIMADA Data API has no coastal-flood hazard type",
+            "detail": (
+                "verified against the live Data API hazard type list on 2026-10-14 "
+                "(earthquake, flood, hail, relative_cropyield, river_flood, storm_europe, "
+                "tropical_cyclone, wildfire); nothing to fetch"
+            ),
+        },
+        _K: {
+            "status": "NOT_IMPLEMENTED",
+            "hazard_source": "국립해양조사원 해안침수예상도 (adapter interface only)",
+            "detail": (
+                "adapter defined, no domestic coastal-inundation dataset connected; its "
+                "licence and access have not been investigated"
             ),
         },
     },

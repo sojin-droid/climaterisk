@@ -4,7 +4,7 @@
 Runs in the CLIMADA worker environment (it prices with CLIMADA and needs the Data API)::
 
     ./.climada-env/bin/python scripts/physical_risk_batch.py assets.csv \\
-        --hazards flood,typhoon,heatwave --models recommended --output risk_report.xlsx \\
+        --hazards flood,coastal,typhoon,heatwave --models recommended --output risk_report.xlsx \\
         [--scenario rcp60 --year 2050 --country KOR --baseline-scenario historical --json raw.json]
 
 ``--models recommended`` (the default) reads the readiness registry and picks, per hazard,
@@ -124,6 +124,9 @@ _HAZARD_ALIASES = {
     "flood": "RF",
     "rf": "RF",
     "river_flood": "RF",
+    "coastal": "CF",
+    "coastal_flood": "CF",
+    "cf": "CF",
     "typhoon": "TC",
     "tc": "TC",
     "tropical_cyclone": "TC",
@@ -152,12 +155,13 @@ def _split(tokens: list[str]) -> list[str]:
 
 
 def parse_hazards(tokens: list[str]) -> list[str]:
-    """Hazard keys from user words (``flood``, ``typhoon``, ``heatwave`` or RF/TC/HEAT)."""
+    """Hazard keys from user words (``flood``, ``coastal``, ``typhoon``, ``heatwave``, or
+    RF/CF/TC/HEAT)."""
     out: list[str] = []
     for t in _split(tokens):
         key = _HAZARD_ALIASES.get(t.lower(), t.upper())
-        if key not in ("RF", "TC", "HEAT"):
-            raise ValueError(f"unknown hazard {t!r}; use flood, typhoon or heatwave")
+        if key not in ("RF", "CF", "TC", "HEAT"):
+            raise ValueError(f"unknown hazard {t!r}; use flood, coastal, typhoon or heatwave")
         if key not in out:
             out.append(key)
     return out
@@ -188,6 +192,21 @@ def parse_models(tokens: list[str], hazards: list[str]) -> list[str]:
     return out
 
 
+def parse_hazard_models(tokens: list[str], hazards: list[str]) -> dict[str, list[str]] | None:
+    """Per-hazard models for ``recommended``: each hazard runs only under its own pick.
+
+    Without it the runner would price every hazard under the union of the picks — e.g.
+    coastal flood's Global pick would add a Global run of flood and typhoon. None for
+    ``all`` / named models, which mean "every hazard under these models".
+    """
+    if [t.lower() for t in _split(tokens)] not in (["recommended"], []):
+        return None
+    from climaterisk.physical_risk.display_copy import recommended_models
+
+    picks = recommended_models(hazards)
+    return {h: [picks[h]] for h in hazards if h in picks}
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -201,8 +220,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument(
         "--hazards",
         nargs="+",
-        default=["flood", "typhoon", "heatwave"],
-        help="flood typhoon heatwave (comma or space separated; RF/TC/HEAT also accepted)",
+        default=["flood", "coastal", "typhoon", "heatwave"],
+        help="flood coastal typhoon heatwave (comma or space separated; RF/CF/TC/HEAT too)",
     )
     ap.add_argument(
         "--models",
@@ -240,12 +259,14 @@ def main(argv: list[str] | None = None) -> int:
         facilities = read_facilities(src)
         hazards = parse_hazards(args.hazards)
         models = parse_models(args.models, hazards)
+        hazard_models = parse_hazard_models(args.models, hazards)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     print(f"{len(facilities)} facilities from {src}")
-    n_calc = len(facilities) * len(hazards) * len(models)
-    print(f"hazards {hazards} x models {models} -> {n_calc} calculations")
+    per_hazard = hazard_models or dict.fromkeys(hazards, models)
+    n_calc = len(facilities) * sum(len(per_hazard.get(h, models)) for h in hazards)
+    print(f"models per hazard {per_hazard} -> {n_calc} calculations")
 
     from climaterisk_worker.physical_risk.runner import compute_physical_risk_models
 
@@ -258,6 +279,7 @@ def main(argv: list[str] | None = None) -> int:
             "target_year": args.year,
             "hazards": hazards,
             "models": models,
+            "hazard_models": hazard_models,
             "country": args.country,
             "baseline_scenario": args.baseline_scenario,
             "annual_growth_pct": args.annual_growth_pct,

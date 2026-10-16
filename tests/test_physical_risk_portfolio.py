@@ -106,7 +106,7 @@ def test_display_copy_quotes_the_configured_thresholds() -> None:
 
 def test_recommended_models_follow_readiness_and_never_pick_an_unrunnable_cell() -> None:
     rec = dc.recommended_models()
-    assert rec == {"RF": C, "TC": C, "HEAT": K}
+    assert rec == {"RF": C, "CF": G, "TC": C, "HEAT": K}
     # a registry where local flood is READY flips the recommendation without code changes
     table = {
         "RF": {G: {"status": "READY"}, C: {"status": "READY"}, K: {"status": "READY"}},
@@ -124,7 +124,12 @@ def test_recommended_models_follow_readiness_and_never_pick_an_unrunnable_cell()
     rec2 = dc.recommended_models(readiness=table)
     assert rec2 == {"RF": K, "TC": G}  # HEAT omitted: nothing can run
     avail = dc.scope_availability()
-    assert avail[K] == {"RF": "unavailable", "TC": "unavailable", "HEAT": "hazard only"}
+    assert avail[K] == {
+        "RF": "unavailable",
+        "CF": "unavailable",
+        "TC": "unavailable",
+        "HEAT": "hazard only",
+    }
     assert avail[C]["RF"] == "available" and avail[G]["HEAT"] == "unavailable"
     bundle = dc.display_bundle()
     assert (
@@ -315,6 +320,16 @@ def _cli():  # type: ignore[no-untyped-def]
 def test_cli_understands_plain_words_and_recommended_reads_readiness() -> None:
     cli = _cli()
     assert cli.parse_hazards(["flood,typhoon,heatwave"]) == ["RF", "TC", "HEAT"]
+    assert cli.parse_hazards(["coastal", "CF"]) == ["CF"]
+    # Recommended runs each hazard only under its own pick — coastal flood's Global pick
+    # must not add a Global run of flood and typhoon
+    assert cli.parse_hazard_models(["recommended"], ["RF", "CF", "TC", "HEAT"]) == {
+        "RF": [C],
+        "CF": [G],
+        "TC": [C],
+        "HEAT": [K],
+    }
+    assert cli.parse_hazard_models(["all"], ["RF", "CF"]) is None
     assert cli.parse_hazards(["RF", "heat"]) == ["RF", "HEAT"]
     with pytest.raises(ValueError, match="unknown hazard"):
         cli.parse_hazards(["earthquake"])

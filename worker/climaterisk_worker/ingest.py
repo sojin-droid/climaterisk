@@ -40,7 +40,10 @@ from climaterisk_worker._params import (
 )
 
 # --- Aqueduct Floods v2 (WRI, CC-BY 4.0) ---------------------------------------
-_AQ_BASE = "http://wri-projects.s3.amazonaws.com/AqueductFloodTool/download/v2"
+# Aqueduct Floods v2 GeoTIFF host. The original wri-projects S3 prefix
+# (AqueductFloodTool/download/v2) was emptied — every file 404s and the listing is blank
+# (checked 2026-10-14); the same file names are served here with HTTP range support.
+_AQ_BASE = "https://aqueduct.wridata.org/AqueductFloods20"
 # Return periods (years) published for riverine flood; each is one event layer.
 _AQ_RIVER_RPS = (5, 10, 25, 50, 100, 250, 500, 1000)
 # One representative GCM keeps the fetch deterministic (full ensemble is large).
@@ -51,7 +54,11 @@ _AQ_SCENARIO = {"rcp26": "rcp4p5", "rcp45": "rcp4p5", "rcp60": "rcp8p5", "rcp85"
 # Coastal flood (inuncoast_*): return periods + subsidence/sea-level-rise tokens.
 _AQ_COAST_RPS = (2, 5, 10, 25, 50, 100, 250, 500, 1000)
 _AQ_COAST_SUBSIDENCE = "wtsub"  # with subsidence (more conservative than nosub)
-_AQ_COAST_SLR = "0"  # sea-level-rise scenario token (0 = 50th-percentile central estimate)
+# Sea-level-rise token. Aqueduct's bare "0" is the 95th-percentile SLR projection (the
+# upper tail — climada_petals CoastalFlood.from_aqueduct_tif maps percentile "95" -> "0");
+# the 5th / 50th are "0_perc_05" / "0_perc_50". The Studio keeps "0" (conservative); the
+# Models-tab adapter reads the 50th (physical_risk_config.json coastal_flood).
+_AQ_COAST_SLR = "0"
 
 # DEM mosaic decimation cap: 30 m GLO-30 over a portfolio bbox is millions of cells,
 # which makes the bathtub-surge model run out of memory. Cap the larger dimension to

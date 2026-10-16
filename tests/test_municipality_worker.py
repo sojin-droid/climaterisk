@@ -154,7 +154,7 @@ def test_runner_tags_rows_and_records_resolution(monkeypatch: pytest.MonkeyPatch
                 None,
             )
 
-        def load(self, bbox=None):  # type: ignore[no-untyped-def]
+        def load(self, bbox=None, points=None):  # type: ignore[no-untyped-def]
             return grid_hazard("RF", "m", 150 / 3600, 1.0)
 
         def spatial_resolution(self, hazard):  # type: ignore[no-untyped-def]
@@ -175,6 +175,13 @@ def test_runner_tags_rows_and_records_resolution(monkeypatch: pytest.MonkeyPatch
         return original(hazard_type, model_id, scenario, year, iso3)
 
     monkeypatch.setattr(runner.adapters, "adapter_for", fake_adapter_for)
+    # tagging is under test, not defences: the synthetic set's two equal 1 m events would
+    # both sit at or below a 50-year design depth and be defended away
+    import copy
+
+    cfg = copy.deepcopy(runner.load_config())
+    cfg["flood_protection"]["enabled"] = False
+    monkeypatch.setattr(runner, "load_config", lambda: cfg)
     seoul, gwangju = by_id(["SGIS-11", "SGIS-24"])
     out = runner.compute_physical_risk_models(
         {

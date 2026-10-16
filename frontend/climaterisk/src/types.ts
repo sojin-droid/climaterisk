@@ -657,6 +657,16 @@ export interface PhysicalRiskRow {
   potential_loss_return_period_years: number | null;
   eal_usd: number | null;
   eal_as_pct_of_assets: number | null;
+  // flood defences (RF / CF): design return period applied, EAL without it, and whether the
+  // undefended cell floods at the most frequent return period (land presumed defended)
+  flood_protection_return_period_years?: number | null;
+  eal_undefended_usd?: number | null;
+  undefended_frequent_flooding?: boolean | null;
+  // river flood: levee-protected cell (near a located 배수펌프장) and the nearest pump station
+  levee_protected?: boolean | null;
+  nearest_pump_station?: string | null;
+  nearest_pump_station_km?: number | null;
+  nearest_pump_station_design_frequency_years?: number | null;
   risk_level: string | null;
   risk_level_criteria: string | null;
   calculation_status: string;
@@ -873,6 +883,8 @@ export interface AssetTemplate {
 export interface PhysicalRiskModelsBody {
   hazards?: string[];
   models?: string[];
+  // Recommended mode: one model per hazard (overrides `models` for the hazards it names)
+  hazard_models?: Record<string, string[]>;
   target_year?: number;
   country?: string;
   baseline_scenario?: string;

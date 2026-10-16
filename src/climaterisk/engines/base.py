@@ -659,10 +659,13 @@ class PhysicalRiskModelsRequest(BaseModel):
     facilities: list[FacilitySpec]
     climate_scenario: str
     target_year: int
-    hazards: list[str] = Field(default_factory=lambda: ["RF", "TC", "HEAT"])
+    hazards: list[str] = Field(default_factory=lambda: ["RF", "CF", "TC", "HEAT"])
     models: list[str] = Field(
         default_factory=lambda: ["GLOBAL_BASELINE", "DATA_API_COUNTRY", "KOREA_LOCAL"]
     )
+    # Per-hazard models (Recommended mode: one model per hazard); overrides ``models`` for
+    # the hazards it names.
+    hazard_models: dict[str, list[str]] | None = None
     country: str | None = None  # ISO3; resolved from the points by the worker when omitted
     # Optional same-model baseline run (e.g. "historical"); the only source of a
     # climate_change_multiplier. Baseline rows are returned separately.
@@ -685,6 +688,7 @@ class PhysicalRiskModelsRequest(BaseModel):
         asset_values: dict[str, float] | None = None,
         hazards: list[str] | None = None,
         models: list[str] | None = None,
+        hazard_models: dict[str, list[str]] | None = None,
         target_year: int | None = None,
         country: str | None = "KOR",
         baseline_scenario: str | None = None,
@@ -726,8 +730,9 @@ class PhysicalRiskModelsRequest(BaseModel):
             facilities=facilities,
             climate_scenario=climate_scenario,
             target_year=int(target_year or 2050),
-            hazards=hazards or ["RF", "TC", "HEAT"],
+            hazards=hazards or ["RF", "CF", "TC", "HEAT"],
             models=models or ["GLOBAL_BASELINE", "DATA_API_COUNTRY", "KOREA_LOCAL"],
+            hazard_models=hazard_models,
             country=country,
             baseline_scenario=baseline_scenario,
             assessment_target="MUNICIPALITY",
@@ -742,6 +747,7 @@ class PhysicalRiskModelsRequest(BaseModel):
         *,
         hazards: list[str] | None = None,
         models: list[str] | None = None,
+        hazard_models: dict[str, list[str]] | None = None,
         target_year: int | None = None,
         country: str | None = None,
         baseline_scenario: str | None = None,
@@ -771,8 +777,9 @@ class PhysicalRiskModelsRequest(BaseModel):
             facilities=facilities,
             climate_scenario=portfolio.scenario.climate,
             target_year=int(target_year or max(years)),
-            hazards=hazards or ["RF", "TC", "HEAT"],
+            hazards=hazards or ["RF", "CF", "TC", "HEAT"],
             models=models or ["GLOBAL_BASELINE", "DATA_API_COUNTRY", "KOREA_LOCAL"],
+            hazard_models=hazard_models,
             country=country,
             baseline_scenario=baseline_scenario,
             annual_growth_pct=annual_growth_pct,

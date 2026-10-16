@@ -56,7 +56,7 @@ from climaterisk.physical_risk.metrics import (  # noqa: E402
 __all__ = ["HAZARD_ONLY_HAZARDS", "PRICEABLE_HAZARDS", "calculate", "climate_change_multiplier"]
 
 #: Hazard tags this engine can price, and the registry call that supplies the curve.
-PRICEABLE_HAZARDS: tuple[str, ...] = ("RF", "TC")
+PRICEABLE_HAZARDS: tuple[str, ...] = ("RF", "CF", "TC")
 
 #: Hazard tags that are computed as exposure only — no published impact function exists.
 HAZARD_ONLY_HAZARDS: tuple[str, ...] = ("HM", "HW")
@@ -134,6 +134,7 @@ def calculate(
     spatial_resolution: dict[str, Any] | None = None,
     config: dict[str, Any] | None = None,
     event_losses: dict[str, Any] | None = None,
+    defences: dict[str, Any] | None = None,
 ) -> ResultRow:
     """Price one facility against one hazard set, or say why it cannot be priced.
 
@@ -142,7 +143,8 @@ def calculate(
             ``asset_value_usd``, and optionally ``asset_value_currency``, ``property_type``
             and other metadata.
         hazard: A CLIMADA ``Hazard``, or None when the model has none for this facility.
-        hazard_type: Its tag — ``RF`` / ``TC`` are priced, ``HM`` / ``HW`` are hazard-only.
+        hazard_type: Its tag — ``RF`` / ``CF`` / ``TC`` are priced, ``HM`` / ``HW`` are
+            hazard-only.
         model_id: Which hazard source this row belongs to (:class:`ModelId`).
         iso3: Country, used to pick the TC regional function from CLIMADA's own table.
         requested_scenario: The platform scenario key the run asked for.
@@ -158,6 +160,14 @@ def calculate(
             impact is computed — the input of the portfolio loss curve
             (:mod:`climaterisk_worker.physical_risk.aggregate`). The caller decides from
             the returned row whether the point counts as priced.
+        defences: For RF / CF when a design return period is configured — ``hazard`` is
+            then the *protected* set and this carries ``return_period`` (years),
+            ``undefended`` (the raw hazard, priced again for ``eal_undefended_usd``),
+            ``return_period`` (per-centroid design return period — higher in
+            levee-protected cells near a 배수펌프장), ``national_return_period``,
+            ``frequent`` (per-centroid bool: the undefended cell floods at the most
+            frequent return period → ``undefended_frequent_flooding``) and ``pump_info``
+            (river flood: record the nearest located pump station and its 계획빈도).
 
     Returns:
         A finalised :class:`ResultRow`; financial fields are null unless the status is
@@ -234,12 +244,16 @@ def calculate(
         return row.finalise(cfg)
 
     # --- the published impact function, unmodified and model-independent -------------
-    if hazard_type == "RF":
+    if hazard_type in ("RF", "CF"):
         sector = jrc_sector_for(row.property_type, cfg)
-        func = registry.flood_impact_function(flood_region, sector)
+        if hazard_type == "RF":
+            func = registry.flood_impact_function(flood_region, sector)
+        else:
+            func = registry.coastal_flood_impact_function(flood_region, sector)
         row.impact_function_source = (
             "CLIMADA Petals ImpfRiverFlood.from_jrc_region_sector "
             f"(region={flood_region!r}, sector={sector!r}) — Huizinga et al. 2017 JRC"
+            + (" — same curve, haz_type CF" if hazard_type == "CF" else "")
         )
     else:
         assigned = registry.tc_region_for_country(iso3) if iso3 else None
@@ -290,6 +304,29 @@ def calculate(
         return row.finalise(cfg)
 
     row.eal_usd = float(impact.aai_agg)
+    if defences is not None:
+        from climaterisk_worker.physical_risk import protection
+
+        raw = ImpactCalc(exposure, ImpactFuncSet([func]), defences["undefended"]).impact(
+            save_mat=False, assign_centroids=True
+        )
+        row.eal_undefended_usd = float(raw.aai_agg)
+        idx = protection.nearest_centroid(defences["undefended"], lat, lon)
+        if idx is not None:
+            row.flood_protection_return_period_years = float(defences["return_period"][idx])
+            row.levee_protected = bool(
+                defences["return_period"][idx] > defences["national_return_period"]
+            )
+            row.undefended_frequent_flooding = bool(defences["frequent"][idx])
+        if defences.get("pump_info"):
+            from climaterisk.physical_risk.pump_stations import nearest
+
+            hit = nearest(lat, lon)
+            if hit is not None:
+                station, km = hit
+                row.nearest_pump_station = f"{station.name} ({station.source_title})"
+                row.nearest_pump_station_km = round(km, 3)
+                row.nearest_pump_station_design_frequency_years = station.design_frequency_years
     if event_losses is not None:
         event_losses[row.facility_id] = impact.at_event
     target_rp = float(cfg["potential_loss"]["return_period_years"])

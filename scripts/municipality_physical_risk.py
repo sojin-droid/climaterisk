@@ -5,7 +5,7 @@ Runs in the CLIMADA worker environment (the same engine and the same adapters as
 Models tab and ``physical_risk_batch.py``)::
 
     ./.climada-env/bin/python scripts/municipality_physical_risk.py municipalities.csv \\
-        --hazards flood,typhoon,heatwave --models recommended \\
+        --hazards flood,coastal,typhoon,heatwave --models recommended \\
         --output Municipality_Physical_Risk_Report.xlsx \\
         [--scenario rcp85 --year 2040 --json raw.json]
 
@@ -121,7 +121,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--json", default=None, help="also write the raw worker output here")
     ap.add_argument("--scenario", default="rcp45", help="requested climate scenario key")
     ap.add_argument("--year", type=int, default=2050, help="target year")
-    ap.add_argument("--hazards", nargs="+", default=["flood", "typhoon", "heatwave"])
+    ap.add_argument("--hazards", nargs="+", default=["flood", "coastal", "typhoon", "heatwave"])
     ap.add_argument("--models", nargs="+", default=["recommended"])
     ap.add_argument("--country", default="KOR", help="ISO3 (municipalities are Korean)")
     ap.add_argument("--baseline-scenario", default=None)
@@ -164,6 +164,7 @@ def main(argv: list[str] | None = None) -> int:
         municipalities = by_id([mid for mid, _, _ in selection])
         hazards = batch.parse_hazards(args.hazards)
         models = batch.parse_models(args.models, hazards)
+        hazard_models = batch.parse_hazard_models(args.models, hazards)
     except (ValueError, KeyError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -202,8 +203,9 @@ def main(argv: list[str] | None = None) -> int:
             f"{len(facilities)} municipalities ({n_valued} with a supplied asset value, "
             f"{len(facilities) - n_valued} screening only)"
         )
-    n_calc = len(facilities) * len(hazards) * len(models)
-    print(f"hazards {hazards} x models {models} -> {n_calc} calculations")
+    per_hazard = hazard_models or dict.fromkeys(hazards, models)
+    n_calc = len(facilities) * sum(len(per_hazard.get(h, models)) for h in hazards)
+    print(f"models per hazard {per_hazard} -> {n_calc} calculations")
 
     from climaterisk_worker.physical_risk.runner import compute_physical_risk_models
 
@@ -217,6 +219,7 @@ def main(argv: list[str] | None = None) -> int:
             "target_year": args.year,
             "hazards": hazards,
             "models": models,
+            "hazard_models": hazard_models,
             "country": args.country,
             "baseline_scenario": args.baseline_scenario,
             "annual_growth_pct": args.annual_growth_pct,
