@@ -173,6 +173,7 @@ def render_map(
                 "event": n["event"],
                 "rp": n["return_period_years"],
                 "failed": n["failed_nodes"],
+                "flooded": n["residential_flooded"],
                 "cut_off_value": round(n["residential_cut_off_value_usd"], 2),
             }
             for n in net
@@ -195,15 +196,14 @@ def render_map(
         '<span style="color:#444;">&bull; Flood depth</span>'
         '<span style="color:red;">&bull; Out-of-service nodes</span>'
         '<span id="rpInfo" style="margin-left:10px;font-size:12px;color:#444;">'
-        f"Failed: {net[0]['failed_nodes'] if net else 0}"
-        " | Cut-off: $0"
+        "loading…"
         "</span>"
         "</div>"
     )
 
     slider_js = (
         "<script>\n"
-        "setTimeout(function() {\n"
+        "window.addEventListener('load', function() {\n"
         f"    var mapObj = {map_name};\n"
         f"    var depthLayers = {depth_names_js};\n"
         f"    var oosLayers = {oos_names_js};\n"
@@ -228,6 +228,7 @@ def render_map(
         "        if (info && netData[idx]) {\n"
         "            var nd = netData[idx];\n"
         "            info.textContent = 'Failed: ' + nd.failed +\n"
+        "                ' | Residential flooded: ' + nd.flooded +\n"
         "                ' | Cut-off: $' + Math.round(nd.cut_off_value).toLocaleString();\n"
         "        }\n"
         "    }\n"
@@ -242,7 +243,7 @@ def render_map(
         "    }\n"
         "    var wrapper = document.getElementById('rpSliderWrapper');\n"
         "    if (wrapper) wrapper.style.display = 'flex';\n"
-        "}, 0);\n"
+        "});\n"
         "</script>"
     )
 
