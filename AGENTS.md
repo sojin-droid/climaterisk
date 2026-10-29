@@ -21,9 +21,9 @@ published benchmarks and conservation laws — before its numbers are used.
 ## Steps (in order; finish, test and commit one before starting the next)
 
 1. ~~Twin package~~ — done (`8d560da`, `064d60a`).
-2. **Defence scenarios.** Same city: no defence, uniform design return period 10/50/100 y,
-   and a local levee along part of the bank. One comparison table. Expected (seed
-   20261029): EAL 1.303 / 0.749 / 0.313 / 0.186 % for none / 10 / 50 / 100 y.
+2. ~~Defence scenarios~~ — done (`91a15cf`, `063266f`): EAL 1.303 / 0.749 / 0.313 / 0.186 %
+   for none / 10 / 50 / 100 y, local 100-y levee on cols 5..14 = 0.739 %. Present-day
+   numbers to compare step 3 against.
 3. **Climate change.** Present vs future river stage (shift `stage_2y_m` / `stage_slope_m`
    per scenario in the spec). `climate_change_multiplier` = future EAL / present EAL.
    **Levees keep their present height**: derive the design depth from the *present*
@@ -65,6 +65,8 @@ published benchmarks and conservation laws — before its numbers are used.
   the cut-off count alone.
 - **Seed sensitivity.** Seeds 1–3 move EAL by about ±7 % and the cut-off value by 4×.
   Compare scenarios on the same seed, and show a seed spread before claiming a difference.
+- **A defence protects the land behind it.** A levee band covers the floodplain it fronts,
+  not just the bank cells (step 2 first defended row 0 only and the city still flooded).
 - **Tooling versions.** Use `uv sync --locked --all-extras`; CI pins ruff 0.15.18. A newer
   ruff reformats Markdown code blocks — never commit changes to files outside your step.
 
