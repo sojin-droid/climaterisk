@@ -28,8 +28,8 @@ published benchmarks and conservation laws — before its numbers are used.
    Multiplier none 1.845 / 10 y 2.111 / 50 y 2.010 / 100 y 2.054 / levee 1.872 (the
    re-derived-levee trap would give 1.22 at 50 y). `protection.protect_with_threshold`
    applies a present design depth to a future hazard.
-4. **Map viewer.** Static HTML (Folium 0.20 is in `.climada-env`) from `assets.gpkg`:
-   lots coloured by EAL %, a return-period slider for depth and out-of-service nodes.
+4. ~~Map viewer~~ — done (`46a146b`, `d0ec7cd`): `twin/viewer.py`, `--map` → `city_map.html`.
+   Page scripts that read Folium objects must run on `window` `load`, not `setTimeout(0)`.
 5. **3D buildings.** Synthetic footprints and storey counts per zone (spec JSON); a
    deck.gl / Three.js page with extruded buildings and a water surface. Storeys feed the
    ground-floor/basement exposure.
