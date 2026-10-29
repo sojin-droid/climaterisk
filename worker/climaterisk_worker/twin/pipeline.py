@@ -26,6 +26,7 @@ from climaterisk_worker.twin.pricing import (
     price_assets,
 )
 from climaterisk_worker.twin.spec import MODEL_ID  # noqa: F401  (re-exported for CLI/tests)
+from climaterisk_worker.twin.viewer import render_map
 
 __all__ = ["compare_climate", "compare_defences", "run"]
 
@@ -94,6 +95,7 @@ def run(
     spec: dict[str, Any],
     protection_rp: float | None = None,
     levee: bool = False,
+    map_path: Path | None = None,
 ) -> dict[str, Any]:
     """Generate, price, cross-check and write every output; returns the summary.
 
@@ -117,6 +119,9 @@ def run(
         levee: When true, apply the local bank levee from ``spec["levee"]`` (a per-centroid
             design return period on part of the bank; the rest stays undefended) instead of a
             uniform protection standard.
+        map_path: When set, also write an interactive Folium HTML map
+            (lots coloured by EAL %, return-period depth slider, out-of-service
+            nodes) to this path.
 
     Returns:
         The summary dict that is also written to ``summary.json``.
@@ -203,6 +208,8 @@ def run(
         json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     plot_city(graph, assets, hazard, rows, spec, out_dir / "city_map.png")
+    if map_path is not None:
+        render_map(graph, assets, priced_hazard, rows, net, spec, map_path)
     return summary
 
 

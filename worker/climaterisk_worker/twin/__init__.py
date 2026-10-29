@@ -32,6 +32,7 @@ from climaterisk_worker.twin.pricing import (  # noqa: E402
     price_assets,
 )
 from climaterisk_worker.twin.spec import MODEL_ID, SPEC_PATH, load_spec  # noqa: E402
+from climaterisk_worker.twin.viewer import render_map  # noqa: E402
 
 __all__ = [
     "MODEL_ID",
@@ -52,5 +53,6 @@ __all__ = [
     "plot_city",
     "portfolio_impact",
     "price_assets",
+    "render_map",
     "run",
 ]

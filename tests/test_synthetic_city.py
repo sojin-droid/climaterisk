@@ -29,6 +29,7 @@ from climaterisk_worker.twin import (  # noqa: E402
     flood_depths,
     layered_frequencies,
     load_spec,
+    render_map,
 )
 from climaterisk_worker.twin.hazard import build_hazard  # noqa: E402
 from climaterisk_worker.twin.network import network_failure  # noqa: E402
@@ -317,3 +318,31 @@ def test_protect_with_threshold_matches_protect_when_threshold_is_derived(
     a = protection.protect(hazard, rps)
     b = protection.protect_with_threshold(hazard, threshold)
     np.testing.assert_allclose(a.intensity.toarray(), b.intensity.toarray(), rtol=0, atol=1e-12)
+
+
+# --------------------------------------------------------------------------- #
+# Step 4 — map viewer (Folium)                                              #
+# --------------------------------------------------------------------------- #
+
+
+def test_map_viewer_html_has_all_layers(small_spec: dict, tmp_path) -> None:
+    """The Folium HTML contains a depth/OOS layer for every return period + EAL + slider."""
+    graph, assets = build_city(small_spec)
+    hazard = build_hazard(assets, small_spec)
+    rows = price_assets(assets, hazard)
+    net = network_failure(graph, assets, hazard, small_spec)
+
+    out = tmp_path / "city_map.html"
+    render_map(graph, assets, hazard, rows, net, small_spec, out)
+
+    assert out.exists()
+    html = out.read_text(encoding="utf-8")
+    # every return-period event name appears as a slider label / layer
+    for rp in small_spec["flood"]["return_periods"]:
+        label = f"rp{int(rp)}"
+        assert label in html, f"Missing return-period layer {label}"
+    # slider, EAL and depth/OOS controls are present
+    assert "rpSlider" in html
+    assert "EAL" in html
+    assert "Flood depth" in html
+    assert "Out-of-service" in html

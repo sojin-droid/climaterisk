@@ -117,6 +117,12 @@ def main(argv: list[str] | None = None) -> int:
         help="apply the local bank levee (spec['levee']) instead of a uniform standard",
     )
     ap.add_argument(
+        "--map",
+        action="store_true",
+        help="also write an interactive Folium HTML map (city_map.html) with a "
+        "return-period depth slider and out-of-service nodes",
+    )
+    ap.add_argument(
         "--compare",
         action="store_true",
         help="run all defence scenarios and write a comparison table (defence_scenarios.csv)",
@@ -155,7 +161,13 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  {t['scenario']:<20}{parts}")
         print(f"  outputs -> {out}")
         return 0
-    summary = run(out, spec, args.protection_rp, levee=args.levee)
+    summary = run(
+        out,
+        spec,
+        args.protection_rp,
+        levee=args.levee,
+        map_path=out / "city_map.html" if args.map else None,
+    )
     print(f"assets {summary['n_assets']} (nodes {summary['n_nodes']}, roads {summary['n_edges']})")
     print(f"total value  {summary['total_value_usd']:,.0f} USD")
     print(f"EAL          {summary['eal_usd']:,.0f} USD/yr ({summary['eal_pct']:.3f} %)")
