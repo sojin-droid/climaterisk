@@ -24,12 +24,10 @@ published benchmarks and conservation laws — before its numbers are used.
 2. ~~Defence scenarios~~ — done (`91a15cf`, `063266f`): EAL 1.303 / 0.749 / 0.313 / 0.186 %
    for none / 10 / 50 / 100 y, local 100-y levee on cols 5..14 = 0.739 %. Present-day
    numbers to compare step 3 against.
-3. **Climate change.** Present vs future river stage (shift `stage_2y_m` / `stage_slope_m`
-   per scenario in the spec). `climate_change_multiplier` = future EAL / present EAL.
-   **Levees keep their present height**: derive the design depth from the *present*
-   hazard and apply that fixed depth to the future hazard. Re-deriving it from the future
-   hazard (what `protection.protect(future, rp)` does) silently raises the levee and
-   understates the multiplier (≈1.22× instead of a larger value at +0.5 m).
+3. ~~Climate change~~ — done (`3524894`): +0.5 m stage, levees at present height.
+   Multiplier none 1.845 / 10 y 2.111 / 50 y 2.010 / 100 y 2.054 / levee 1.872 (the
+   re-derived-levee trap would give 1.22 at 50 y). `protection.protect_with_threshold`
+   applies a present design depth to a future hazard.
 4. **Map viewer.** Static HTML (Folium 0.20 is in `.climada-env`) from `assets.gpkg`:
    lots coloured by EAL %, a return-period slider for depth and out-of-service nodes.
 5. **3D buildings.** Synthetic footprints and storey counts per zone (spec JSON); a

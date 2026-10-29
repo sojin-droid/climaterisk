@@ -46,7 +46,7 @@ def _defences(
 
     n = hazard.centroids.size
     rps = np.full(n, float(rp))
-    base = threshold_hazard or hazard
+    base = hazard if threshold_hazard is None else threshold_hazard
     # floods already at the most frequent layer (the engine's undefended_frequent_flooding)
     frequent = protection.local_intensity(hazard, 1.0 / float(np.max(hazard.frequency))) > 0
     threshold = protection.thresholds(base, rps)
@@ -115,7 +115,7 @@ def _levee_defences(
     from climaterisk_worker.physical_risk import protection
 
     rp_arr = _levee_rp_array(hazard, assets, spec)
-    base = threshold_hazard or hazard
+    base = hazard if threshold_hazard is None else threshold_hazard
     frequent = protection.local_intensity(hazard, 1.0 / float(np.max(hazard.frequency))) > 0
     threshold = protection.thresholds(base, rp_arr)
     priced = protection.protect_with_threshold(hazard, threshold)
