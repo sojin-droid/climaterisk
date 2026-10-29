@@ -51,17 +51,107 @@ def _defences(hazard: Any, rp: float) -> tuple[Any, dict[str, Any]]:
     }
 
 
+def _levee_rp_array(hazard: Any, assets: list[dict[str, Any]], spec: dict[str, Any]) -> Any:
+    """Per-centroid design return period for the local bank levee.
+
+    Algorithm:
+        $$\\mathrm{RP}_i = \\mathrm{rp}_{lev} \text{ on the bank, } 0 \\text{ elsewhere}$$
+        ASCII: RP_i = rp_lev if row_i in levee_rows and col_i in levee_cols else 0
+
+    $r_i, c_i$ grid row/col of asset $i$'s representative point — nodes use their own
+    ``(row, col)``, edges use the midpoint of their two endpoints; $\\mathrm{rp}_{lev}$ is the
+    levee design return period (years); $0$ means undefended (the ``stepfunction`` rule in
+    :func:`protection.protect` removes nothing where the threshold is 0).
+    """
+    import numpy as np
+
+    lev = spec["levee"]
+    lo_r, hi_r = lev["rows"]
+    lo_c, hi_c = lev["cols"]
+    rp_lev = float(lev["return_period_years"])
+    out = np.zeros(len(assets), dtype=float)
+    for i, a in enumerate(assets):
+        if "node" in a:
+            r, c = a["node"]
+        else:
+            (r1, c1), (r2, c2) = a["edge"]
+            r, c = (r1 + r2) / 2.0, (c1 + c2) / 2.0
+        if lo_r <= r <= hi_r and lo_c <= c <= hi_c:
+            out[i] = rp_lev
+    return out
+
+
+def _levee_defences(
+    hazard: Any, assets: list[dict[str, Any]], spec: dict[str, Any]
+) -> tuple[Any, dict[str, Any]]:
+    """Protected hazard and engine defences dict for the local bank levee.
+
+    Unlike :func:`_defences` (a single national return period for every cell) this is a
+    **per-centroid** standard: only the bank segment in the spec is defended to
+    ``levee.return_period_years``, the rest is `0` (undefended). Cells defended to a higher
+    standard than the national one are flagged ``levee_protected`` by the engine.
+    """
+    import numpy as np
+
+    from climaterisk_worker.physical_risk import protection
+
+    rp_arr = _levee_rp_array(hazard, assets, spec)
+    frequent = protection.local_intensity(hazard, 1.0 / float(np.max(hazard.frequency))) > 0
+    return protection.protect(hazard, rp_arr), {
+        "undefended": hazard,
+        "return_period": rp_arr,
+        "national_return_period": 0.0,
+        "frequent": frequent,
+    }
+
+
+def defences_for(
+    hazard: Any,
+    assets: list[dict[str, Any]],
+    spec: dict[str, Any],
+    protection_rp: float | None = None,
+    levee: bool = False,
+) -> tuple[Any, dict[str, Any] | None]:
+    """The protected hazard and the engine's ``defences`` dict for a defence scenario.
+
+    Args:
+        hazard: The undefended CLIMADA ``Hazard``.
+        assets: Asset dicts (needed for the levee's per-centroid standard).
+        spec: City specification (uses the ``levee`` section when ``levee`` is set).
+        protection_rp: Uniform design return period (years); ``None`` = no defences.
+        levee: When true, apply the local bank levee from the spec (overrides
+            ``protection_rp``).
+
+    Returns:
+        ``(priced_hazard, defences_dict)``. ``defences_dict`` is ``None`` for no defences and
+        otherwise carries ``undefended``, ``return_period`` (per-centroid),
+        ``national_return_period`` and ``frequent`` — the keys
+        :func:`climaterisk_worker.physical_risk.engine.calculate` reads.
+    """
+    if levee:
+        return _levee_defences(hazard, assets, spec)
+    if protection_rp:
+        return _defences(hazard, protection_rp)
+    return hazard, None
+
+
 def price_assets(
-    assets: list[dict[str, Any]], hazard: Any, protection_rp: float | None = None
+    assets: list[dict[str, Any]],
+    hazard: Any,
+    protection_rp: float | None = None,
+    levee: bool = False,
+    spec: dict[str, Any] | None = None,
 ) -> list[Any]:
     """One engine ``ResultRow`` per asset — the same call the batch runner makes.
 
     Args:
         assets: Asset dicts from :func:`climaterisk_worker.twin.build_city`.
         hazard: CLIMADA ``Hazard`` from :func:`climaterisk_worker.twin.hazard.build_hazard`.
-        protection_rp: When set, the hazard is protected to this uniform design return
-            period (years) before pricing; the undefended EAL is still computed for each
-            asset.
+        protection_rp: When set, the hazard is protected to this uniform design return period
+            (years) before pricing; the undefended EAL is still computed for each asset.
+        levee: When true, apply the local bank levee from ``spec`` (per-centroid standard)
+            instead of a uniform return period.
+        spec: City specification (required for ``levee``).
 
     Returns:
         A list of :class:`~climaterisk.physical_risk.metrics.ResultRow` objects, one per
@@ -69,9 +159,7 @@ def price_assets(
     """
     from climaterisk_worker.physical_risk import engine
 
-    priced_hazard, defences = hazard, None
-    if protection_rp:
-        priced_hazard, defences = _defences(hazard, protection_rp)
+    priced_hazard, defences = defences_for(hazard, assets, spec or {}, protection_rp, levee)
     rows = []
     for a in assets:
         facility = {k: v for k, v in a.items() if k not in ("node", "edge", "ground_m", "kind")}

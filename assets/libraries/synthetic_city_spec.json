@@ -21,6 +21,12 @@
     "stage_2y_m": 0.3,
     "stage_slope_m": 0.8
   },
+  "levee": {
+    "_note": "A LOCAL levee along PART OF THE BANK: the central segment of the bank row (row 0, cols 5..14) is protected to a 100-year design return period, everything else stays undefended. row/col are grid indices (inclusive bands, same convention as zoning); return_period_years is the design standard. Built with the per-centroid protection rule (protection.protect): cells at or below the 100-year depth are zeroed, rarer overtopping events still flood with full depth. A structural defence on part of the bank only — expected to cut EAL far less than an area-wide 100-year standard at the same RP.",
+    "rows": [0, 0],
+    "cols": [5, 14],
+    "return_period_years": 100
+  },
   "zoning": {
     "_note": "row/col bands (inclusive) that decide each intersection's land use; everything else is residential.",
     "industrial_rows": [0, 3],

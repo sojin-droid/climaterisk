@@ -18,16 +18,58 @@ from climaterisk_worker.twin.city import build_city
 from climaterisk_worker.twin.hazard import build_hazard
 from climaterisk_worker.twin.network import network_failure
 from climaterisk_worker.twin.plot import plot_city
-from climaterisk_worker.twin.pricing import _defences, portfolio_impact, price_assets
+from climaterisk_worker.twin.pricing import (
+    _levee_rp_array,
+    defences_for,
+    portfolio_impact,
+    price_assets,
+)
 from climaterisk_worker.twin.spec import MODEL_ID  # noqa: F401  (re-exported for CLI/tests)
 
-__all__ = ["run"]
+__all__ = ["compare_defences", "run"]
+
+
+def _by_kind(assets: list[dict[str, Any]], rows: list[Any]) -> dict[str, dict[str, float]]:
+    """Per-kind asset counts, value and EAL% from a per-asset ResultRow list."""
+    out: dict[str, dict[str, float]] = {}
+    for a, r in zip(assets, rows, strict=True):
+        k = out.setdefault(a["kind"], {"n": 0, "value_usd": 0.0, "eal_usd": 0.0})
+        k["n"] += 1
+        k["value_usd"] += a["asset_value_usd"]
+        k["eal_usd"] += r.eal_usd or 0.0
+    for k in out.values():
+        k["eal_pct"] = 100.0 * k["eal_usd"] / k["value_usd"]
+    return out
+
+
+def _scenario_rows(
+    assets: list[dict[str, Any]],
+    hazard: Any,
+    spec: dict[str, Any],
+    protection_rp: float | None,
+    levee: bool,
+) -> tuple[list[Any], Any, Any]:
+    """Price one defence scenario: returns (rows, priced_hazard, portfolio_impact).
+
+    The per-asset ``price_assets`` call and the portfolio ``portfolio_impact`` call both see the
+    same protected hazard, so the per-asset EAL sum must equal the portfolio ``aai_agg``
+    (rtol 1e-9) — asserted by the caller.
+    """
+    import numpy as np
+
+    priced, _ = defences_for(hazard, assets, spec, protection_rp, levee)
+    rows = price_assets(assets, hazard, protection_rp=protection_rp, levee=levee, spec=spec)
+    _, impact = portfolio_impact(assets, priced)
+    per_asset = np.array([r.eal_usd or 0.0 for r in rows])
+    np.testing.assert_allclose(per_asset.sum(), impact.aai_agg, rtol=1e-9)
+    return rows, priced, impact
 
 
 def run(
     out_dir: Path,
     spec: dict[str, Any],
     protection_rp: float | None = None,
+    levee: bool = False,
 ) -> dict[str, Any]:
     """Generate, price, cross-check and write every output; returns the summary.
 
@@ -48,6 +90,9 @@ def run(
         spec: City specification.
         protection_rp: When set, flood defences to this uniform design return period
             (years) before pricing.
+        levee: When true, apply the local bank levee from ``spec["levee"]`` (a per-centroid
+            design return period on part of the bank; the rest stays undefended) instead of a
+            uniform protection standard.
 
     Returns:
         The summary dict that is also written to ``summary.json``.
@@ -57,30 +102,23 @@ def run(
     out_dir.mkdir(parents=True, exist_ok=True)
     graph, assets = build_city(spec)
     hazard = build_hazard(assets, spec)
-    rows = price_assets(assets, hazard, protection_rp)
-
-    priced = hazard
-    if protection_rp:
-        priced, _ = _defences(hazard, protection_rp)
-    exp, impact = portfolio_impact(assets, priced)
+    priced_hazard, _ = defences_for(hazard, assets, spec, protection_rp, levee)
+    rows = price_assets(assets, hazard, protection_rp=protection_rp, levee=levee, spec=spec)
+    exp, impact = portfolio_impact(assets, priced_hazard)
     per_asset = np.array([r.eal_usd or 0.0 for r in rows])
     np.testing.assert_allclose(per_asset.sum(), impact.aai_agg, rtol=1e-9)
 
-    net = network_failure(graph, assets, hazard if not protection_rp else priced, spec)
+    net = network_failure(graph, assets, priced_hazard, spec)
     total = float(sum(a["asset_value_usd"] for a in assets))
-    by_kind: dict[str, dict[str, float]] = {}
-    for a, r in zip(assets, rows, strict=True):
-        k = by_kind.setdefault(a["kind"], {"n": 0, "value_usd": 0.0, "eal_usd": 0.0})
-        k["n"] += 1
-        k["value_usd"] += a["asset_value_usd"]
-        k["eal_usd"] += r.eal_usd or 0.0
-    for k in by_kind.values():
-        k["eal_pct"] = 100.0 * k["eal_usd"] / k["value_usd"]
+    by_kind = _by_kind(assets, rows)
     curve = impact.calc_freq_curve([10, 50, 100, 500])
+    levee_cells = int(np.count_nonzero(_levee_rp_array(hazard, assets, spec) > 0)) if levee else 0
     summary: dict[str, Any] = {
         "assumption": "synthetic city - every input assumed, see synthetic_city_spec.json",
         "seed": spec["seed"],
         "protection_rp_years": protection_rp,
+        "levee": levee,
+        "levee_protected_cells": levee_cells,
         "n_assets": len(assets),
         "n_nodes": graph.number_of_nodes(),
         "n_edges": graph.number_of_edges(),
@@ -142,3 +180,90 @@ def run(
     )
     plot_city(graph, assets, hazard, rows, spec, out_dir / "city_map.png")
     return summary
+
+
+def compare_defences(spec: dict[str, Any], out_dir: Path) -> list[dict[str, Any]]:
+    """Run the defence scenarios and write one comparison table.
+
+    Scenarios (same city, seed from the spec): no defence, uniform design return period
+    10/50/100 years, and a local levee along part of the bank. The city and hazard are
+    generated once; each scenario is priced through the engine (:func:`price_assets`) and
+    cross-checked against the portfolio ``aai_agg`` (rtol 1e-9).
+
+    The known-trap service cut-off indicator is reported together with EAL: a defence that
+    floods out nodes can *reduce* the cut-off count, so the two move together here rather
+    than being compared on the cut-off value alone.
+
+    Algorithm:
+        Same step-EAL identity as :func:`run`::
+            $$\\mathrm{EAL} = \\sum_i f_i\\,v\\,\\mathrm{MDR}(d_i)$$
+        ASCII: EAL = sum_i f_i * v * MDR(d_i)
+
+        $f_i$ event frequency (1/year), $v$ asset value (USD), $\\mathrm{MDR}$ mean damage
+        ratio at depth $d_i$ (m) from the JRC curve.
+
+    Args:
+        spec: City specification (uses the ``levee`` section for the levee scenario).
+        out_dir: Output directory (created if missing). Writes ``defence_scenarios.csv``
+            (headline + per-kind EAL%) and ``defence_summary.json``.
+
+    Returns:
+        One record per scenario with ``scenario``, ``protection_rp_years``, ``levee``,
+        ``eal_usd``, ``eal_pct``, ``expected_cut_off_value_usd_per_year`` and ``by_kind``.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    graph, assets = build_city(spec)
+    hazard = build_hazard(assets, spec)
+    total = float(sum(a["asset_value_usd"] for a in assets))
+    scenarios: list[tuple[str, float | None, bool]] = [
+        ("none", None, False),
+        ("uniform_10y", 10.0, False),
+        ("uniform_50y", 50.0, False),
+        ("uniform_100y", 100.0, False),
+        ("levee_bank_100y", None, True),
+    ]
+    table: list[dict[str, Any]] = []
+    for name, rp, lev in scenarios:
+        rows, priced, impact = _scenario_rows(assets, hazard, spec, rp, lev)
+        net = network_failure(graph, assets, priced, spec)
+        cut_off = float(
+            sum(n["frequency_per_year"] * n["residential_cut_off_value_usd"] for n in net)
+        )
+        table.append(
+            {
+                "scenario": name,
+                "protection_rp_years": rp,
+                "levee": lev,
+                "eal_usd": float(impact.aai_agg),
+                "eal_pct": 100.0 * float(impact.aai_agg) / total,
+                "expected_cut_off_value_usd_per_year": cut_off,
+                "by_kind": _by_kind(assets, rows),
+            }
+        )
+    kinds = sorted({a["kind"] for a in assets})
+    headline = [
+        "scenario",
+        "protection_rp_years",
+        "levee",
+        "eal_pct",
+        "eal_usd",
+        "expected_cut_off_value_usd_per_year",
+    ]
+    fieldnames = headline + [f"{k}_eal_pct" for k in kinds]
+    with (out_dir / "defence_scenarios.csv").open("w", newline="", encoding="utf-8") as fh:
+        w = csv.DictWriter(fh, fieldnames=fieldnames, extrasaction="ignore")
+        w.writeheader()
+        for t in table:
+            row: dict[str, Any] = {k: t[k] for k in headline}
+            for k in kinds:
+                row[f"{k}_eal_pct"] = t["by_kind"].get(k, {}).get("eal_pct", 0.0)
+            w.writerow(row)
+    (out_dir / "defence_summary.json").write_text(
+        json.dumps(
+            {"seed": spec["seed"], "total_value_usd": total, "scenarios": table},
+            indent=2,
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    return table

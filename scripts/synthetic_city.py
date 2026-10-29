@@ -53,7 +53,10 @@ for extra in (REPO / "worker", REPO / "src"):
     if str(extra) not in sys.path:
         sys.path.insert(0, str(extra))
 
-from climaterisk_worker.twin.pipeline import run  # noqa: E402
+from climaterisk_worker.twin.pipeline import (  # noqa: E402
+    compare_defences,
+    run,
+)
 from climaterisk_worker.twin.spec import SPEC_PATH, load_spec  # noqa: E402
 
 
@@ -72,10 +75,43 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="uniform flood-defence design return period (years)",
     )
+    ap.add_argument(
+        "--levee",
+        action="store_true",
+        help="apply the local bank levee (spec['levee']) instead of a uniform standard",
+    )
+    ap.add_argument(
+        "--compare",
+        action="store_true",
+        help="run all defence scenarios and write a comparison table (defence_scenarios.csv)",
+    )
     args = ap.parse_args(argv)
 
     out = Path(args.out) if args.out else paths.derived_dir("synthetic_city")
-    summary = run(out, load_spec(args.spec), args.protection_rp)
+    spec = load_spec(args.spec)
+    if args.compare:
+        table = compare_defences(spec, out)
+        kinds = sorted(table[0]["by_kind"])
+        print(f"Defence scenarios (seed {spec['seed']}) — EAL as % of total asset value:")
+        print(f"  {'scenario':<20}{'protection':<12}{'EAL %':>9}{'cut-off $/yr':>18}")
+        for t in table:
+            if t["levee"]:
+                prot = "levee"
+            elif t["protection_rp_years"]:
+                prot = f"{int(t['protection_rp_years'])}y"
+            else:
+                prot = "none"
+            cut = t["expected_cut_off_value_usd_per_year"]
+            print(f"  {t['scenario']:<20}{prot:<12}{t['eal_pct']:>9.3f}{cut:>18,.0f}")
+        print("  by-kind EAL %:")
+        for t in table:
+            parts = " ".join(
+                f"{k}={t['by_kind'].get(k, {}).get('eal_pct', 0.0):.3f}" for k in kinds
+            )
+            print(f"  {t['scenario']:<20}{parts}")
+        print(f"  outputs -> {out}")
+        return 0
+    summary = run(out, spec, args.protection_rp, levee=args.levee)
     print(f"assets {summary['n_assets']} (nodes {summary['n_nodes']}, roads {summary['n_edges']})")
     print(f"total value  {summary['total_value_usd']:,.0f} USD")
     print(f"EAL          {summary['eal_usd']:,.0f} USD/yr ({summary['eal_pct']:.3f} %)")

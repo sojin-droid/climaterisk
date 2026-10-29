@@ -8,6 +8,7 @@ from __future__ import annotations
 import copy
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -23,13 +24,18 @@ pytest.importorskip("networkx")
 import numpy as np  # noqa: E402
 from climaterisk_worker.twin import (  # noqa: E402
     build_city,
+    compare_defences,
     flood_depths,
     layered_frequencies,
     load_spec,
 )
 from climaterisk_worker.twin.hazard import build_hazard  # noqa: E402
 from climaterisk_worker.twin.network import network_failure  # noqa: E402
-from climaterisk_worker.twin.pricing import portfolio_impact, price_assets  # noqa: E402
+from climaterisk_worker.twin.pricing import (  # noqa: E402
+    defences_for,
+    portfolio_impact,
+    price_assets,
+)
 
 
 @pytest.fixture()
@@ -115,3 +121,90 @@ def test_network_has_no_cut_off_when_nothing_fails(small_spec: dict) -> None:
     graph, assets = build_city(small_spec)
     net = network_failure(graph, assets, build_hazard(assets, small_spec), small_spec)
     assert all(n["failed_nodes"] == 0 and n["residential_cut_off"] == 0 for n in net)
+
+
+def _scenario_eal_pct(
+    assets: list[dict],
+    hazard: Any,
+    spec: dict[str, Any],
+    protection_rp: float | None,
+    levee: bool,
+) -> float:
+    """Portfolio EAL as % of total value for one defence scenario (fast path).
+
+    Uses ``portfolio_impact`` on the protected hazard: the engine's per-asset sum is
+    cross-checked against ``aai_agg`` elsewhere, so the portfolio figure is the authoritive
+    EAL the pipeline reports.
+    """
+    priced, _ = defences_for(hazard, assets, spec, protection_rp, levee)
+    _, impact = portfolio_impact(assets, priced)
+    total = float(sum(a["asset_value_usd"] for a in assets))
+    return 100.0 * float(impact.aai_agg) / total
+
+
+def test_defence_scenarios_match_expected_eal() -> None:
+    """Full city (seed 20261029): EAL % must match AGENTS.md's expectations.
+
+    Expected: none / 10 / 50 / 100 y -> 1.303 / 0.749 / 0.313 / 0.186 %.
+    """
+    spec = load_spec()
+    _, assets = build_city(spec)
+    hazard = build_hazard(assets, spec)
+    # uniform defence scenarios — the AGENTS.md expectation
+    expected = {None: 1.303, 10.0: 0.749, 50.0: 0.313, 100.0: 0.186}
+    for rp, want in expected.items():
+        np.testing.assert_allclose(
+            _scenario_eal_pct(assets, hazard, spec, rp, False), want, rtol=1e-3, atol=1e-4
+        )
+    # more defence -> lower EAL
+    pcts = [_scenario_eal_pct(assets, hazard, spec, rp, False) for rp in (None, 10.0, 50.0, 100.0)]
+    assert pcts == sorted(pcts, reverse=True)
+    # local levee along part of the bank: a real defence (below none) but weaker than
+    # area-wide 100y (it only hardens the bank segment, the inland floodplain still floods).
+    levee_pct = _scenario_eal_pct(assets, hazard, spec, None, True)
+    np.testing.assert_allclose(levee_pct, 1.076, rtol=1e-3, atol=1e-4)
+    assert levee_pct < pcts[0] and levee_pct > pcts[-1]
+
+
+def test_levee_protects_only_bank_cells(small_spec: dict) -> None:
+    """The bank levee sets levee_protected only on bank-row cells; inland cells stay undefended.
+
+    small_spec is 4x4 (cols 0..3): widen the levee cols band so the bank row is fully protected.
+    """
+    small_spec["levee"]["cols"] = [0, 3]
+    _, assets = build_city(small_spec)
+    hazard = build_hazard(assets, small_spec)
+    priced, _ = defences_for(hazard, assets, small_spec, None, True)
+    rows = price_assets(assets, hazard, levee=True, spec=small_spec)
+    # per-asset engine EAL sum == portfolio aai_agg for the levee scenario too
+    per = np.array([r.eal_usd or 0.0 for r in rows])
+    _, impact = portfolio_impact(assets, priced)
+    np.testing.assert_allclose(per.sum(), impact.aai_agg, rtol=1e-9)
+    # only the bank row is levee-protected; the rest is undefended
+    n_protected = sum(1 for r in rows if r.levee_protected)
+    assert 0 < n_protected < len(rows)
+    for a, r in zip(assets, rows, strict=True):
+        if a.get("node") and a["node"][0] == 0:
+            assert r.levee_protected is True
+    # the levee cuts EAL vs no defence
+    none_rows = price_assets(assets, hazard)
+    assert per.sum() < sum(r.eal_usd or 0.0 for r in none_rows)
+
+
+def test_compare_defences_writes_table_and_orders_by_defence(small_spec: dict, tmp_path) -> None:
+    small_spec["levee"]["cols"] = [0, 3]
+    table = compare_defences(small_spec, tmp_path)
+    assert [t["scenario"] for t in table] == [
+        "none",
+        "uniform_10y",
+        "uniform_50y",
+        "uniform_100y",
+        "levee_bank_100y",
+    ]
+    uniform = [t["eal_pct"] for t in table[:4]]
+    assert uniform == sorted(uniform, reverse=True)  # stronger uniform defence -> lower EAL
+    assert table[-1]["eal_pct"] < table[0]["eal_pct"]  # levee still beats no defence
+    assert (tmp_path / "defence_scenarios.csv").exists()
+    assert (tmp_path / "defence_summary.json").exists()
+    # known trap: report cut-off alongside EAL, never on its own
+    assert all("expected_cut_off_value_usd_per_year" in t for t in table)
