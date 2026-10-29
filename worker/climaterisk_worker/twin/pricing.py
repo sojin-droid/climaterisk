@@ -14,7 +14,9 @@ from typing import Any
 from climaterisk_worker.twin.spec import MODEL_ID
 
 
-def _defences(hazard: Any, rp: float) -> tuple[Any, dict[str, Any]]:
+def _defences(
+    hazard: Any, rp: float, threshold_hazard: Any | None = None
+) -> tuple[Any, dict[str, Any]]:
     """Protected hazard and the engine's ``defences`` dict for a uniform design RP.
 
     Algorithm:
@@ -27,8 +29,11 @@ def _defences(hazard: Any, rp: float) -> tuple[Any, dict[str, Any]]:
     (years); $I^P_c$ depth at $c$ reached once every $P$ years (m).
 
     Args:
-        hazard: The undefended CLIMADA ``Hazard``.
+        hazard: The CLIMADA ``Hazard`` to protect (the future hazard under climate change).
         rp: Uniform design return period (years).
+        threshold_hazard: When set (the present hazard), the design depth is derived from it
+            and applied fixed to ``hazard`` — defences keep their present height instead of,
+            for a future hazard, silently growing with the flood.
 
     Returns:
         ``(protected_hazard, defences_dict)`` where ``defences_dict`` has the keys the
@@ -41,9 +46,12 @@ def _defences(hazard: Any, rp: float) -> tuple[Any, dict[str, Any]]:
 
     n = hazard.centroids.size
     rps = np.full(n, float(rp))
+    base = threshold_hazard or hazard
     # floods already at the most frequent layer (the engine's undefended_frequent_flooding)
     frequent = protection.local_intensity(hazard, 1.0 / float(np.max(hazard.frequency))) > 0
-    return protection.protect(hazard, rps), {
+    threshold = protection.thresholds(base, rps)
+    priced = protection.protect_with_threshold(hazard, threshold)
+    return priced, {
         "undefended": hazard,
         "return_period": rps,
         "national_return_period": float(rp),
@@ -85,7 +93,10 @@ def _levee_rp_array(hazard: Any, assets: list[dict[str, Any]], spec: dict[str, A
 
 
 def _levee_defences(
-    hazard: Any, assets: list[dict[str, Any]], spec: dict[str, Any]
+    hazard: Any,
+    assets: list[dict[str, Any]],
+    spec: dict[str, Any],
+    threshold_hazard: Any | None = None,
 ) -> tuple[Any, dict[str, Any]]:
     """Protected hazard and engine defences dict for the local bank levee.
 
@@ -93,14 +104,22 @@ def _levee_defences(
     **per-centroid** standard: only the levee band in the spec (the floodplain behind it) is
     defended to ``levee.return_period_years``, the rest is `0` (undefended). Cells defended to
     a higher standard than the national one are flagged ``levee_protected`` by the engine.
+
+    ``threshold_hazard`` (the present hazard) is the climate-change path: the per-centroid
+    design depth is derived from it and applied fixed to ``hazard`` (the future hazard), so
+    the levee keeps its present height instead of, for a future hazard, silently growing with
+    the flood (see AGENTS.md, step 3).
     """
     import numpy as np
 
     from climaterisk_worker.physical_risk import protection
 
     rp_arr = _levee_rp_array(hazard, assets, spec)
+    base = threshold_hazard or hazard
     frequent = protection.local_intensity(hazard, 1.0 / float(np.max(hazard.frequency))) > 0
-    return protection.protect(hazard, rp_arr), {
+    threshold = protection.thresholds(base, rp_arr)
+    priced = protection.protect_with_threshold(hazard, threshold)
+    return priced, {
         "undefended": hazard,
         "return_period": rp_arr,
         "national_return_period": 0.0,
@@ -114,16 +133,21 @@ def defences_for(
     spec: dict[str, Any],
     protection_rp: float | None = None,
     levee: bool = False,
+    threshold_hazard: Any | None = None,
 ) -> tuple[Any, dict[str, Any] | None]:
     """The protected hazard and the engine's ``defences`` dict for a defence scenario.
 
     Args:
-        hazard: The undefended CLIMADA ``Hazard``.
+        hazard: The CLIMADA ``Hazard`` to protect (the future hazard under climate change).
         assets: Asset dicts (needed for the levee's per-centroid standard).
         spec: City specification (uses the ``levee`` section when ``levee`` is set).
         protection_rp: Uniform design return period (years); ``None`` = no defences.
-        levee: When true, apply the local bank levee from the spec (overrides
-            ``protection_rp``).
+        levee: When true, apply the local bank levee from the spec (per-centroid standard)
+            instead of a uniform protection standard.
+        threshold_hazard: When set (the present hazard), the design depth is derived from it
+            and applied fixed to ``hazard`` — defences keep their present height. Without it
+            (the default) the design depth is derived from ``hazard`` itself, which silently
+            raises the levee on a future hazard (see AGENTS.md, step 3).
 
     Returns:
         ``(priced_hazard, defences_dict)``. ``defences_dict`` is ``None`` for no defences and
@@ -132,9 +156,9 @@ def defences_for(
         :func:`climaterisk_worker.physical_risk.engine.calculate` reads.
     """
     if levee:
-        return _levee_defences(hazard, assets, spec)
+        return _levee_defences(hazard, assets, spec, threshold_hazard)
     if protection_rp:
-        return _defences(hazard, protection_rp)
+        return _defences(hazard, protection_rp, threshold_hazard)
     return hazard, None
 
 
@@ -144,6 +168,7 @@ def price_assets(
     protection_rp: float | None = None,
     levee: bool = False,
     spec: dict[str, Any] | None = None,
+    threshold_hazard: Any | None = None,
 ) -> list[Any]:
     """One engine ``ResultRow`` per asset — the same call the batch runner makes.
 
@@ -155,6 +180,9 @@ def price_assets(
         levee: When true, apply the local bank levee from ``spec`` (per-centroid standard)
             instead of a uniform return period.
         spec: City specification (required for ``levee``).
+        threshold_hazard: When set (the present hazard), defences derive their design depth
+            from it and apply it fixed to ``hazard`` — defences keep their present height
+            under climate change (see ``defences_for``).
 
     Returns:
         A list of :class:`~climaterisk.physical_risk.metrics.ResultRow` objects, one per
@@ -162,7 +190,9 @@ def price_assets(
     """
     from climaterisk_worker.physical_risk import engine
 
-    priced_hazard, defences = defences_for(hazard, assets, spec or {}, protection_rp, levee)
+    priced_hazard, defences = defences_for(
+        hazard, assets, spec or {}, protection_rp, levee, threshold_hazard
+    )
     rows = []
     for a in assets:
         facility = {k: v for k, v in a.items() if k not in ("node", "edge", "ground_m", "kind")}

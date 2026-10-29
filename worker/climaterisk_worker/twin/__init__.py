@@ -20,10 +20,11 @@ if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
 from climaterisk_worker.twin.city import M_PER_DEG_LAT, build_city, node_kind  # noqa: E402
+from climaterisk_worker.twin.climate import build_future_hazard, future_scenarios  # noqa: E402
 from climaterisk_worker.twin.flood import flood_depths, layered_frequencies  # noqa: E402
 from climaterisk_worker.twin.hazard import build_hazard  # noqa: E402
 from climaterisk_worker.twin.network import network_failure  # noqa: E402
-from climaterisk_worker.twin.pipeline import compare_defences, run  # noqa: E402
+from climaterisk_worker.twin.pipeline import compare_climate, compare_defences, run  # noqa: E402
 from climaterisk_worker.twin.plot import plot_city  # noqa: E402
 from climaterisk_worker.twin.pricing import (  # noqa: E402
     defences_for,
@@ -37,10 +38,13 @@ __all__ = [
     "M_PER_DEG_LAT",
     "SPEC_PATH",
     "build_city",
+    "build_future_hazard",
     "build_hazard",
+    "compare_climate",
     "compare_defences",
     "defences_for",
     "flood_depths",
+    "future_scenarios",
     "layered_frequencies",
     "load_spec",
     "network_failure",

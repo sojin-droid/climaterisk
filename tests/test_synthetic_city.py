@@ -24,6 +24,7 @@ pytest.importorskip("networkx")
 import numpy as np  # noqa: E402
 from climaterisk_worker.twin import (  # noqa: E402
     build_city,
+    compare_climate,
     compare_defences,
     flood_depths,
     layered_frequencies,
@@ -209,3 +210,110 @@ def test_compare_defences_writes_table_and_orders_by_defence(small_spec: dict, t
     assert (tmp_path / "defence_summary.json").exists()
     # known trap: report cut-off alongside EAL, never on its own
     assert all("expected_cut_off_value_usd_per_year" in t for t in table)
+
+
+# --------------------------------------------------------------------------- #
+# Step 3 — climate change (levees keep their present height)                  #
+# --------------------------------------------------------------------------- #
+
+
+def _plus_half_m() -> dict[str, Any]:
+    """The spec's future scenario: +0.5 m on the 2-year stage, slope unchanged."""
+    return {"stage_2y_m_shift": 0.5, "stage_slope_m_shift": 0.0, "name": "+0.5m"}
+
+
+def test_future_hazard_shifts_stage_by_the_scenario_amount(small_spec: dict) -> None:
+    """+0.5 m on stage_2y_m raises every present depth on flooded cells by exactly +0.5 m."""
+    from climaterisk_worker.twin.climate import build_future_hazard
+    from climaterisk_worker.twin.flood import flood_depths
+
+    _, assets = build_city(small_spec)
+    present = build_hazard(assets, small_spec)
+    future = build_future_hazard(assets, small_spec, _plus_half_m())
+    pd = present.intensity.toarray()
+    fd = future.intensity.toarray()
+    # events and centroids line up between present and future hazards
+    assert future.event_name == present.event_name
+    # the future depth matrix equals the shifted stage law
+    shifted = copy.deepcopy(small_spec)
+    shifted["flood"]["stage_2y_m"] += 0.5
+    expected = flood_depths([a["ground_m"] for a in assets], shifted)
+    np.testing.assert_allclose(fd, expected, rtol=0, atol=1e-12)
+    # future depths are never below present, and rise by exactly +0.5 m where present > 0
+    assert np.all(fd >= pd - 1e-12)
+    np.testing.assert_allclose(fd[pd > 0] - pd[pd > 0], 0.5, rtol=0, atol=1e-12)
+
+
+def test_climate_change_multiplier_above_one_for_every_defence(tmp_path) -> None:
+    """Higher stage -> higher EAL: the multiplier exceeds 1 for every defence scenario.
+
+    Present-day headline EALs are unchanged by step 3 (none / 10 / 50 / 100 y /
+    levee = 1.303 / 0.749 / 0.313 / 0.186 / 0.739 %), so the present column is the step-2
+    baseline and only the future column (and the ratio) is new.
+    """
+    spec = load_spec()
+    results = compare_climate(spec, tmp_path)
+    scen = results[0]
+    by_defence = {t["scenario"]: t for t in scen["defence_results"]}
+    # present-day values are the step-2 baseline, untouched by step 3
+    np.testing.assert_allclose(by_defence["none"]["present_eal_pct"], 1.303, rtol=1e-3, atol=1e-4)
+    np.testing.assert_allclose(
+        by_defence["uniform_100y"]["present_eal_pct"], 0.186, rtol=1e-3, atol=1e-4
+    )
+    np.testing.assert_allclose(
+        by_defence["levee_bank_100y"]["present_eal_pct"], 0.739, rtol=1e-3, atol=1e-4
+    )
+    # higher stage -> higher EAL for every defence (defences keep their present height)
+    for t in scen["defence_results"]:
+        assert t["future_eal_pct"] > t["present_eal_pct"]
+        assert t["climate_change_multiplier"] > 1.0
+    assert (tmp_path / "climate_scenarios.csv").exists()
+    assert (tmp_path / "climate_summary.json").exists()
+
+
+def test_levee_keeps_present_height_avoids_the_trap(small_spec: dict) -> None:
+    """The trap: deriving the levee from the future hazard silently raises it.
+
+    Re-deriving the design depth from the future hazard (``defences_for(future, levee=True)``
+    without a ``threshold_hazard``) makes the levee grow with the flood, so it protects too
+    much and the levee EAL comes out too low. Using ``threshold_hazard=present`` keeps the
+    present height, so the levee floods more and the correct EAL is HIGHER than the trap.
+    """
+    from climaterisk_worker.twin.climate import build_future_hazard
+    from climaterisk_worker.twin.pricing import defences_for, portfolio_impact
+
+    small_spec["levee"].update(rows=[0, 3], cols=[0, 1])
+    _, assets = build_city(small_spec)
+    present = build_hazard(assets, small_spec)
+    future = build_future_hazard(assets, small_spec, _plus_half_m())
+    # correct: present design depth applied to the future hazard
+    correct_priced, _ = defences_for(
+        future, assets, small_spec, None, True, threshold_hazard=present
+    )
+    # trap: design depth re-derived from the future hazard (raises the levee)
+    trap_priced, _ = defences_for(future, assets, small_spec, None, True)
+    correct = float(portfolio_impact(assets, correct_priced)[1].aai_agg)
+    trap = float(portfolio_impact(assets, trap_priced)[1].aai_agg)
+    assert correct > trap > 0
+    # the same invariant on per-asset EAL sums (rtol 1e-9) for the correct (present-height) run
+    rows = price_assets(assets, future, levee=True, spec=small_spec, threshold_hazard=present)
+    _, correct_impact = portfolio_impact(assets, correct_priced)
+    np.testing.assert_allclose(
+        sum(r.eal_usd or 0.0 for r in rows), correct_impact.aai_agg, rtol=1e-9
+    )
+
+
+def test_protect_with_threshold_matches_protect_when_threshold_is_derived(
+    small_spec: dict,
+) -> None:
+    """``protect_with_threshold`` reproduces ``protect`` when the threshold is derived
+    from the same hazard (backward-compatibility of the refactor)."""
+    from climaterisk_worker.physical_risk import protection
+
+    _, assets = build_city(small_spec)
+    hazard = build_hazard(assets, small_spec)
+    rps = np.full(hazard.centroids.size, 50.0)
+    threshold = protection.thresholds(hazard, rps)
+    a = protection.protect(hazard, rps)
+    b = protection.protect_with_threshold(hazard, threshold)
+    np.testing.assert_allclose(a.intensity.toarray(), b.intensity.toarray(), rtol=0, atol=1e-12)

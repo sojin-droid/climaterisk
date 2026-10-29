@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from climaterisk_worker.twin.city import build_city
+from climaterisk_worker.twin.climate import build_future_hazard, future_scenarios
 from climaterisk_worker.twin.hazard import build_hazard
 from climaterisk_worker.twin.network import network_failure
 from climaterisk_worker.twin.plot import plot_city
@@ -26,7 +27,17 @@ from climaterisk_worker.twin.pricing import (
 )
 from climaterisk_worker.twin.spec import MODEL_ID  # noqa: F401  (re-exported for CLI/tests)
 
-__all__ = ["compare_defences", "run"]
+__all__ = ["compare_climate", "compare_defences", "run"]
+
+#: The five defence scenarios shared by the present-day and climate-change comparisons:
+#: no defence, a uniform design return period, and the local bank levee.
+_DEFENCE_SCENARIOS: list[tuple[str, float | None, bool]] = [
+    ("none", None, False),
+    ("uniform_10y", 10.0, False),
+    ("uniform_50y", 50.0, False),
+    ("uniform_100y", 100.0, False),
+    ("levee_bank_100y", None, True),
+]
 
 
 def _by_kind(assets: list[dict[str, Any]], rows: list[Any]) -> dict[str, dict[str, float]]:
@@ -48,17 +59,30 @@ def _scenario_rows(
     spec: dict[str, Any],
     protection_rp: float | None,
     levee: bool,
+    threshold_hazard: Any | None = None,
 ) -> tuple[list[Any], Any, Any]:
     """Price one defence scenario: returns (rows, priced_hazard, portfolio_impact).
 
     The per-asset ``price_assets`` call and the portfolio ``portfolio_impact`` call both see the
     same protected hazard, so the per-asset EAL sum must equal the portfolio ``aai_agg``
     (rtol 1e-9) — asserted by the caller.
+
+    Args:
+        threshold_hazard: When set (the present hazard), defences derive their design depth
+            from it and apply it fixed to ``hazard`` — defences keep their present height
+            under climate change (see :func:`twin.pricing.defences_for`).
     """
     import numpy as np
 
-    priced, _ = defences_for(hazard, assets, spec, protection_rp, levee)
-    rows = price_assets(assets, hazard, protection_rp=protection_rp, levee=levee, spec=spec)
+    priced, _ = defences_for(hazard, assets, spec, protection_rp, levee, threshold_hazard)
+    rows = price_assets(
+        assets,
+        hazard,
+        protection_rp=protection_rp,
+        levee=levee,
+        spec=spec,
+        threshold_hazard=threshold_hazard,
+    )
     _, impact = portfolio_impact(assets, priced)
     per_asset = np.array([r.eal_usd or 0.0 for r in rows])
     np.testing.assert_allclose(per_asset.sum(), impact.aai_agg, rtol=1e-9)
@@ -215,13 +239,7 @@ def compare_defences(spec: dict[str, Any], out_dir: Path) -> list[dict[str, Any]
     graph, assets = build_city(spec)
     hazard = build_hazard(assets, spec)
     total = float(sum(a["asset_value_usd"] for a in assets))
-    scenarios: list[tuple[str, float | None, bool]] = [
-        ("none", None, False),
-        ("uniform_10y", 10.0, False),
-        ("uniform_50y", 50.0, False),
-        ("uniform_100y", 100.0, False),
-        ("levee_bank_100y", None, True),
-    ]
+    scenarios: list[tuple[str, float | None, bool]] = _DEFENCE_SCENARIOS
     table: list[dict[str, Any]] = []
     for name, rp, lev in scenarios:
         rows, priced, impact = _scenario_rows(assets, hazard, spec, rp, lev)
@@ -267,3 +285,147 @@ def compare_defences(spec: dict[str, Any], out_dir: Path) -> list[dict[str, Any]
         encoding="utf-8",
     )
     return table
+
+
+def _scenario_cut_off(
+    graph: Any,
+    assets: list[dict[str, Any]],
+    priced: Any,
+    spec: dict[str, Any],
+) -> float:
+    """Frequency-weighted residential value cut off from the hospital/substation (USD/yr).
+
+    Reported alongside EAL per the known-trap rule: a defence that floods out nodes can
+    *reduce* the cut-off count, so the two are never compared on the cut-off value alone.
+    """
+    net = network_failure(graph, assets, priced, spec)
+    return float(sum(n["frequency_per_year"] * n["residential_cut_off_value_usd"] for n in net))
+
+
+def compare_climate(spec: dict[str, Any], out_dir: Path) -> list[dict[str, Any]]:
+    """Present vs future river stage for each defence scenario (levees keep present height).
+
+    For every future scenario in the spec (`climate.future_scenarios`) and every defence
+    scenario (none / 10 / 50 / 100 y / levee) the present and future EAL are priced, and the
+    climate-change multiplier is future EAL / present EAL.
+
+    **Levees keep their present height.** The per-centroid design depth is derived from the
+    PRESENT hazard and applied fixed to the future hazard (``threshold_hazard=present``);
+    re-deriving it from the future hazard would silently raise the levee and understate the
+    multiplier — the AGENTS.md trap (≈1.22× instead of a larger value at +0.5 m). The future
+    ``defences["undefended"]`` is the future hazard, so the undefended baseline is the future
+    loss; the *defended* loss keeps the present design depth.
+
+    The per-asset EAL sum is cross-checked against the portfolio ``aai_agg`` (rtol 1e-9) for
+    both present and future, and the known-trap cut-off value is reported alongside EAL for
+    both periods.
+
+    Algorithm:
+        $$m = \\frac{\\mathrm{EAL}^{future}}{\\mathrm{EAL}^{present}},\\\\qquad
+          \\mathrm{EAL} = \\sum_i f_i\\,v\\,\\mathrm{MDR}(d_i)$$
+        ASCII: m = EAL_future / EAL_present; EAL = sum_i f_i * v * MDR(d_i)
+
+        $f_i$ event frequency (1/year), $v$ asset value (USD), $\\mathrm{MDR}$ mean damage
+        ratio at depth $d_i$ (m) from the JRC curve, $m$ the climate-change multiplier
+        (future / present, same defence, same model).
+
+    Args:
+        spec: City specification (uses the ``flood`` and ``climate`` sections).
+        out_dir: Output directory (created if missing). Writes ``climate_scenarios.csv``
+            (headline + per-kind present/future EAL%) and ``climate_summary.json``.
+
+    Returns:
+        One record per future scenario, each with ``scenario``, the stage shifts, and a
+        ``defence_results`` table keyed by defence scenario name with ``present_eal_pct``,
+        ``future_eal_pct``, ``climate_change_multiplier``, the present/future cut-off values
+        and ``by_kind`` present/future EAL%.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    graph, assets = build_city(spec)
+    total = float(sum(a["asset_value_usd"] for a in assets))
+    present = build_hazard(assets, spec)
+    results: list[dict[str, Any]] = []
+    kinds = sorted({a["kind"] for a in assets})
+    for scen in future_scenarios(spec):
+        future = build_future_hazard(assets, spec, scen)
+        rows: list[dict[str, Any]] = []
+        for name, rp, lev in _DEFENCE_SCENARIOS:
+            p_rows, p_priced, p_impact = _scenario_rows(assets, present, spec, rp, lev)
+            f_rows, f_priced, f_impact = _scenario_rows(
+                assets, future, spec, rp, lev, threshold_hazard=present
+            )
+            p_pct = 100.0 * float(p_impact.aai_agg) / total
+            f_pct = 100.0 * float(f_impact.aai_agg) / total
+            mult = float(f_impact.aai_agg) / float(p_impact.aai_agg) if p_impact.aai_agg else None
+            rows.append(
+                {
+                    "scenario": name,
+                    "protection_rp_years": rp,
+                    "levee": lev,
+                    "present_eal_pct": p_pct,
+                    "future_eal_pct": f_pct,
+                    "climate_change_multiplier": mult,
+                    "present_cut_off_value_usd_per_year": _scenario_cut_off(
+                        graph, assets, p_priced, spec
+                    ),
+                    "future_cut_off_value_usd_per_year": _scenario_cut_off(
+                        graph, assets, f_priced, spec
+                    ),
+                    "present_by_kind": _by_kind(assets, p_rows),
+                    "future_by_kind": _by_kind(assets, f_rows),
+                }
+            )
+        results.append(
+            {
+                "scenario": scen["name"],
+                "stage_2y_m_shift": float(scen["stage_2y_m_shift"]),
+                "stage_slope_m_shift": float(scen["stage_slope_m_shift"]),
+                "defence_results": rows,
+            }
+        )
+
+    headline = [
+        "scenario",
+        "defence",
+        "protection_rp_years",
+        "levee",
+        "present_eal_pct",
+        "future_eal_pct",
+        "climate_change_multiplier",
+        "present_cut_off_value_usd_per_year",
+        "future_cut_off_value_usd_per_year",
+    ]
+    fieldnames = headline + [
+        f"{k}_{tag}" for k in kinds for tag in ("present_eal_pct", "future_eal_pct")
+    ]
+    with (out_dir / "climate_scenarios.csv").open("w", newline="", encoding="utf-8") as fh:
+        w = csv.DictWriter(fh, fieldnames=fieldnames, extrasaction="ignore")
+        w.writeheader()
+        for r in results:
+            for t in r["defence_results"]:
+                row: dict[str, Any] = {
+                    "scenario": r["scenario"],
+                    "defence": t["scenario"],
+                    "protection_rp_years": t["protection_rp_years"],
+                    "levee": t["levee"],
+                    "present_eal_pct": t["present_eal_pct"],
+                    "future_eal_pct": t["future_eal_pct"],
+                    "climate_change_multiplier": t["climate_change_multiplier"],
+                    "present_cut_off_value_usd_per_year": t["present_cut_off_value_usd_per_year"],
+                    "future_cut_off_value_usd_per_year": t["future_cut_off_value_usd_per_year"],
+                }
+                for k in kinds:
+                    row[f"{k}_present_eal_pct"] = (
+                        t["present_by_kind"].get(k, {}).get("eal_pct", 0.0)
+                    )
+                    row[f"{k}_future_eal_pct"] = t["future_by_kind"].get(k, {}).get("eal_pct", 0.0)
+                w.writerow(row)
+    (out_dir / "climate_summary.json").write_text(
+        json.dumps(
+            {"seed": spec["seed"], "total_value_usd": total, "scenarios": results},
+            indent=2,
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    return results

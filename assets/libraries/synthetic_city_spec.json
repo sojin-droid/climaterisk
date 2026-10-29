@@ -21,6 +21,17 @@
     "stage_2y_m": 0.3,
     "stage_slope_m": 0.8
   },
+  "climate": {
+    "_note": "Climate-change river stage shift vs the present baseline. The future stage law is h_future(T) = (stage_2y_m + stage_2y_m_shift) + (stage_slope_m + stage_slope_m_shift)*ln(T/2); return periods and centroid positions are unchanged, so the future hazard is compared event-for-event with the present. Defence design depths are derived from the PRESENT hazard and applied fixed to the future hazard — defences keep their present height and do not grow with the flood (see compare_climate in twin/pipeline.py and AGENTS.md step 3). A scenario with shift 0 is equivalent to the present.",
+    "future_scenarios": [
+      {
+        "_note": "Mid-century-style +0.5 m uniform stage rise on the 2-year stage; stage growth slope unchanged. This is the scenario the climate-change multiplier table is built against (AGENTS.md: the +0.5 m trap case).",
+        "name": "+0.5m",
+        "stage_2y_m_shift": 0.5,
+        "stage_slope_m_shift": 0.0
+      }
+    ]
+  },
   "levee": {
     "_note": "A LOCAL levee on part of the bank: a 100-year levee along the river reach of cols 5..14 protects the floodplain behind it (all rows of those cols); the other cols stay undefended. Flanking (water going round the levee ends) is ignored until the step-6 hydraulic model. Applied per centroid with protection.protect: depths from events up to the design return period are removed, rarer overtopping events flood at full depth. rows/cols are inclusive grid-index bands, same convention as zoning.",
     "rows": [0, 19],

@@ -45,6 +45,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from typing import Any
 
 import _console  # noqa: F401  (UTF-8 console; see scripts/_console.py)
 
@@ -54,10 +55,45 @@ for extra in (REPO / "worker", REPO / "src"):
         sys.path.insert(0, str(extra))
 
 from climaterisk_worker.twin.pipeline import (  # noqa: E402
+    compare_climate,
     compare_defences,
     run,
 )
 from climaterisk_worker.twin.spec import SPEC_PATH, load_spec  # noqa: E402
+
+
+def _print_climate(spec: dict[str, Any], out: Path) -> int:
+    """Print the present-vs-future EAL % and climate-change multiplier table."""
+    results = compare_climate(spec, out)
+    print(
+        f"Climate change (seed {spec['seed']}) - EAL as % of total asset value, "
+        "defences keep present height:"
+    )
+    for r in results:
+        print(
+            f"  future scenario: {r['scenario']}  "
+            f"(+{r['stage_2y_m_shift']:.2f} m stage, "
+            f"slope +{r['stage_slope_m_shift']:.2f} m/ln-yr)"
+        )
+        print(
+            f"  {'defence':<24}{'present %':>10}{'future %':>10}"
+            f"{'multiplier':>12}{'cut-off $/yr':>18}"
+        )
+        for t in r["defence_results"]:
+            prot = (
+                "levee"
+                if t["levee"]
+                else (f"{int(t['protection_rp_years'])}y" if t["protection_rp_years"] else "none")
+            )
+            print(
+                f"  {t['scenario'] + ' (' + prot + ')':<24}"
+                f"{t['present_eal_pct']:>10.3f}"
+                f"{t['future_eal_pct']:>10.3f}"
+                f"{t['climate_change_multiplier']:>12.3f}"
+                f"{t['future_cut_off_value_usd_per_year']:>18,.0f}"
+            )
+        print(f"  outputs -> {out}")
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -85,10 +121,18 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="run all defence scenarios and write a comparison table (defence_scenarios.csv)",
     )
+    ap.add_argument(
+        "--climate",
+        action="store_true",
+        help="present vs future river stage for each defence scenario "
+        "(climate_scenarios.csv); defences keep their present height",
+    )
     args = ap.parse_args(argv)
 
     out = Path(args.out) if args.out else paths.derived_dir("synthetic_city")
     spec = load_spec(args.spec)
+    if args.climate:
+        return _print_climate(spec, out)
     if args.compare:
         table = compare_defences(spec, out)
         kinds = sorted(table[0]["by_kind"])
