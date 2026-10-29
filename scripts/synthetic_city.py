@@ -123,6 +123,13 @@ def main(argv: list[str] | None = None) -> int:
         "return-period depth slider and out-of-service nodes",
     )
     ap.add_argument(
+        "--map3d",
+        action="store_true",
+        help="also write an interactive deck.gl 3D HTML page (city_3d.html) with "
+        "extruded buildings coloured by EAL % and a selectable-return-period "
+        "water surface (storeys are geometry only; no EAL change)",
+    )
+    ap.add_argument(
         "--compare",
         action="store_true",
         help="run all defence scenarios and write a comparison table (defence_scenarios.csv)",
@@ -167,6 +174,7 @@ def main(argv: list[str] | None = None) -> int:
         args.protection_rp,
         levee=args.levee,
         map_path=out / "city_map.html" if args.map else None,
+        map3d_path=out / "city_3d.html" if args.map3d else None,
     )
     print(f"assets {summary['n_assets']} (nodes {summary['n_nodes']}, roads {summary['n_edges']})")
     print(f"total value  {summary['total_value_usd']:,.0f} USD")

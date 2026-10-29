@@ -33,6 +33,7 @@ from climaterisk_worker.twin.pricing import (  # noqa: E402
 )
 from climaterisk_worker.twin.spec import MODEL_ID, SPEC_PATH, load_spec  # noqa: E402
 from climaterisk_worker.twin.viewer import render_map  # noqa: E402
+from climaterisk_worker.twin.viewer3d import generate_buildings, render_3d  # noqa: E402
 
 __all__ = [
     "MODEL_ID",
@@ -46,6 +47,7 @@ __all__ = [
     "defences_for",
     "flood_depths",
     "future_scenarios",
+    "generate_buildings",
     "layered_frequencies",
     "load_spec",
     "network_failure",
@@ -53,6 +55,7 @@ __all__ = [
     "plot_city",
     "portfolio_impact",
     "price_assets",
+    "render_3d",
     "render_map",
     "run",
 ]

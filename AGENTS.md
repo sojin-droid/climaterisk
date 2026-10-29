@@ -30,9 +30,10 @@ published benchmarks and conservation laws — before its numbers are used.
    applies a present design depth to a future hazard.
 4. ~~Map viewer~~ — done (`46a146b`, `d0ec7cd`): `twin/viewer.py`, `--map` → `city_map.html`.
    Page scripts that read Folium objects must run on `window` `load`, not `setTimeout(0)`.
-5. **3D buildings.** Synthetic footprints and storey counts per zone (spec JSON); a
-   deck.gl / Three.js page with extruded buildings and a water surface. Storeys feed the
-   ground-floor/basement exposure.
+5. ~~3D buildings~~ — done: `twin/viewer3d.py`, `--map3d` → `city_3d.html` (deck.gl 9.4.1
+   from jsDelivr, terrain + extruded buildings + flat water plane at the RP stage).
+   Storeys are geometry only; feeding them into ground-floor/basement exposure is a later,
+   separate change that WILL move EAL and needs its own expected values.
 6. **2D hydraulic model.** Local inertial shallow-water scheme on a raster (Bates,
    Horritt & Fewtrell 2010, J. Hydrol.; stability per de Almeida et al. 2012, WRR),
    written from the equations in NumPy — do not copy code from LISFLOOD-FP or others.
@@ -65,6 +66,7 @@ published benchmarks and conservation laws — before its numbers are used.
   Compare scenarios on the same seed, and show a seed spread before claiming a difference.
 - **A defence protects the land behind it.** A levee band covers the floodplain it fronts,
   not just the bank cells (step 2 first defended row 0 only and the city still flooded).
+- **Never add ruff per-file ignores** to silence long lines; wrap them.
 - **Tooling versions.** Use `uv sync --locked --all-extras`; CI pins ruff 0.15.18. A newer
   ruff reformats Markdown code blocks — never commit changes to files outside your step.
 

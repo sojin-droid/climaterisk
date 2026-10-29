@@ -27,6 +27,7 @@ from climaterisk_worker.twin.pricing import (
 )
 from climaterisk_worker.twin.spec import MODEL_ID  # noqa: F401  (re-exported for CLI/tests)
 from climaterisk_worker.twin.viewer import render_map
+from climaterisk_worker.twin.viewer3d import render_3d
 
 __all__ = ["compare_climate", "compare_defences", "run"]
 
@@ -96,6 +97,7 @@ def run(
     protection_rp: float | None = None,
     levee: bool = False,
     map_path: Path | None = None,
+    map3d_path: Path | None = None,
 ) -> dict[str, Any]:
     """Generate, price, cross-check and write every output; returns the summary.
 
@@ -122,6 +124,10 @@ def run(
         map_path: When set, also write an interactive Folium HTML map
             (lots coloured by EAL %, return-period depth slider, out-of-service
             nodes) to this path.
+        map3d_path: When set, also write a deck.gl 3D HTML page
+            (``city_3d.html``) with extruded buildings coloured by EAL % and a
+            selectable-return-period water surface. Storeys are geometry only
+            (see :mod:`climaterisk_worker.twin.viewer3d`); no EAL number changes.
 
     Returns:
         The summary dict that is also written to ``summary.json``.
@@ -210,6 +216,9 @@ def run(
     plot_city(graph, assets, hazard, rows, spec, out_dir / "city_map.png")
     if map_path is not None:
         render_map(graph, assets, priced_hazard, rows, net, spec, map_path)
+    if map3d_path is not None:
+        # Storeys are geometry only (step 5); pricing/rows are unchanged.
+        render_3d(assets, rows, spec, map3d_path)
     return summary
 
 

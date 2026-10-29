@@ -27,8 +27,10 @@ from climaterisk_worker.twin import (  # noqa: E402
     compare_climate,
     compare_defences,
     flood_depths,
+    generate_buildings,
     layered_frequencies,
     load_spec,
+    render_3d,
     render_map,
 )
 from climaterisk_worker.twin.hazard import build_hazard  # noqa: E402
@@ -346,3 +348,86 @@ def test_map_viewer_html_has_all_layers(small_spec: dict, tmp_path) -> None:
     assert "EAL" in html
     assert "Flood depth" in html
     assert "Out-of-service" in html
+
+
+# --------------------------------------------------------------------------- #
+# Step 5 — 3D buildings (geometry only; no EAL change)                       #
+# --------------------------------------------------------------------------- #
+
+
+def test_buildings_reproducible_for_seed(small_spec: dict) -> None:
+    """generate_buildings is deterministic for the spec seed.
+
+    Footprint sizes, storey counts and ground elevations repeat exactly across
+    calls and line up one-to-one with the priced lots (so the 3D geometry sits
+    exactly where the engine priced each asset).
+    """
+    _, assets = build_city(small_spec)
+    b1 = generate_buildings(small_spec, assets)
+    b2 = generate_buildings(small_spec, assets)
+    node_assets = [a for a in assets if "node" in a]
+    assert len(b1) == len(b2) == len(node_assets)
+    for a, b in zip(b1, b2, strict=True):
+        assert a["node"] == b["node"]
+        assert a["storeys"] == b["storeys"]
+        assert a["footprint_x_m"] == b["footprint_x_m"]
+        assert a["footprint_y_m"] == b["footprint_y_m"]
+        assert a["height_m"] == b["height_m"]
+        # ground elevation matches the priced lot exactly -> water aligns
+        assert a["ground_m"] == b["ground_m"]
+        assert a["kind"] == b["kind"]
+
+
+def test_building_heights_within_spec_ranges(small_spec: dict) -> None:
+    """Storeys fall in the per-kind [min, max] range; height = storeys * floor-to-floor.
+
+    Footprints are smaller than half the grid spacing so lots on neighbouring
+    intersections never overlap.
+    """
+    _, assets = build_city(small_spec)
+    buildings = generate_buildings(small_spec, assets)
+    ftm = small_spec["buildings"]["floor_to_floor_m"]
+    half = small_spec["grid"]["spacing_m"] / 2.0
+    per_kind = small_spec["buildings"]["per_kind"]
+    for b in buildings:
+        k = per_kind[b["kind"]]
+        s_lo, s_hi = k["storeys"]
+        assert s_lo <= b["storeys"] <= s_hi, (b["kind"], b["storeys"])
+        assert b["height_m"] == b["storeys"] * ftm
+        f_lo, f_hi = k["footprint_m"]
+        assert f_lo <= b["footprint_x_m"] <= f_hi
+        assert f_lo <= b["footprint_y_m"] <= f_hi
+        assert b["footprint_x_m"] < half
+        assert b["footprint_y_m"] < half
+        # storey count is geometry only: no asset value / EAL field is altered
+        assert "asset_value_usd" not in b
+
+
+def test_3d_html_contains_every_return_period_and_deckgl(small_spec: dict, tmp_path: Path) -> None:
+    """city_3d.html loads deck.gl at the exact pinned version and lists a water
+    stage for every return period; EAL colours are embedded per building."""
+    from climaterisk_worker.twin.viewer3d import DECKGL_VERSION
+
+    _, assets = build_city(small_spec)
+    hazard = build_hazard(assets, small_spec)
+    rows = price_assets(assets, hazard)
+    out = tmp_path / "city_3d.html"
+    render_3d(assets, rows, small_spec, out)
+
+    assert out.exists()
+    html = out.read_text(encoding="utf-8")
+    # exact pinned deck.gl from jsDelivr
+    assert f"cdn.jsdelivr.net/npm/deck.gl@{DECKGL_VERSION}/dist.min.js" in html
+    assert "deck.gl@" + DECKGL_VERSION in html
+    assert "SolidPolygonLayer" in html
+    assert "meter-offsets" in html
+    # one selectable water stage per return period
+    for rp in small_spec["flood"]["return_periods"]:
+        assert f"{int(rp)} yr" in html, f"Missing return-period option {rp}"
+    assert "water" in html
+    assert "rpSelect" in html
+    # EAL colour + geometry data are embedded
+    assert "buildings" in html
+    assert "grid_w_m" in html
+    # default page runs the init on load (no setTimeout(0) trap)
+    assert "addEventListener('load'" in html

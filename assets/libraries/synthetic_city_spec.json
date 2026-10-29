@@ -71,5 +71,43 @@
   "network": {
     "_note": "a node (intersection, substation, hospital) is out of service when its flood depth exceeds failure_depth_m — an assumed passability/operability limit, not a damage curve.",
     "failure_depth_m": 0.3
+  },
+  "buildings": {
+    "_note": "Synthetic 3D building geometry for the deck.gl city_3d.html viewer (AGENTS.md step 5). Footprint size and storey count are drawn per zone with the spec seed and are GEOMETRY ONLY in this step: they do not touch the pricing/damage model, so NO EAL number changes. The storey count is intended to drive the ground-floor / basement EXPOSURE in a later step; wiring storeys into the engine calculate is deliberately deferred (see AGENTS.md 'storeys feed the ground-floor/basement exposure'). Footprints are drawn smaller than spacing_m/2 so lots on adjacent intersections never overlap. Building height = storeys * floor_to_floor_m.",
+    "floor_to_floor_m": 3.0,
+    "floor_to_floor_m_note": "Assumed storey-to-storey height (m): typical floor-to-floor (structural zone + services slab). Same constant for every zone; only the storey count varies by land use.",
+    "per_kind": {
+      "_note": "Footprint ([x, y] metres) and storey-count ([min, max]) ranges drawn per lot with the spec seed. Every value is an assumption, not a measurement.",
+      "residential": {
+        "footprint_m": [8.0, 18.0],
+        "footprint_m_note": "Small low-rise lots: footprint kept well under half the 100 m spacing so detached/semi-detached blocks do not touch their neighbours.",
+        "storeys": [1, 3],
+        "storeys_note": "One to three storeys: single-family homes and small apartment blocks on the residential grid."
+      },
+      "commercial": {
+        "footprint_m": [15.0, 30.0],
+        "footprint_m_note": "Larger footprints on the commercial street front (commercial_rows x commercial_cols): bigger low- to mid-rise blocks.",
+        "storeys": [3, 8],
+        "storeys_note": "Three to eight storeys: low- and mid-rise office/retail blocks on the commercial front."
+      },
+      "industrial": {
+        "footprint_m": [20.0, 42.0],
+        "footprint_m_note": "Wide single- to low-rise plant footprints along the river industrial rows.",
+        "storeys": [1, 3],
+        "storeys_note": "One to three storeys: warehouses and light industry; predominantly single-storey plant."
+      },
+      "substation": {
+        "footprint_m": [6.0, 10.0],
+        "footprint_m_note": "Compact fenced infrastructure footprint for the assumed substation lots.",
+        "storeys": [1, 2],
+        "storeys_note": "One to two storeys: ground-level plant plus a small control/measuring room."
+      },
+      "hospital": {
+        "footprint_m": [28.0, 42.0],
+        "footprint_m_note": "Large footprint for the single city-general hospital lot.",
+        "storeys": [4, 8],
+        "storeys_note": "Four to eight storeys: a multi-storey clinical block as the city's tallest facility."
+      }
+    }
   }
 }
