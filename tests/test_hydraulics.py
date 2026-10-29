@@ -1,6 +1,14 @@
-"""Verification gate for the 2D local-inertial hydraulic solver.
+"""Verification gate for the 2D local-inertial hydraulic solver (AGENTS.md step 6).
 
-Tests against analytical solutions, mass conservation and still-water equilibrium.
+Every reference below is an analytical solution or a conservation law; the tolerances were
+fixed from the model's known error, not from whatever the code happened to produce:
+
+- The local inertial approximation drops the advection term d(q^2/h)/dx. Its error therefore
+  does not shrink with the grid; it grows with the Froude number (Bates et al. 2010; de
+  Almeida & Bates 2013; Neal et al. 2012 recommend Fr < 0.5). The analytical tests sit in
+  that range and each also checks that the error is a model error (flat under refinement),
+  not a discretisation bug.
+- Mass and lake-at-rest are exact properties of the scheme and are held to round-off or 0.1 %.
 """
 
 from __future__ import annotations
@@ -16,217 +24,171 @@ for extra in (REPO / "worker", REPO / "src"):
     if str(extra) not in sys.path:
         sys.path.insert(0, str(extra))
 
-from climaterisk_worker.twin.hydraulics import adaptive_dt, run, step  # noqa: E402
+from climaterisk_worker.twin.hydraulics import run  # noqa: E402
+
+G = 9.81
+
+
+def _l1(h: np.ndarray, h_exact: np.ndarray) -> float:
+    """Normalised L1 depth error ||h - h_exact||_1 / ||h_exact||_1 (dimensionless)."""
+    return float(np.abs(h - h_exact).sum() / np.abs(h_exact).sum())
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# 1. Dam break on a wet bed — Stoker (1957) analytical solution
 # ---------------------------------------------------------------------------
-def _assert_close(name: str, value: float, tol: float, rel: bool = False) -> None:
-    if rel:
-        assert abs(value) <= tol, f"{name}: {value} > tolerance {tol}"
-    else:
-        assert value <= tol, f"{name}: {value} > tolerance {tol}"
+def _stoker(x: np.ndarray, t: float, h_l: float, h_r: float, x0: float) -> np.ndarray:
+    """Exact depth for a frictionless dam break on a wet, flat bed.
 
+    Algorithm:
+        Middle state $h_m$ from matching the rarefaction and the shock:
+        $$2(\\sqrt{g h_L} - \\sqrt{g h_m}) = (h_m - h_R)\\sqrt{\\frac{g (h_m + h_R)}{2 h_m h_R}}$$
+        then, with $\\xi = (x - x_0)/t$, $c = \\sqrt{g h}$, $u_m = 2(c_L - c_m)$ and shock
+        speed $s = h_m u_m / (h_m - h_R)$:
+        $h = h_L$ for $\\xi < -c_L$; $h = (2 c_L - \\xi)^2 / (9 g)$ for $-c_L < \\xi < u_m - c_m$;
+        $h = h_m$ for $u_m - c_m < \\xi < s$; $h = h_R$ beyond.
+        ASCII: rarefaction h = (2 cL - xi)^2 / (9 g); plateau h_m; shock at s; then h_R.
 
-# ---------------------------------------------------------------------------
-# 1. 1D dam break — Ritter analytical solution on a wet bed
-# ---------------------------------------------------------------------------
-def test_dam_break_wet_bed_vs_ritter() -> None:
-    """1D dam break on a wet bed versus the Ritter/Stoker analytical solution.
-
-    The local inertial approximation (LInA) is not exact for supercritical
-    wet/dry fronts: Cozzolino et al. (2019) show it replaces the rarefaction
-    with a shock at moving frontiers. We therefore compare the depth profile
-    inside the rarefaction region and allow a relaxed tolerance that reflects
-    this known model error rather than pure round-off.
+    Depths in m, x in m, t in s, g in m/s^2.
     """
-    g = 9.81
-    nx = 200
-    ny = 1
-    dx = 1.0
-    dy = 1.0
-    x = np.arange(nx) * dx
-    h0 = np.zeros((ny, nx), dtype=np.float64)
-    h0[0, :50] = 2.0
-    h0[0, 50:] = 1e-4
-    bed_z = np.zeros((ny, nx), dtype=np.float64)
-    manning_n = 0.0
-    theta = 0.7
-    alpha_cfl = 0.7
-    t_final = 3.0
+    c_l = math.sqrt(G * h_l)
 
-    # Ritter analytical solution (dry downstream limit, valid for h1 -> 0)
-    c0 = math.sqrt(g * 2.0)
-    xi = x - 50.0
-    h_exact = np.zeros(nx, dtype=np.float64)
-    mask = xi < -c0 * t_final
-    h_exact[mask] = 2.0
-    mask = xi > (2.0 / 3.0) * c0 * t_final
-    h_exact[mask] = 0.0
-    raref = (~mask) & (xi > -c0 * t_final) & (xi < (2.0 / 3.0) * c0 * t_final)
-    h_exact[raref] = np.maximum(0.0, (1.0 / g) * (c0 - xi[raref] / (2.0 * t_final)) ** 2)
+    def mismatch(h_m: float) -> float:
+        u_rare = 2.0 * (c_l - math.sqrt(G * h_m))
+        u_shock = (h_m - h_r) * math.sqrt(G * (h_m + h_r) / (2.0 * h_m * h_r))
+        return u_rare - u_shock
 
-    # Run solver
-    h = h0.copy()
-    q_x = np.zeros((ny, nx + 1), dtype=np.float64)
-    q_y = np.zeros((ny + 1, nx), dtype=np.float64)
-    t_cur = 0.0
-    while t_cur < t_final:
-        dt = adaptive_dt(h, dx, dy, manning_n, alpha_cfl, g)
-        dt = min(dt, t_final - t_cur)
-        h, q_x, q_y = step(h, q_x, q_y, bed_z, dx, dy, dt, manning_n, theta=theta)
-        t_cur += dt
-
-    err = h[0] - h_exact
-    # Compare in the rarefaction interior, excluding the thin-film front
-    raref_mask = (xi > -c0 * t_final + 3.0 * dx) & (xi < (2.0 / 3.0) * c0 * t_final - 3.0 * dx)
-    l2 = np.linalg.norm(err[raref_mask]) / np.sqrt(raref_mask.sum())
-    max_err = float(np.max(np.abs(err[raref_mask])))
-
-    # L2 norm tolerance 1.6 m reflects the LInA model error (neglected inertia/
-    # advection and the replacement of the rarefaction by a numerical diffusion
-    # layer near the wet/dry front). Max error 2.7 m guards against non-physical
-    # spikes.
-    assert l2 < 1.6, f"L2 dam-break error {l2:.4f} m >= 1.6 m"
-    assert max_err < 2.7, f"max dam-break error {max_err:.4f} m >= 2.7 m"
+    lo, hi = h_r, h_l  # mismatch(lo) > 0 > mismatch(hi)
+    for _ in range(200):
+        mid = 0.5 * (lo + hi)
+        lo, hi = (mid, hi) if mismatch(mid) > 0 else (lo, mid)
+    h_m = 0.5 * (lo + hi)
+    c_m = math.sqrt(G * h_m)
+    u_m = 2.0 * (c_l - c_m)
+    s = h_m * u_m / (h_m - h_r)
+    xi = (x - x0) / t
+    return np.where(
+        xi < -c_l,
+        h_l,
+        np.where(xi < u_m - c_m, (2.0 * c_l - xi) ** 2 / (9.0 * G), np.where(xi < s, h_m, h_r)),
+    )
 
 
-# ---------------------------------------------------------------------------
-# 2. Thacker's parabolic bowl — wetting and drying over one period
-# ---------------------------------------------------------------------------
-def test_thacker_parabolic_bowl() -> None:
-    """Thacker's parabolic bowl wetting/drying over one full period.
+def _dam_break_error(nx: int) -> float:
+    length, h_l, h_r, t_end = 100.0, 1.0, 0.5, 5.0
+    dx = length / nx
+    x = (np.arange(nx) + 0.5) * dx
+    h0 = np.where(x < 50.0, h_l, h_r).reshape(1, -1)
+    res = run(h0, np.zeros_like(h0), dx, dx, 0.0, t_end)
+    return _l1(res["h"][0], _stoker(x, t_end, h_l, h_r, 50.0))
 
-    The exact solution (no friction) is a periodic depth oscillation with
-    moving wet/dry interfaces. The numerical LInA solution is compared at four
-    phases of the cycle. Tolerance is set relative to grid spacing.
+
+def test_dam_break_wet_bed_vs_stoker() -> None:
+    """h_R/h_L = 0.5 (plateau Fr ~ 0.3). Tolerance 5 % normalised L1 (measured ~2.4 %).
+
+    The error comes from the dropped advection term, so it must also be flat under
+    refinement: halving dx may not change it by more than 20 % either way.
     """
-    g = 9.81
-    L = 100.0
-    nx = 200
-    ny = 1
-    dx = L / nx
-    dy = dx
-    h0 = 1.0
-    a = L / 2.0
-    omega = math.sqrt(2.0 * g * h0) / a
-    T = 2.0 * math.pi / omega
-
-    x = np.arange(nx) * dx
-    bed_z = (h0 / (a * a)) * (x - L / 2.0) ** 2 - h0
-    bed_z = bed_z.reshape(1, -1)
-    h_init = np.zeros((ny, nx), dtype=np.float64)
-    inside = (x - L / 2.0) ** 2 < 0.75 * a * a
-    h_init[0, inside] = h0 * (0.75 - (x[inside] - L / 2.0) ** 2 / (a * a))
-    h_init = np.maximum(h_init, 0.0)
-
-    def _exact(t: float) -> np.ndarray:
-        coeff = math.cos(omega * t) / (4.0 * a * a)
-        h = h0 * (1.0 - (x - L / 2.0) ** 2 / (a * a) - coeff)
-        return np.maximum(h, 0.0)
-
-    times = [T / 4.0, T / 2.0, 3.0 * T / 4.0, T]
-    h = h_init.copy()
-    q_x = np.zeros((ny, nx + 1), dtype=np.float64)
-    q_y = np.zeros((ny + 1, nx), dtype=np.float64)
-    t_cur = 0.0
-
-    for t_target in times:
-        while t_cur < t_target - 1e-10:
-            dt = adaptive_dt(h, dx, dy, 0.0, alpha_cfl=0.7, g=g)
-            dt = min(dt, t_target - t_cur)
-            h, q_x, q_y = step(h, q_x, q_y, bed_z, dx, dy, dt, 0.0)
-            t_cur += dt
-        h_ex = _exact(t_cur)
-        # L2 norm in wet region only
-        wet = h_ex > 1e-6
-        if wet.any():
-            l2 = np.linalg.norm(h[0, wet] - h_ex[wet]) / np.sqrt(wet.sum())
-            assert l2 < 0.25, f"L2 Thacker error {l2:.4f} m >= 0.25 m at t={t_cur:.2f}"
+    coarse, fine = _dam_break_error(200), _dam_break_error(400)
+    assert coarse < 0.05, f"Stoker L1 {coarse:.4f} >= 0.05"
+    assert fine < 0.05, f"Stoker L1 {fine:.4f} >= 0.05"
+    assert abs(fine - coarse) < 0.2 * coarse, (coarse, fine)
 
 
 # ---------------------------------------------------------------------------
-# 3. Mass balance closure < 0.1 % for rain + inflow
+# 2. Thacker (1981) planar oscillation in a parabolic bowl — wetting and drying
 # ---------------------------------------------------------------------------
-def test_mass_balance_rain_plus_inflow() -> None:
-    """Mass balance closure under 0.1 % for a rain + inflow case.
+def _thacker_error(nx: int, amplitude_m: float) -> float:
+    """Normalised L1 error after one full period.
 
-    With closed boundaries the only mass sources are rain and the point inflow.
-    The relative mass balance error is computed against the analytical input
-    mass.
+    Algorithm:
+        Bed $z = h_0 (\\tilde x^2 / a^2 - 1)$, $\\tilde x = x - L/2$. Exact frictionless
+        solution: a rigid parabolic water body sliding back and forth,
+        $$h(x,t) = \\max\\Big(0,\\;
+          h_0\\Big[1 - \\frac{(\\tilde x + A\\cos\\omega t)^2}{a^2}\\Big]\\Big),
+          \\qquad \\omega = \\frac{\\sqrt{2 g h_0}}{a}$$
+        with uniform velocity $u = A\\omega\\sin\\omega t$ (starts at rest).
+        ASCII: h = max(0, h0 * (1 - ((x~ + A cos(w t)) / a)^2)), w = sqrt(2 g h0) / a.
+
+    $h_0$ centre depth (m), $a$ half-width of the water body (m), $A$ amplitude (m).
     """
-    nx = 100
-    ny = 1
-    dx = 1.0
-    dy = 1.0
-    h0 = np.zeros((ny, nx), dtype=np.float64)
-    bed_z = np.zeros((ny, nx), dtype=np.float64)
-    manning_n = 0.0
-    rain = np.full((ny, nx), 1e-5, dtype=np.float64)
-    inflow_rate = 0.01
-    t_end = 100.0
+    length, a, h0 = 4.0, 1.0, 0.5
+    omega = math.sqrt(2.0 * G * h0) / a
+    period = 2.0 * math.pi / omega
+    dx = length / nx
+    xt = (np.arange(nx) + 0.5) * dx - length / 2.0
+    bed = (h0 * (xt**2 / a**2 - 1.0)).reshape(1, -1)
 
-    def _inflow(t: float):
-        return (np.array([0]), np.array([50]), inflow_rate)
+    def exact(t: float) -> np.ndarray:
+        return np.maximum(0.0, h0 * (1.0 - ((xt + amplitude_m * math.cos(omega * t)) / a) ** 2))
+
+    res = run(exact(0.0).reshape(1, -1), bed, dx, dx, 0.0, period)
+    return _l1(res["h"][0], exact(period))
+
+
+def test_thacker_bowl_one_period() -> None:
+    """A = 0.05 m (peak Fr ~ 0.07): tolerance 2 % L1 after a period (measured ~1.1 %)."""
+    coarse, fine = _thacker_error(200, 0.05), _thacker_error(400, 0.05)
+    assert coarse < 0.02, f"Thacker L1 {coarse:.4f} >= 0.02"
+    assert fine < 0.02, f"Thacker L1 {fine:.4f} >= 0.02"
+    assert abs(fine - coarse) < 0.2 * coarse, (coarse, fine)
+
+
+def test_thacker_error_grows_with_froude() -> None:
+    """Documents the limit of the scheme: faster sloshing (higher Fr) -> larger error.
+
+    Measured: A = 0.05 / 0.1 / 0.2 m (Fr ~0.07 / 0.14 / 0.28) -> ~1 % / ~4 % / ~9 %.
+    Do not use this model for fast, supercritical flow (dam-break fronts on a dry bed).
+    """
+    errs = [_thacker_error(200, amp) for amp in (0.05, 0.1, 0.2)]
+    assert errs == sorted(errs), errs
+    assert errs[-1] < 0.15, errs
+
+
+# ---------------------------------------------------------------------------
+# 3. Mass balance: inflow + rain - storage = 0 to < 0.1 %
+# ---------------------------------------------------------------------------
+def test_mass_balance_rain_plus_inflow_on_uneven_ground() -> None:
+    """Closed 2D box over rough ground with dry cells, default wet/dry threshold.
+
+    Stored volume must equal rain + inflow to < 0.1 % (the outflow limiter means no
+    negative depth is ever clipped, so mass is conserved to round-off in practice).
+    """
+    rng = np.random.default_rng(20261030)
+    ny, nx, dx = 30, 40, 5.0
+    bed = rng.normal(0.0, 0.3, size=(ny, nx)) + 0.01 * np.arange(nx) * dx
+    rain_rate = 50e-3 / 3600.0  # 50 mm/h in m/s
+    inflow = 2.0  # m^3/s
+    t_end = 600.0
+
+    def inflow_fn(t: float) -> tuple[np.ndarray, np.ndarray, float]:
+        return np.array([ny // 2]), np.array([0]), inflow
 
     res = run(
-        h0,
-        bed_z,
+        np.zeros((ny, nx)),
+        bed,
         dx,
-        dy,
-        manning_n,
+        dx,
+        0.03,
         t_end,
-        rain=rain,
-        inflow_fn=_inflow,
-        alpha_cfl=0.7,
-        g=9.81,
-        h_dry=0.0,
+        rain=np.full((ny, nx), rain_rate),
+        inflow_fn=inflow_fn,
     )
-    h_final = res["h"]
-    expected_mass = (rain[0, 0] * nx * dx * dy + inflow_rate) * t_end
-    actual_mass = float(np.sum(h_final * dx * dy))
-    rel_err = abs(actual_mass - expected_mass) / expected_mass
-    assert rel_err < 1e-3, f"mass balance error {rel_err:.4e} >= 1e-3"
+    stored = float(res["h"].sum() * dx * dx)
+    added = (rain_rate * nx * ny * dx * dx + inflow) * t_end
+    assert abs(stored - added) / added < 1e-3, (stored, added)
 
 
 # ---------------------------------------------------------------------------
 # 4. Lake at rest stays at rest over uneven ground
 # ---------------------------------------------------------------------------
 def test_lake_at_rest_uneven_ground() -> None:
-    """Lake at rest stays at rest over uneven ground.
-
-    A flat free surface over a quadratic bed is an exact equilibrium of the
-    local inertial equations. Any spurious motion indicates a lack of
-    well-balancedness in the numerical scheme.
-    """
-    nx = 40
-    ny = 40
-    dx = 1.0
-    dy = 1.0
-    x = np.arange(nx) * dx
-    y = np.arange(ny) * dy
-    xv, yv = np.meshgrid(x, y)
-    bed_z = 0.1 * (xv**2 + yv**2)
-    eta = 1.0
-    h0 = np.maximum(eta - bed_z, 0.0)
-    manning_n = 0.0
-
-    res = run(
-        h0,
-        bed_z,
-        dx,
-        dy,
-        manning_n,
-        t_end=1.0,
-        alpha_cfl=0.7,
-        g=9.81,
-        h_dry=1e-4,
-    )
-    h = res["h"]
-    q_x = res["q_x"]
-    q_y = res["q_y"]
-
-    np.testing.assert_allclose(h, h0, rtol=1e-12, atol=1e-12)
-    np.testing.assert_allclose(q_x, 0.0, rtol=1e-12, atol=1e-12)
-    np.testing.assert_allclose(q_y, 0.0, rtol=1e-12, atol=1e-12)
+    """A flat surface over a bowl with dry rims must not move (well-balanced scheme)."""
+    n = 40
+    xv, yv = np.meshgrid(np.arange(n, dtype=float), np.arange(n, dtype=float))
+    bed = 0.01 * ((xv - n / 2) ** 2 + (yv - n / 2) ** 2)
+    h0 = np.maximum(1.0 - bed, 0.0)
+    res = run(h0, bed, 1.0, 1.0, 0.0, t_end=10.0)
+    np.testing.assert_allclose(res["h"], h0, rtol=0, atol=1e-12)
+    np.testing.assert_allclose(res["q_x"], 0.0, rtol=0, atol=1e-12)
+    np.testing.assert_allclose(res["q_y"], 0.0, rtol=0, atol=1e-12)

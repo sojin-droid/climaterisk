@@ -115,7 +115,7 @@ def step(
         rain: Rainfall rate [m s$^{-1}$], shape ``(ny, nx)`` or ``None``.
         infiltration: Infiltration rate [m s$^{-1}$], shape ``(ny, nx)`` or ``None``.
         inflow_cells: Tuple of (row_indices, col_indices) for point inflow cells.
-        inflow_rate: Inflow discharge [m$^3$ s$^{-1}$] distributed over inflow_cells.
+        inflow_rate: Total inflow discharge [m$^3$ s$^{-1}$], split equally over inflow_cells.
         theta: q-centring weight [$-$], $0 \\le \\theta \\le 1$.
         h_dry: Wet/dry threshold [m]; faces with $h_f < h_{\\text{dry}}$ get $q=0$.
         g: Gravity [m s$^{-2}$].
@@ -166,6 +166,9 @@ def step(
         den = 1.0 + g * dt * manning_n**2 * np.abs(q_n) / (h_f_face ** (7.0 / 3.0))
         q_y_new[1:-1, :] = np.where(wet, num / den, 0.0)
 
+    # --- outflow limiter: no cell may lose more water than it holds ---
+    _limit_outflow(h, q_x_new, q_y_new, dx, dy, dt)
+
     # --- continuity ---
     div_x = (q_x_new[:, 1:] - q_x_new[:, :-1]) / dx
     div_y = (q_y_new[1:, :] - q_y_new[:-1, :]) / dy
@@ -173,17 +176,51 @@ def step(
     dh = dt * (-div_x - div_y)
     if rain is not None:
         dh += dt * rain
-    if infiltration is not None:
-        dh -= dt * infiltration
     if inflow_cells is not None and inflow_rate != 0.0:
         rows, cols = inflow_cells
         for r, c in zip(rows, cols, strict=True):
-            dh[r, c] += dt * inflow_rate / (dx * dy)
-
+            dh[r, c] += dt * inflow_rate / (dx * dy) / len(rows)
     h_new = h + dh
+    if infiltration is not None:
+        # infiltration can only take the water that is there
+        h_new = h_new - np.minimum(dt * infiltration, np.maximum(h_new, 0.0))
+    # the limiter keeps h_new >= 0 up to round-off; clip only that round-off
     h_new = np.maximum(h_new, 0.0)
 
     return h_new, q_x_new, q_y_new
+
+
+def _limit_outflow(
+    h: np.ndarray, q_x: np.ndarray, q_y: np.ndarray, dx: float, dy: float, dt: float
+) -> None:
+    """Scale each cell's outgoing face fluxes so it cannot drain below zero (in place).
+
+    Without this, an explicit step can take more water out of a shallow cell than it holds
+    and the negative depth would have to be clipped, creating mass. Each face's flux leaves
+    exactly one cell (its upwind cell), so scaling by that cell's factor conserves mass.
+
+    Algorithm:
+        $$V^{out}_c = \Delta t\Big(\frac{\sum q^{+}_{x}}{\Delta x}
+          + \frac{\sum q^{+}_{y}}{\Delta y}\Big),\qquad
+          r_c = \min\big(1,\; h_c / V^{out}_c\big)$$
+        ASCII: V_out_c = dt * (sum of outgoing q_x / dx + sum of outgoing q_y / dy);
+        r_c = min(1, h_c / V_out_c); every outgoing flux of cell c is multiplied by r_c.
+
+        $h_c$ depth (m), $q$ face discharge per unit width (m^2/s), $\Delta t$ (s),
+        $\Delta x, \Delta y$ (m), $r_c$ dimensionless.
+    """
+    out_x = (np.maximum(q_x[:, 1:], 0.0) + np.maximum(-q_x[:, :-1], 0.0)) / dx
+    out_y = (np.maximum(q_y[1:, :], 0.0) + np.maximum(-q_y[:-1, :], 0.0)) / dy
+    v_out = dt * (out_x + out_y)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        r = np.where(v_out > h, h / v_out, 1.0)
+    if np.all(r == 1.0):
+        return
+    # x faces: positive flux leaves the left cell, negative leaves the right cell
+    fx = q_x[:, 1:-1]
+    q_x[:, 1:-1] = np.where(fx > 0, fx * r[:, :-1], fx * r[:, 1:])
+    fy = q_y[1:-1, :]
+    q_y[1:-1, :] = np.where(fy > 0, fy * r[:-1, :], fy * r[1:, :])
 
 
 def run(

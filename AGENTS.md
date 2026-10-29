@@ -44,6 +44,13 @@ published benchmarks and conservation laws — before its numbers are used.
    - qualitative agreement with the UK Environment Agency 2D benchmarks
      (Néelz & Pender 2013) where reproducible.
    Its peak depths then replace the stage law as the RF hazard (same engine pricing).
+   **Part A done** (`twin/hydraulics.py`, `tests/test_hydraulics.py`): Stoker wet dam break
+   L1 2.4 % (tol 5 %), Thacker bowl Fr 0.07 L1 1.1 % (tol 2 %), mass 1e-15 (tol 1e-3),
+   lake at rest exact. Errors are flat under refinement and grow with Froude (Thacker
+   1 / 4 / 9 % at Fr 0.07 / 0.14 / 0.28): that is the dropped advection term, a model limit.
+   Keep city runs at Fr < 0.5 and report the max Froude number of every run.
+   **Part B (next):** city raster from the spec terrain, river inflow hydrograph per RP,
+   peak depth -> RF hazard -> engine; compare EAL with the stage law.
 7. **Typhoon.** Synthetic tracks → CLIMADA `TropCyclone` wind field (Holland profile),
    priced with the repo's TC regional impact function.
 8. **Heatwave.** Hazard-only in money terms (no published damage curve). Street-level
@@ -66,6 +73,9 @@ published benchmarks and conservation laws — before its numbers are used.
   Compare scenarios on the same seed, and show a seed spread before claiming a difference.
 - **A defence protects the land behind it.** A levee band covers the floodplain it fronts,
   not just the bank cells (step 2 first defended row 0 only and the city still flooded).
+- **Tolerances come before results.** Pick a test tolerance from the method's known error
+  and say why; never widen it to whatever the code produced (step 6A first shipped a
+  2 m dam break with a 1.6 m tolerance and a wrong Ritter formula).
 - **Never add ruff per-file ignores** to silence long lines; wrap them.
 - **Tooling versions.** Use `uv sync --locked --all-extras`; CI pins ruff 0.15.18. A newer
   ruff reformats Markdown code blocks — never commit changes to files outside your step.
