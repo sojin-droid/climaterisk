@@ -106,9 +106,10 @@ Decisions and open items from `KOREA_1KM_IMPLEMENTATION_GAP.md`:
 
 ```python
 class HazardAdapter(Protocol):
-    hazard_type: str          # CLIMADA tag: "RF" | "TC" | "HW" | "HM"
-    model_id: str             # ModelId.KOREA_LOCAL.value
-    status: str               # READY | HAZARD_ONLY | NO_HAZARD_DATA | NOT_IMPLEMENTED
+    hazard_type: str  # CLIMADA tag: "RF" | "TC" | "HW" | "HM"
+    model_id: str  # ModelId.KOREA_LOCAL.value
+    status: str  # READY | HAZARD_ONLY | NO_HAZARD_DATA | NOT_IMPLEMENTED
+
     def describe(self) -> HazardDescription: ...
     def load(self, bbox=None) -> Hazard | None: ...
 ```
