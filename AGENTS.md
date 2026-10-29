@@ -5,33 +5,76 @@ autonomous agent builds a **synthetic city digital twin** on top of this reposit
 engine. Read `CLAUDE.md` too: its conventions (type hints, docstrings with `Algorithm:`,
 seeds, tests against analytical solutions, conventional commits) apply here unchanged.
 
-## Goal
+The aim is a simulation tool in the spirit of EnergyPlus / ENVI-met / CFD: physical
+equations stepped in time on an imaginary city. It cannot be validated against
+measurements, so every model must be **verified** — against analytical solutions,
+published benchmarks and conservation laws — before its numbers are used.
 
-Grow `scripts/synthetic_city.py` (PR #48) into a digital twin of an imaginary city that a
-person can open and explore, while every loss number still comes from the repo's engine.
+## Where the code lives
 
-Work in this order; finish and test one step before starting the next:
+- `worker/climaterisk_worker/twin/` — everything: `spec`, `city`, `flood` (generator),
+  `hazard`, `pricing`, `network`, `plot`, `pipeline`. Not `src/`: the backend environment
+  has no NumPy/NetworkX and `mypy src/` runs in CI.
+- `scripts/synthetic_city.py` — thin CLI only.
+- `assets/libraries/synthetic_city_spec.json` — every assumption, each with a `_note`.
 
-1. **Twin package.** Move the generator out of the script into `src/climaterisk/twin/`
-   (city graph, terrain, assets) and `worker/climaterisk_worker/twin/` (CLIMADA hazard,
-   pricing). Keep `scripts/synthetic_city.py` as a thin CLI. Existing tests must still pass.
-2. **Scenarios.** Compare, for the same city: no defence, uniform design return period
-   (10/50/100 y), and a local levee along part of the river bank. Output one table.
-3. **Time dimension.** Present vs future flood stage (a `stage_slope_m` / `stage_2y_m`
-   shift per scenario in the spec JSON), reported as `climate_change_multiplier`
-   = future EAL / present EAL of the same city.
-4. **Viewer.** A static HTML map (Folium or Leaflet, no server) from `assets.gpkg`:
+## Steps (in order; finish, test and commit one before starting the next)
+
+1. ~~Twin package~~ — done (`8d560da`, `064d60a`).
+2. **Defence scenarios.** Same city: no defence, uniform design return period 10/50/100 y,
+   and a local levee along part of the bank. One comparison table. Expected (seed
+   20261029): EAL 1.303 / 0.749 / 0.313 / 0.186 % for none / 10 / 50 / 100 y.
+3. **Climate change.** Present vs future river stage (shift `stage_2y_m` / `stage_slope_m`
+   per scenario in the spec). `climate_change_multiplier` = future EAL / present EAL.
+   **Levees keep their present height**: derive the design depth from the *present*
+   hazard and apply that fixed depth to the future hazard. Re-deriving it from the future
+   hazard (what `protection.protect(future, rp)` does) silently raises the levee and
+   understates the multiplier (≈1.22× instead of a larger value at +0.5 m).
+4. **Map viewer.** Static HTML (Folium 0.20 is in `.climada-env`) from `assets.gpkg`:
    lots coloured by EAL %, a return-period slider for depth and out-of-service nodes.
+5. **3D buildings.** Synthetic footprints and storey counts per zone (spec JSON); a
+   deck.gl / Three.js page with extruded buildings and a water surface. Storeys feed the
+   ground-floor/basement exposure.
+6. **2D hydraulic model.** Local inertial shallow-water scheme on a raster (Bates,
+   Horritt & Fewtrell 2010, J. Hydrol.; stability per de Almeida et al. 2012, WRR),
+   written from the equations in NumPy — do not copy code from LISFLOOD-FP or others.
+   Gate: before any city run it must pass, as tests,
+   - 1D dam break vs the Ritter analytical solution,
+   - Thacker's parabolic bowl (wetting/drying),
+   - mass balance: inflow + rain − infiltration − drainage − storage < 0.1 %,
+   - qualitative agreement with the UK Environment Agency 2D benchmarks
+     (Néelz & Pender 2013) where reproducible.
+   Its peak depths then replace the stage law as the RF hazard (same engine pricing).
+7. **Typhoon.** Synthetic tracks → CLIMADA `TropCyclone` wind field (Holland profile),
+   priced with the repo's TC regional impact function.
+8. **Heatwave.** Hazard-only in money terms (no published damage curve). Street-level
+   mean radiant temperature / UTCI and the repo's labour-productivity and heat-mortality
+   modules on a synthetic population. EnergyPlus for building cooling load is optional and
+   needs the user's approval to install.
+9. **Coastal flood / surge.** Add a coastline to the spec; bathtub first (CLIMADA Petals
+   `TCSurgeBathtub`), then the step-6 model with a coastal boundary stage.
+10. **Pluvial (rain) flood.** On the step-6 model: Huff design-storm hyetograph, NRCS
+    curve-number infiltration, manhole sinks at a sewer capacity. Repo-specific method —
+    label it as such in outputs.
+
+## Known traps
+
+- **Service cut-off indicator.** `network_failure` counts a lot as cut off only if it is
+  *not* itself flooded, so the indicator can fall as floods get worse (e.g. 0 at +0.5 m
+  with a 50 y defence). Report flooded + cut-off together, and never compare scenarios on
+  the cut-off count alone.
+- **Seed sensitivity.** Seeds 1–3 move EAL by about ±7 % and the cut-off value by 4×.
+  Compare scenarios on the same seed, and show a seed spread before claiming a difference.
+- **Tooling versions.** Use `uv sync --locked --all-extras`; CI pins ruff 0.15.18. A newer
+  ruff reformats Markdown code blocks — never commit changes to files outside your step.
 
 ## Hard rules
 
 - **Pricing:** never re-implement damage arithmetic. Use
   `climaterisk_worker.physical_risk.engine.calculate` / `registry` curves / `ImpactCalc`.
   Keep the per-asset vs portfolio `aai_agg` check (rtol 1e-9).
-- **Data:** synthetic only. Every assumption lives in
-  `assets/libraries/synthetic_city_spec.json` (or a new spec JSON next to it) with a
-  `_note`. Do **not** use client survey data, real building registers, or the Korean
-  flood-risk map (공공누리 제4유형). No downloads of new datasets without asking.
+- **Data:** synthetic only. Do **not** use client survey data, real building registers, or
+  the Korean flood-risk map (공공누리 제4유형). No downloads or new installs without asking.
 - **Environment:** CLIMADA runs only in
   `/Users/junsojin/Developer/climaterisk/.climada-env/bin/python`. Do not install into it
   or create another CLIMADA env. `uv run` is for lint/format/type-check.
@@ -44,7 +87,8 @@ Work in this order; finish and test one step before starting the next:
 
 ```bash
 /Users/junsojin/Developer/climaterisk/.climada-env/bin/python -m pytest tests/test_synthetic_city.py
-uv run ruff check . && uv run ruff format --check .
+uv run ruff check . && uv run ruff format --check . && uv run mypy src/
+uv run pytest
 /Users/junsojin/Developer/climaterisk/.climada-env/bin/python scripts/synthetic_city.py --out /tmp/twin_check
 ```
 
