@@ -1,0 +1,58 @@
+{
+  "_note": "Synthetic (imaginary) virtual city for scripts/synthetic_city.py. Every number is an assumption made because no real building/GIS data may be used — none is a measurement. Change values here, not in code.",
+  "seed": 20261029,
+  "grid": {
+    "_note": "rows x cols intersections of a street grid; row 0 is the river bank, rows increase inland.",
+    "rows": 20,
+    "cols": 20,
+    "spacing_m": 100.0,
+    "origin_lat": 37.0,
+    "origin_lon": 127.0
+  },
+  "terrain": {
+    "_note": "ground elevation above the river datum: z = bank_m + slope_m_per_m * distance_inland + N(0, noise_sd_m), floored at 0.",
+    "bank_m": 0.5,
+    "slope_m_per_m": 0.004,
+    "noise_sd_m": 0.3
+  },
+  "flood": {
+    "_note": "river stage above datum at return period RP: h(RP) = stage_2y_m + stage_slope_m * ln(RP / 2). One layered event per RP, frequency 1/RP_i - 1/RP_{i+1}, the rarest keeps 1/RP.",
+    "return_periods": [2, 5, 10, 25, 50, 100, 200, 500],
+    "stage_2y_m": 0.3,
+    "stage_slope_m": 0.8
+  },
+  "zoning": {
+    "_note": "row/col bands (inclusive) that decide each intersection's land use; everything else is residential.",
+    "industrial_rows": [0, 3],
+    "commercial_rows": [4, 9],
+    "commercial_cols": [6, 13]
+  },
+  "facilities": {
+    "_note": "special nodes as [row, col]. Substations and the hospital are the targets of the network-failure test.",
+    "substations": [[2, 4], [10, 15], [17, 3]],
+    "hospital": [12, 9]
+  },
+  "values_usd": {
+    "_note": "replacement value per lot (median), lognormal spread sigma; roads are priced per metre of segment.",
+    "residential": 2000000,
+    "commercial": 5000000,
+    "industrial": 3000000,
+    "substation": 8000000,
+    "hospital": 20000000,
+    "road_per_m": 1500,
+    "lognormal_sigma": 0.3
+  },
+  "property_type": {
+    "_note": "property_type handed to the engine; physical_risk_config.json maps it to the JRC sector.",
+    "residential": "residential",
+    "commercial": "commercial",
+    "industrial": "industrial",
+    "substation": "infrastructure",
+    "hospital": "commercial",
+    "road": "transport"
+  },
+  "network": {
+    "_note": "a node (intersection, substation, hospital) is out of service when its flood depth exceeds failure_depth_m — an assumed passability/operability limit, not a damage curve.",
+    "failure_depth_m": 0.3
+  }
+}
