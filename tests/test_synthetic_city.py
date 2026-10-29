@@ -21,11 +21,15 @@ pytest.importorskip("climada_petals")
 pytest.importorskip("networkx")
 
 import numpy as np  # noqa: E402
+from climaterisk_worker.twin import (  # noqa: E402
+    build_city,
+    flood_depths,
+    layered_frequencies,
+    load_spec,
+)
 from climaterisk_worker.twin.hazard import build_hazard  # noqa: E402
 from climaterisk_worker.twin.network import network_failure  # noqa: E402
 from climaterisk_worker.twin.pricing import portfolio_impact, price_assets  # noqa: E402
-
-from climaterisk.twin import build_city, flood_depths, layered_frequencies, load_spec  # noqa: E402
 
 
 @pytest.fixture()

@@ -34,7 +34,7 @@ def network_failure(
 
     Args:
         graph: The NetworkX street graph from
-            :func:`climaterisk.twin.build_city`.
+            :func:`climaterisk_worker.twin.build_city`.
         assets: Asset dicts (used for ``node`` index, ``asset_value_usd``).
         hazard: CLIMADA ``Hazard`` (``RF``); its intensity matrix is read row-wise per
             event.

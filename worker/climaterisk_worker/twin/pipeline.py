@@ -1,7 +1,7 @@
 """Orchestration: generate the city, build the hazard, price, cross-check, write outputs.
 
-The pipeline ties the no-CLIMADA city generator (:mod:`climaterisk.twin`) to the CLIMADA
-hazard and pricing (:mod:`climaterisk_worker.twin.hazard`, :mod:`climaterisk_worker.twin.pricing`).
+The pipeline ties the no-CLIMADA city generator (``twin.city``, ``twin.flood``) to the
+CLIMADA hazard and pricing (``twin.hazard``, ``twin.pricing``).
 Every loss number comes from :func:`climaterisk_worker.physical_risk.engine.calculate`
 and CLIMADA's ``ImpactCalc`` — never re-implemented. The per-asset EAL sum is checked
 against the portfolio ``aai_agg`` (rtol 1e-9).
@@ -14,12 +14,12 @@ import json
 from pathlib import Path
 from typing import Any
 
-from climaterisk.twin.city import build_city
-from climaterisk.twin.spec import MODEL_ID  # noqa: F401  (re-exported for CLI/tests)
+from climaterisk_worker.twin.city import build_city
 from climaterisk_worker.twin.hazard import build_hazard
 from climaterisk_worker.twin.network import network_failure
 from climaterisk_worker.twin.plot import plot_city
 from climaterisk_worker.twin.pricing import _defences, portfolio_impact, price_assets
+from climaterisk_worker.twin.spec import MODEL_ID  # noqa: F401  (re-exported for CLI/tests)
 
 __all__ = ["run"]
 
@@ -33,7 +33,7 @@ def run(
 
     Algorithm:
         Ground elevation, depths and frequencies come from the spec JSON
-        (:mod:`climaterisk.twin`). CLIMADA assembles the hazard; the engine prices each
+        (:mod:`climaterisk_worker.twin`). CLIMADA assembles the hazard; the engine prices each
         asset; the portfolio ``aai_agg`` is the identity check::
 
             \\mathrm{EAL} = \\sum_i f_i\\,v\\,\\mathrm{MDR}(d_i)

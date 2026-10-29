@@ -8,8 +8,8 @@ pricing is not re-implemented — every asset goes through
 ``registry``, sector from ``physical_risk_config.json``, ``ImpactCalc`` for the arithmetic),
 exactly as a real facility does in ``physical_risk_batch.py``.
 
-This is the thin CLI. The generator lives in :mod:`climaterisk.twin` (city graph, terrain,
-assets) and the CLIMADA hazard/pricing in :mod:`climaterisk_worker.twin`.
+This is the thin CLI. The generator (city graph, terrain, assets) and the CLIMADA
+hazard/pricing both live in :mod:`climaterisk_worker.twin`.
 
 Runs in the CLIMADA worker environment::
 
@@ -54,8 +54,7 @@ for extra in (REPO / "worker", REPO / "src"):
         sys.path.insert(0, str(extra))
 
 from climaterisk_worker.twin.pipeline import run  # noqa: E402
-
-from climaterisk.twin.spec import SPEC_PATH, load_spec  # noqa: E402
+from climaterisk_worker.twin.spec import SPEC_PATH, load_spec  # noqa: E402
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -1,6 +1,6 @@
 """CLIMADA river-flood Hazard for the synthetic city.
 
-Turns the pure-NumPy depth matrix from :func:`climaterisk.twin.flood.flood_depths` into a
+Turns the pure-NumPy depth matrix from :func:`climaterisk_worker.twin.flood.flood_depths` into a
 CLIMADA ``Hazard`` (``RF`` tag, metres) with one centroid per asset and a layered
 frequency so CLIMADA's ImpactCalc can price the depths directly.
 """
@@ -9,14 +9,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from climaterisk.twin.flood import flood_depths, layered_frequencies
+from climaterisk_worker.twin.flood import flood_depths, layered_frequencies
 
 
 def build_hazard(assets: list[dict[str, Any]], spec: dict[str, Any]) -> Any:
     """A CLIMADA river-flood ``Hazard`` (``RF``, metres) with one centroid per asset.
 
     The per-asset ground elevation comes from the asset dicts; the stage-to-depth law and
-    the layered frequency come from :mod:`climaterisk.twin.flood` (pure NumPy, no CLIMADA).
+    the layered frequency come from :mod:`climaterisk_worker.twin.flood` (pure NumPy, no CLIMADA).
     CLIMADA only assembles the event axis and the sparse intensity matrix from them.
 
     Algorithm:
@@ -26,7 +26,7 @@ def build_hazard(assets: list[dict[str, Any]], spec: dict[str, Any]) -> Any:
         integral of the loss-exceedance curve.
 
     Args:
-        assets: Asset dicts from :func:`climaterisk.twin.build_city` (need ``latitude``,
+        assets: Asset dicts from :func:`climaterisk_worker.twin.build_city` (need ``latitude``,
             ``longitude``, ``ground_m``).
         spec: City specification (uses the ``flood`` section).
 

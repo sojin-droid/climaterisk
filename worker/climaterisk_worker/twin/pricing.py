@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from climaterisk.twin.spec import MODEL_ID
+from climaterisk_worker.twin.spec import MODEL_ID
 
 
 def _defences(hazard: Any, rp: float) -> tuple[Any, dict[str, Any]]:
@@ -57,7 +57,7 @@ def price_assets(
     """One engine ``ResultRow`` per asset — the same call the batch runner makes.
 
     Args:
-        assets: Asset dicts from :func:`climaterisk.twin.build_city`.
+        assets: Asset dicts from :func:`climaterisk_worker.twin.build_city`.
         hazard: CLIMADA ``Hazard`` from :func:`climaterisk_worker.twin.hazard.build_hazard`.
         protection_rp: When set, the hazard is protected to this uniform design return
             period (years) before pricing; the undefended EAL is still computed for each
@@ -98,7 +98,7 @@ def portfolio_impact(assets: list[dict[str, Any]], hazard: Any) -> tuple[Any, An
     — verified by the caller with rtol 1e-9.
 
     Args:
-        assets: Asset dicts from :func:`climaterisk.twin.build_city`.
+        assets: Asset dicts from :func:`climaterisk_worker.twin.build_city`.
         hazard: CLIMADA ``Hazard`` to price against.
 
     Returns:
