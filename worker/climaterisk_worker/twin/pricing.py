@@ -55,8 +55,11 @@ def _levee_rp_array(hazard: Any, assets: list[dict[str, Any]], spec: dict[str, A
     """Per-centroid design return period for the local bank levee.
 
     Algorithm:
-        $$\\mathrm{RP}_i = \\mathrm{rp}_{lev} \text{ on the bank, } 0 \\text{ elsewhere}$$
+        $$\\mathrm{RP}_i = \\mathrm{rp}_{lev} \\text{ in the band, } 0 \\text{ elsewhere}$$
         ASCII: RP_i = rp_lev if row_i in levee_rows and col_i in levee_cols else 0
+
+    The band is the floodplain behind the levee, not the bank cells alone: a levee keeps
+    water out of the land it fronts. Flanking round the levee ends is ignored.
 
     $r_i, c_i$ grid row/col of asset $i$'s representative point — nodes use their own
     ``(row, col)``, edges use the midpoint of their two endpoints; $\\mathrm{rp}_{lev}$ is the
@@ -87,9 +90,9 @@ def _levee_defences(
     """Protected hazard and engine defences dict for the local bank levee.
 
     Unlike :func:`_defences` (a single national return period for every cell) this is a
-    **per-centroid** standard: only the bank segment in the spec is defended to
-    ``levee.return_period_years``, the rest is `0` (undefended). Cells defended to a higher
-    standard than the national one are flagged ``levee_protected`` by the engine.
+    **per-centroid** standard: only the levee band in the spec (the floodplain behind it) is
+    defended to ``levee.return_period_years``, the rest is `0` (undefended). Cells defended to
+    a higher standard than the national one are flagged ``levee_protected`` by the engine.
     """
     import numpy as np
 

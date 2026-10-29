@@ -133,7 +133,7 @@ def _scenario_eal_pct(
     """Portfolio EAL as % of total value for one defence scenario (fast path).
 
     Uses ``portfolio_impact`` on the protected hazard: the engine's per-asset sum is
-    cross-checked against ``aai_agg`` elsewhere, so the portfolio figure is the authoritive
+    cross-checked against ``aai_agg`` elsewhere, so the portfolio figure is the authoritative
     EAL the pipeline reports.
     """
     priced, _ = defences_for(hazard, assets, spec, protection_rp, levee)
@@ -159,19 +159,19 @@ def test_defence_scenarios_match_expected_eal() -> None:
     # more defence -> lower EAL
     pcts = [_scenario_eal_pct(assets, hazard, spec, rp, False) for rp in (None, 10.0, 50.0, 100.0)]
     assert pcts == sorted(pcts, reverse=True)
-    # local levee along part of the bank: a real defence (below none) but weaker than
-    # area-wide 100y (it only hardens the bank segment, the inland floodplain still floods).
+    # local 100y levee on half the bank (cols 5..14): a real defence (below none) but weaker
+    # than area-wide 100y, because the floodplain of the other cols still floods.
     levee_pct = _scenario_eal_pct(assets, hazard, spec, None, True)
-    np.testing.assert_allclose(levee_pct, 1.076, rtol=1e-3, atol=1e-4)
+    np.testing.assert_allclose(levee_pct, 0.739, rtol=1e-3, atol=1e-4)
     assert levee_pct < pcts[0] and levee_pct > pcts[-1]
 
 
-def test_levee_protects_only_bank_cells(small_spec: dict) -> None:
-    """The bank levee sets levee_protected only on bank-row cells; inland cells stay undefended.
+def test_levee_protects_only_the_band_behind_it(small_spec: dict) -> None:
+    """Levee on cols 0..1 of a 4x4 city: exactly the assets in that band are levee-protected.
 
-    small_spec is 4x4 (cols 0..3): widen the levee cols band so the bank row is fully protected.
+    Edges are placed at their midpoint, so an edge between cols 1 and 2 (midpoint 1.5) is out.
     """
-    small_spec["levee"]["cols"] = [0, 3]
+    small_spec["levee"].update(rows=[0, 3], cols=[0, 1])
     _, assets = build_city(small_spec)
     hazard = build_hazard(assets, small_spec)
     priced, _ = defences_for(hazard, assets, small_spec, None, True)
@@ -180,19 +180,20 @@ def test_levee_protects_only_bank_cells(small_spec: dict) -> None:
     per = np.array([r.eal_usd or 0.0 for r in rows])
     _, impact = portfolio_impact(assets, priced)
     np.testing.assert_allclose(per.sum(), impact.aai_agg, rtol=1e-9)
-    # only the bank row is levee-protected; the rest is undefended
-    n_protected = sum(1 for r in rows if r.levee_protected)
-    assert 0 < n_protected < len(rows)
     for a, r in zip(assets, rows, strict=True):
-        if a.get("node") and a["node"][0] == 0:
-            assert r.levee_protected is True
+        if "node" in a:
+            col = a["node"][1]
+        else:
+            (_, c1), (_, c2) = a["edge"]
+            col = (c1 + c2) / 2.0
+        assert bool(r.levee_protected) is (col <= 1), a
     # the levee cuts EAL vs no defence
     none_rows = price_assets(assets, hazard)
     assert per.sum() < sum(r.eal_usd or 0.0 for r in none_rows)
 
 
 def test_compare_defences_writes_table_and_orders_by_defence(small_spec: dict, tmp_path) -> None:
-    small_spec["levee"]["cols"] = [0, 3]
+    small_spec["levee"].update(rows=[0, 3], cols=[0, 1])
     table = compare_defences(small_spec, tmp_path)
     assert [t["scenario"] for t in table] == [
         "none",
