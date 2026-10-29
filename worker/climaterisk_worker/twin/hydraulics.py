@@ -1,0 +1,271 @@
+"""2D local-inertial shallow-water solver — NumPy only.
+
+Implements the Bates, Horritt & Fewtrell (2010) local inertial scheme on a
+uniform raster, stabilised by the de Almeida, Bates, Freer & Souvignet (2012)
+q-centred averaging and adaptive time step. Manning friction, wet/dry threshold,
+rainfall, infiltration and point/area inflow hydrographs are included.
+
+Algorithm:
+    Continuity
+    $$\\frac{\\partial h}{\\partial t} = -\\frac{\\partial q_x}{\\partial x}
+    -\\frac{\\partial q_y}{\\partial y} + R - I$$
+    ASCII: dh/dt = -dq_x/dx - dq_y/dy + R - I
+
+    q-centred momentum update (de Almeida et al. 2012, eq. 12; Bates et al. 2010)
+    $$q_x^{n+1} = \\frac{q_c - g\\,h_f\\,\\Delta t\\,\\nabla_w\\eta}
+    {1 + g\\,\\Delta t\\,n^2\\,|q_c|\\,/\\,h_f^{7/3}}$$
+    ASCII: q_x^{n+1} = [q_c - g h_f dt Sw] / [1 + g dt n^2 |q_c| / h_f^{7/3}]
+
+    where $q_c = \\theta\\,q_x^n + \\tfrac{1-\\theta}{2}(q_x^{n}_{\\text{prev}}
+    + q_x^{n}_{\\text{next}})$ and $h_f = \\max(\\eta_L,\\eta_R) -
+    \\max(z_L,z_R)$. $q_y$ is analogous.
+
+    Adaptive time step (de Almeida et al. 2012, eq. 15)
+    $$\\Delta t_{\\max} = \\alpha\\,\\frac{\\min(\\Delta x,\\Delta y)}
+    {\\sqrt{g\\,\\max(h,\\;h_{\\text{dry}})}}$$
+    ASCII: dt_max = alpha * min(dx, dy) / sqrt(g * max(h, h_dry))
+
+Units:
+    $h$ water depth [m], $\\mathbf{q}=(q_x,q_y)$ specific discharge
+    [m$^2$ s$^{-1}$], $z$ bed elevation [m], $\\eta=h+z$ free surface [m],
+    $\\Delta x,\\Delta y$ grid spacing [m], $t$ time [s], $R$ rainfall [m s$^{-1}$],
+    $I$ infiltration [m s$^{-1}$], $Q_{\\text{in}}$ inflow discharge [m$^3$ s$^{-1}$],
+    $n$ Manning roughness [s m$^{-1/3}$], $g$ gravity [m s$^{-2}$].
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+import numpy as np
+
+
+def adaptive_dt(
+    h: np.ndarray,
+    dx: float,
+    dy: float,
+    manning_n: float,
+    alpha_cfl: float = 0.7,
+    g: float = 9.81,
+    h_dry: float = 1e-4,
+) -> float:
+    """Maximum stable explicit time step from the de Almeida et al. (2012) CFL condition.
+
+    Algorithm:
+        $$\\Delta t_{\\max} = \\alpha\\,\\frac{\\min(\\Delta x,\\Delta y)}
+        {\\sqrt{g\\,\\max(h,\\;h_{\\text{dry}})}}$$
+        ASCII: dt_max = alpha * min(dx, dy) / sqrt(g * max(h, h_dry))
+
+    Args:
+        h: Current water depth [m], shape ``(ny, nx)``.
+        dx, dy: Grid spacing [m].
+        manning_n: Manning roughness [s m$^{-1/3}$].
+        alpha_cfl: Stability coefficient [$-$], $0 < \\alpha < 1$.
+        g: Gravity [m s$^{-2}$].
+        h_dry: Depth threshold for wet/dry [m].
+
+    Returns:
+        Maximum stable time step [s].
+    """
+    h_eff = np.maximum(h, h_dry)
+    h_max = float(np.max(h_eff))
+    if h_max <= 0.0:
+        return float("inf")
+    return float(alpha_cfl * min(dx, dy) / np.sqrt(g * h_max))
+
+
+def step(
+    h: np.ndarray,
+    q_x: np.ndarray,
+    q_y: np.ndarray,
+    bed_z: np.ndarray,
+    dx: float,
+    dy: float,
+    dt: float,
+    manning_n: float,
+    rain: np.ndarray | None = None,
+    infiltration: np.ndarray | None = None,
+    inflow_cells: tuple[np.ndarray, np.ndarray] | None = None,
+    inflow_rate: float = 0.0,
+    theta: float = 0.7,
+    h_dry: float = 1e-4,
+    g: float = 9.81,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Advance the local-inertial solver by one explicit time step.
+
+    Algorithm:
+        Flux update (q-centred, de Almeida et al. 2012):
+        $$q_x^{n+1} = \\frac{q_c - g\\,h_f\\,\\Delta t\\,\\nabla_w\\eta}
+        {1 + g\\,\\Delta t\\,n^2\\,|q^n|\\,/\\,h_f^{7/3}}$$
+        ASCII: q_x^{n+1} = [q_c - g h_f dt Sw] / [1 + g dt n^2 |q^n| / h_f^{7/3}]
+
+        Continuity (explicit Euler):
+        $$h^{n+1} = h^n + \\Delta t\\bigl[-\\nabla\\cdot\\mathbf{q}^{n+1}
+        + R - I + Q_{\\text{in}}/(\\Delta x\\,\\Delta y)\\bigr]$$
+        ASCII: h^{n+1} = h^n + dt * [-div(q) + R - I + Qin/(dx*dy)]
+
+    Args:
+        h: Water depth [m], shape ``(ny, nx)``.
+        q_x: x-direction specific discharge [m$^2$ s$^{-1}$], shape ``(ny, nx+1)``.
+        q_y: y-direction specific discharge [m$^2$ s$^{-1}$], shape ``(ny+1, nx)``.
+        bed_z: Bed elevation [m], shape ``(ny, nx)``.
+        dx, dy: Grid spacing [m].
+        dt: Time step [s].
+        manning_n: Manning roughness [s m$^{-1/3}$].
+        rain: Rainfall rate [m s$^{-1}$], shape ``(ny, nx)`` or ``None``.
+        infiltration: Infiltration rate [m s$^{-1}$], shape ``(ny, nx)`` or ``None``.
+        inflow_cells: Tuple of (row_indices, col_indices) for point inflow cells.
+        inflow_rate: Inflow discharge [m$^3$ s$^{-1}$] distributed over inflow_cells.
+        theta: q-centring weight [$-$], $0 \\le \\theta \\le 1$.
+        h_dry: Wet/dry threshold [m]; faces with $h_f < h_{\\text{dry}}$ get $q=0$.
+        g: Gravity [m s$^{-2}$].
+
+    Returns:
+        ``(h_new, q_x_new, q_y_new)`` updated arrays.
+    """
+    ny, nx = h.shape
+    eta = h + bed_z
+
+    # --- x-fluxes on internal faces 1..nx-1 ---
+    q_x_new = np.zeros_like(q_x)
+    if nx > 1:
+        eta_L = eta[:, :-1]
+        eta_R = eta[:, 1:]
+        z_L = bed_z[:, :-1]
+        z_R = bed_z[:, 1:]
+        h_f = np.maximum(eta_L, eta_R) - np.maximum(z_L, z_R)
+        S_w = (eta_R - eta_L) / dx
+        wet = h_f > h_dry
+
+        q_c = theta * q_x[:, 1:-1] + (1.0 - theta) * 0.5 * (q_x[:, :-2] + q_x[:, 2:])
+        q_c = np.where(wet, q_c, 0.0)
+        h_f_face = np.where(wet, h_f, 1.0)
+        q_n = q_x[:, 1:-1]
+
+        num = q_c - g * h_f_face * dt * S_w
+        den = 1.0 + g * dt * manning_n**2 * np.abs(q_n) / (h_f_face ** (7.0 / 3.0))
+        q_x_new[:, 1:-1] = np.where(wet, num / den, 0.0)
+
+    # --- y-fluxes on internal faces 1..ny-1 ---
+    q_y_new = np.zeros_like(q_y)
+    if ny > 1:
+        eta_B = eta[:-1, :]
+        eta_T = eta[1:, :]
+        z_B = bed_z[:-1, :]
+        z_T = bed_z[1:, :]
+        h_f = np.maximum(eta_B, eta_T) - np.maximum(z_B, z_T)
+        S_w = (eta_T - eta_B) / dy
+        wet = h_f > h_dry
+
+        q_c = theta * q_y[1:-1, :] + (1.0 - theta) * 0.5 * (q_y[:-2, :] + q_y[2:, :])
+        q_c = np.where(wet, q_c, 0.0)
+        h_f_face = np.where(wet, h_f, 1.0)
+        q_n = q_y[1:-1, :]
+
+        num = q_c - g * h_f_face * dt * S_w
+        den = 1.0 + g * dt * manning_n**2 * np.abs(q_n) / (h_f_face ** (7.0 / 3.0))
+        q_y_new[1:-1, :] = np.where(wet, num / den, 0.0)
+
+    # --- continuity ---
+    div_x = (q_x_new[:, 1:] - q_x_new[:, :-1]) / dx
+    div_y = (q_y_new[1:, :] - q_y_new[:-1, :]) / dy
+
+    dh = dt * (-div_x - div_y)
+    if rain is not None:
+        dh += dt * rain
+    if infiltration is not None:
+        dh -= dt * infiltration
+    if inflow_cells is not None and inflow_rate != 0.0:
+        rows, cols = inflow_cells
+        for r, c in zip(rows, cols, strict=True):
+            dh[r, c] += dt * inflow_rate / (dx * dy)
+
+    h_new = h + dh
+    h_new = np.maximum(h_new, 0.0)
+
+    return h_new, q_x_new, q_y_new
+
+
+def run(
+    h0: np.ndarray,
+    bed_z: np.ndarray,
+    dx: float,
+    dy: float,
+    manning_n: float,
+    t_end: float,
+    rain: np.ndarray | None = None,
+    infiltration: np.ndarray | None = None,
+    inflow_fn: Any | None = None,
+    theta: float = 0.7,
+    alpha_cfl: float = 0.7,
+    h_dry: float = 1e-4,
+    g: float = 9.81,
+    recorder: Any | None = None,
+) -> dict[str, Any]:
+    """Run the local-inertial solver from $t=0$ to $t_{\\text{end}}$.
+
+    Algorithm:
+        Repeatedly call :func:`step` with an adaptive time step from
+        :func:`adaptive_dt` until $t \\ge t_{\\text{end}}$.
+
+    Args:
+        h0: Initial water depth [m], shape ``(ny, nx)``.
+        bed_z: Bed elevation [m], shape ``(ny, nx)``.
+        dx, dy: Grid spacing [m].
+        manning_n: Manning roughness [s m$^{-1/3}$].
+        t_end: Final simulation time [s].
+        rain: Rainfall rate [m s$^{-1}$], shape ``(ny, nx)`` or ``None``.
+        infiltration: Infiltration rate [m s$^{-1}$], shape ``(ny, nx)`` or ``None``.
+        inflow_fn: Callable ``(t, h, q_x, q_y) -> (rows, cols, rate)`` or ``None``.
+        theta: q-centring weight [$-$].
+        alpha_cfl: CFL safety coefficient [$-$].
+        h_dry: Wet/dry threshold [m].
+        g: Gravity [m s$^{-2}$].
+        recorder: Optional object with ``record(t, h, q_x, q_y)`` method.
+
+    Returns:
+        Dict with ``h``, ``q_x``, ``q_y``, ``t``, ``n_steps``.
+    """
+    ny, nx = h0.shape
+    q_x = np.zeros((ny, nx + 1), dtype=h0.dtype)
+    q_y = np.zeros((ny + 1, nx), dtype=h0.dtype)
+    h = h0.copy()
+    t = 0.0
+    n_steps = 0
+    rate = 0.0
+
+    while t < t_end:
+        dt = adaptive_dt(h, dx, dy, manning_n, alpha_cfl, g, h_dry)
+        dt = min(dt, t_end - t)
+
+        inflow_cells = None
+        if inflow_fn is not None:
+            rows, cols, rate = inflow_fn(t)
+            inflow_cells = (rows, cols)
+
+        h, q_x, q_y = step(
+            h,
+            q_x,
+            q_y,
+            bed_z,
+            dx,
+            dy,
+            dt,
+            manning_n,
+            rain=rain,
+            infiltration=infiltration,
+            inflow_cells=inflow_cells,
+            inflow_rate=rate,
+            theta=theta,
+            h_dry=h_dry,
+            g=g,
+        )
+        t += dt
+        n_steps += 1
+        if recorder is not None:
+            recorder.record(t, h, q_x, q_y)
+
+    return {"h": h, "q_x": q_x, "q_y": q_y, "t": t, "n_steps": n_steps}
+
+
+__all__ = ["adaptive_dt", "run", "step"]
