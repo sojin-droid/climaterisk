@@ -56,7 +56,7 @@ The definitions are code: `MODEL_DEFINITIONS` in
 One `StrEnum`, one place:
 
 ```python
-class ModelId(StrEnum):  # src/climaterisk/physical_risk/metrics.py
+class ModelId(StrEnum):            # src/climaterisk/physical_risk/metrics.py
     GLOBAL_BASELINE = "GLOBAL_BASELINE"
     DATA_API_COUNTRY = "DATA_API_COUNTRY"
     KOREA_LOCAL = "KOREA_LOCAL"
@@ -193,9 +193,9 @@ same_impact_function  impact_function_id  comparison_kind
 ```
 
 ```python
-change_pct = (comparison / baseline - 1) * 100  # null when baseline is 0 or missing
+change_pct = (comparison / baseline - 1) * 100      # null when baseline is 0 or missing
 change_usd = comparison - baseline
-change_pp = comparison_pct - baseline_pct  # never mixed with change_pct
+change_pp  = comparison_pct - baseline_pct          # never mixed with change_pct
 ```
 
 `relabel_comparison(cmp, "country")` renames `comparison_*` → `country_*` for the
