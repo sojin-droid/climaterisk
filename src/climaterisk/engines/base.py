@@ -627,6 +627,17 @@ class ForecastResult(BaseModel):
 # --- Physical-risk models (Phase 3: global / country / Korea-local hazard replacement) ---
 
 
+def _optional_nonneg_float(value: Any) -> float | None:
+    """A numeric asset property as a float, or None when absent, blank or not a number."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return None
+    return out if out >= 0 else None
+
+
 class FacilitySpec(BaseModel):
     """One portfolio asset as the physical-risk engine sees it (an exposure point)."""
 
@@ -637,6 +648,10 @@ class FacilitySpec(BaseModel):
     asset_value_usd: float | None = None
     asset_value_currency: str = "USD"
     property_type: str | None = None
+    # Site-survey zero-damage flood threshold T (m): river / coastal flood damage is zero
+    # up to this outside depth, the published JRC curve applies above it. Absent → the
+    # curve exactly as published (docs/physical-risk-methodology.md §5).
+    flood_zero_damage_threshold_m: float | None = Field(default=None, ge=0)
     # V0.2 — a municipality representative point (hazard screening; priced only with a
     # user-supplied asset value). Absent for portfolio assets.
     assessment_target: str = "FACILITY"
@@ -767,6 +782,9 @@ class PhysicalRiskModelsRequest(BaseModel):
                 asset_value_usd=a.value if a.value > 0 else None,
                 asset_value_currency=a.currency,
                 property_type=str(a.properties.get("property_type") or a.sector.value),
+                flood_zero_damage_threshold_m=_optional_nonneg_float(
+                    a.properties.get("flood_zero_damage_threshold_m")
+                ),
             )
             for a in portfolio.assets
             if wanted is None or a.id in wanted

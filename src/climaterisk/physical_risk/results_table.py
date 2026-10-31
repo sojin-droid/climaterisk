@@ -64,6 +64,7 @@ HAZARD_RESULTS_COLUMNS: tuple[str, ...] = (
     "return_period_years",
     "potential_loss_return_period_years",
     "flood_protection_return_period_years",
+    "flood_zero_damage_threshold_m",
     "eal_undefended_usd",
     "undefended_frequent_flooding",
     "levee_protected",
