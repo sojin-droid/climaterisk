@@ -305,3 +305,51 @@ def tc_impact_function(impf_id: int) -> Any:
     impf_set = ImpfSetTropCyclone.from_calibrated_regional_ImpfSet()
     func = impf_set.get_func(haz_type="TC", fun_id=impf_id)
     return func[0] if isinstance(func, list) else func
+
+
+def thresholded_flood_impact_function(func: Any, threshold_m: float) -> Any:
+    """The JRC curve with zero damage up to ``threshold_m`` and the curve itself above it.
+
+    A site survey (lowest opening sill, installed flood board, flood wall, first-floor
+    height) says up to which *outside* depth a building takes no damage; above it the
+    published curve applies unchanged — water that tops the barrier floods with its full
+    depth, the FLOPROS overtopping rule :mod:`climaterisk_worker.physical_risk.protection`
+    already uses for defences. ``threshold_m`` at or below the curve's own zero point
+    (JRC: 0.05 m) returns the function object unchanged, so a facility without a survey
+    value reproduces the published curve exactly. The id is kept: one facility still sees
+    one function under every model.
+
+    Args:
+        func: A published ``ImpfRiverFlood`` (any ``haz_type`` — RF or CF).
+        threshold_m: Outside flood depth ``T`` (m) up to which damage is zero.
+
+    Returns:
+        ``func`` itself when ``T`` adds nothing, else a deep copy with the step applied.
+
+    Algorithm:
+        $$\\text{MDR}_T(d) = \\text{MDR}(d)\\,\\mathbb{1}[d > T]$$
+        ASCII: mdr_T(d) = mdr(d) if d > T else 0 — a step at T, the curve's own linear
+        interpolation everywhere else.
+
+        ``d``: flood depth (m); ``T``: zero-damage threshold (m); ``MDR``: mean damage
+        ratio (MDD × PAA, dimensionless, 0–1).
+    """
+    import copy
+
+    import numpy as np
+
+    x = np.asarray(func.intensity, dtype=float)
+    positive = np.flatnonzero(np.asarray(func.mdd) * np.asarray(func.paa) > 0)
+    # the deepest grid point still at zero damage (JRC: 0.05 m)
+    zero_until = float(x[positive[0] - 1]) if positive.size and positive[0] > 0 else float(x[0])
+    if threshold_m <= zero_until:
+        return func
+    eps = 1e-6
+    xs = np.unique(np.concatenate([x, [threshold_m, threshold_m + eps]]))
+    mdd = np.interp(xs, x, func.mdd)
+    paa = np.interp(xs, x, func.paa)
+    mdd[xs <= threshold_m] = 0.0
+    out = copy.deepcopy(func)
+    out.intensity, out.mdd, out.paa = xs, mdd, paa
+    out.name = f"{func.name} | 0 up to {threshold_m:.2f} m"
+    return out

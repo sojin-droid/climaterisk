@@ -32,6 +32,11 @@ Reference: Huizinga, J., de Moel, H., Szewczyk, W. (2017) Global flood depth-dam
 The `noPAA` in the names is CLIMADA's own: PAA is 1 across the whole range, so all of the
 damage is carried by MDD.
 
+A facility with a site-survey `flood_zero_damage_threshold_m` is priced with the same curve
+stepped to zero up to that depth (`registry.thresholded_flood_impact_function`: same id,
+name suffixed `| 0 up to T m`). It is derived at run time from the published function and
+never stored as a curve of its own — methodology §5.
+
 ## TC — tropical cyclone (CLIMADA core)
 
 `ImpfTropCyclone.from_emanuel_usa` and the ten regionally calibrated functions of

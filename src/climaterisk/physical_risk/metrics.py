@@ -377,6 +377,10 @@ class ResultRow:
     floor_area_m2: float | None = None
     year_built: int | None = None
     structure_type: str | None = None
+    # site-survey zero-damage flood threshold T (m): RF / CF damage is zero up to this
+    # outside depth and the published curve above it (flood_threshold.py). Null when the
+    # facility supplied none — the curve then applies exactly as published.
+    flood_zero_damage_threshold_m: float | None = None
 
     # V0.2 — what the point is (FACILITY = a portfolio asset; MUNICIPALITY = an official
     # boundary representative point used for hazard screening, priced only with a supplied value)
