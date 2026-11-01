@@ -57,9 +57,15 @@ def test_every_tier_cell_names_only_known_tiers() -> None:
 
 
 def test_no_peril_is_decision_grade_until_a_domestic_validation_series_exists() -> None:
-    """RISK_REGISTER C5 still records no observed series; tier D would contradict it."""
+    """RISK_REGISTER C5 has not passed; tier D would contradict it.
+
+    Since 2026-09-11 C5 holds an observed series (재해연보 national TC losses) but the
+    comparability gate still blocks validation, so the row is not marked passed (✅).
+    """
     register = REGISTER.read_text(encoding="utf-8")
-    assert "관측 계열은 아직 없음" in register
+    c5 = next(ln for ln in register.splitlines() if ln.startswith("| C5 "))
+    status = c5.split("|")[1]
+    assert "✅" not in status, f"C5 marked passed: {status.strip()}"
     graded_d = sorted(pid for pid, cell in _tier_rows().items() if "**D**" in cell)
     assert not graded_d, f"tier D declared without a validation series: {graded_d}"
 

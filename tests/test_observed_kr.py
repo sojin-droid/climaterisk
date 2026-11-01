@@ -1,18 +1,20 @@
-"""Contract tests for Korean observed-loss ingestion — **no loader exists yet**.
+"""Korean observed-loss ingestion — the F1 loader and the guards around it.
 
-``worker/climaterisk_worker/observed_kr.py`` (spec F1) is deliberately NOT implemented: it is
-behind a data gate (a data.go.kr service key and the portal's 컬럼정의서 are needed to fix the
-field names, unit multiple and price basis — docs/OBSERVED_LOSSES_KR_SPEC.md §9, §11).
+``worker/climaterisk_worker/observed_kr.py`` (spec F1) **is now implemented**; the data gate
+that held it back (a data.go.kr service key) was cleared on 2026-09-11 and the live response
+settled the two schema questions the spec left open (§4, §12).
 
-What this file does instead:
+What this file covers:
 
-1. freezes the **parser contract** F1 must satisfy, against a tiny synthetic XML fixture whose
-   own ``source`` says it is a fixture. ``_reference_extract`` below is a *contract witness*
-   living in the test file — it reads the fixture with the standard library so the expectations
-   are executable. It is not the production loader and must not be copied as one: F1 additionally
-   owns authentication, response caching, unit resolution and deflation;
-2. tests the guards that stop an incomparable observed/modelled pair from being calibrated —
-   units, sub-peril coverage, spatial scope and year alignment.
+1. the **loader** — parsing, the ObservedSeries contract it must produce, and the four source
+   defects it has to defend against (``tot``, ``typhoon_heavy_rain``, duplicate ``seq``, the
+   thousandfold year). Every test drives a tiny synthetic XML fixture, never the network;
+2. the **parser contract** the loader must satisfy. ``_reference_extract`` below is a *contract
+   witness* living in the test file — it reads the fixture with the standard library so the
+   expectations are executable independently of the loader's own code path. It is not the
+   production loader and must not be copied as one;
+3. the guards that stop an incomparable observed/modelled pair from being calibrated — units,
+   sub-peril coverage, spatial scope and year alignment. **Having the data does not lift them.**
 
 The fixture's STRUCTURE and element names are the real ones (confirmed 2026-09-07 from the
 portal's 컬럼정의서 and embedded Swagger — docs/OBSERVED_LOSSES_KR_SPEC.md §4, §12); only the
@@ -33,6 +35,7 @@ if str(WORKER) not in sys.path:
     sys.path.insert(0, str(WORKER))
 
 from climaterisk_worker import calibration as cal  # noqa: E402
+from climaterisk_worker import observed_kr as okr  # noqa: E402
 from climaterisk_worker import validation as val  # noqa: E402
 
 FIXTURE_SOURCE = "synthetic unit-test fixture (not 재해연보 data)"
@@ -499,10 +502,13 @@ def test_disaster_yearbook_source_is_refused_with_the_data_gate_reason() -> None
         }
     )
     assert out["status"] == "error"
-    assert "15107318" in out["detail"] and "컬럼정의서" in out["detail"]
-    assert "no loader yet" in out["detail"]
-    # the reason must name what is actually missing, not a resolved item
-    assert "seq" in out["detail"] and "no unit element" in out["detail"]
+    assert "15107318" in out["detail"]
+    # The reason must name what is actually blocking now. The key and the schema questions were
+    # resolved on 2026-09-11 and the loader exists; what remains is physics and scope.
+    assert "has a loader" in out["detail"] or "HAS a loader" in out["detail"]
+    assert "wind + surge + rain" in out["detail"]
+    assert "point portfolio" in out["detail"]
+    assert "no data.go.kr service key" not in out["detail"]
 
 
 def test_unknown_observed_source_is_refused() -> None:
@@ -521,3 +527,200 @@ def test_portfolio_currency_is_unknown_when_assets_disagree() -> None:
     assert cal.portfolio_currency([{"currency": "KRW"}, {"currency": "USD"}]) == ""
     assert cal.portfolio_currency([{"currency": "krw"}, {"currency": "KRW"}]) == "KRW"
     assert cal.portfolio_currency([{}]) == ""
+
+
+# --- F1 loader ------------------------------------------------------------------------
+# Every test below drives a synthetic fixture, never the live API: a unit test must not
+# depend on data.go.kr being up, and the real response must not be frozen into the repo.
+# Fixture ELEMENT NAMES are the real ones; the numbers are the real 2026-09-11 values only
+# where a test is about a real source defect, and are never used as evidence about Korea.
+
+LOADER_FIXTURE_SOURCE = "synthetic unit-test fixture (not 재해연보 data)"
+
+
+def _envelope(rows: str, total: int | None = None, result: str = "INFO-0") -> bytes:
+    n = total if total is not None else rows.count("<row>")
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<NaturalDisasterDamageByYear>
+  <head><totalCount>{n}</totalCount><numOfRows>100</numOfRows><pageNo>1</pageNo>
+    <RESULT><resultCode>{result}</resultCode><resultMsg>NOMAL SERVICE</resultMsg></RESULT>
+  </head>{rows}
+</NaturalDisasterDamageByYear>""".encode()
+
+
+def _wide_row(year: int, seq: str = "1", **cols: int) -> str:
+    values = {"tot": 0, **dict.fromkeys(okr.CAUSE_COLUMNS, 0), **cols}
+    body = "".join(f"<{k}>{v}</{k}>" for k, v in values.items())
+    return f"<row><wrttimeid>{year}</wrttimeid><seq>{seq}</seq>{body}</row>"
+
+
+#: Four years shaped like the live response, including the two real oddities: 2018 carries a
+#: non-zero ``typhoon_heavy_rain``, and 2017 reports zero typhoon damage.
+LOADER_FIXTURE = _envelope(
+    _wide_row(2018, tot=141284, typhoon=64200, heavy_rain=53800, typhoon_heavy_rain=6416)
+    + _wide_row(2019, tot=216226, typhoon=212778, heavy_rain=1651)
+    + _wide_row(2020, tot=1318177, typhoon=222541, heavy_rain=1095172)
+    + _wide_row(2017, tot=187302, typhoon=0, heavy_rain=101592, earthquak=85022)
+)
+
+
+def _stub(payload: bytes):  # type: ignore[no-untyped-def]
+    """Stand-in for :func:`observed_kr.fetch_raw` — page 1 is the payload, page 2 is empty."""
+
+    def fetch(page: int = 1, rows: int = 100, key: str | None = None, timeout: int = 60) -> bytes:
+        return payload if page == 1 else _envelope("", total=0)
+
+    return fetch
+
+
+def test_loader_parses_rows_by_element_name_and_sorts_by_year() -> None:
+    rows = okr.fetch_rows(key="fixture", fetch=_stub(LOADER_FIXTURE))
+    assert [r["wrttimeid"] for r in rows] == [2017, 2018, 2019, 2020]
+    assert rows[3]["typhoon"] == 222541
+    assert rows[1]["typhoon_heavy_rain"] == 6416
+    assert all(r["seq"] == "1" for r in rows)
+
+
+def test_loader_series_declares_every_field_the_gate_reads() -> None:
+    series = okr.load_year_series("tropical_cyclone", key="fixture", fetch=_stub(LOADER_FIXTURE))
+    assert series.unit == "KRW million" and series.currency == "KRW"
+    assert series.unit_spec().multiplier == 1e6
+    assert series.price_basis == "nominal"
+    assert series.scope == "national:KOR"
+    assert series.peril == "tropical_cyclone"
+    # A 태풍 loss statistic books wind + surge + rain together (spec §6-1).
+    assert series.covers_subperils == val.TC_AGGREGATE_SUBPERILS
+    assert "15107318" in series.source
+
+
+def test_loader_series_tracks_period_and_year_counts() -> None:
+    series = okr.load_year_series("tropical_cyclone", key="fixture", fetch=_stub(LOADER_FIXTURE))
+    assert series.observed_period == (2017, 2020)
+    assert series.n_years == 4
+    assert series.n_nonzero_years == 3  # 2017 reports zero — data, not a gap
+    assert series.losses[2017] == 0.0
+
+
+def test_loader_reads_the_named_cause_column_never_the_total() -> None:
+    """``tot`` omits 우박·폭풍해일·냉해동해 — 11.8 % of the 2023 total (spec §4)."""
+    series = okr.load_year_series("tropical_cyclone", key="fixture", fetch=_stub(LOADER_FIXTURE))
+    assert series.losses[2020] == 222541.0, "the typhoon column, not tot=1318177"
+    assert all(v != 1318177.0 for v in series.losses.values())
+
+
+def test_loader_does_not_reconstruct_a_total_from_the_cause_columns() -> None:
+    """Summing the published causes is not the published total and must not stand in for it."""
+    rows = okr.fetch_rows(key="fixture", fetch=_stub(LOADER_FIXTURE))
+    row_2020 = next(r for r in rows if r["wrttimeid"] == 2020)
+    assert sum(row_2020[c] for c in okr.CAUSE_COLUMNS) != row_2020["tot"]
+
+
+def test_loader_does_not_add_typhoon_heavy_rain_into_typhoon() -> None:
+    """The source's "could not separate" column makes the typhoon figure a lower bound."""
+    series = okr.load_year_series("tropical_cyclone", key="fixture", fetch=_stub(LOADER_FIXTURE))
+    assert series.losses[2018] == 64200.0, "6416 must not be summed in"
+    assert "typhoon_heavy_rain" in series.notes and "[2018]" in series.notes
+    assert "lower bound" in series.notes
+
+
+def test_loader_drops_a_thousandfold_year_and_never_rescales_it() -> None:
+    """The 2026 통계연보 vintage publishes its newest year in 천원 under a 백만원 header (§5-B-1).
+
+    The correct multiplier is a guess until it is checked against 재해연보, so the year is
+    excluded and the exclusion is recorded — not silently divided by 1000.
+    """
+    payload = _envelope(
+        _wide_row(2018, tot=141284, typhoon=64200)
+        + _wide_row(2019, tot=216226, typhoon=212778)
+        + _wide_row(2020, tot=1318177, typhoon=222541)
+        + _wide_row(2024, tot=910713075, typhoon=106342)
+    )
+    series = okr.load_year_series("tropical_cyclone", key="fixture", fetch=_stub(payload))
+    assert 2024 not in series.losses
+    assert series.observed_period == (2018, 2020)
+    assert "[2024] dropped" in series.notes and "천원" in series.notes
+    assert "106342" not in series.notes, "the anomalous value must not be carried forward"
+
+
+def test_loader_refuses_two_rows_for_one_year_rather_than_choosing() -> None:
+    """Live responses carry one row per year at ``seq=1``; a second row's meaning is unknown."""
+    payload = _envelope(
+        _wide_row(2020, seq="1", tot=1318177, typhoon=222541)
+        + _wide_row(2020, seq="2", tot=999, typhoon=999)
+    )
+    with pytest.raises(okr.YearbookUnavailable, match="two rows for 2020"):
+        okr.fetch_rows(key="fixture", fetch=_stub(payload))
+
+
+def test_loader_rejects_a_gateway_error_envelope() -> None:
+    """Omitting ``type=xml`` returns this under HTTP 200 — it must not parse as an empty page."""
+    envelope = (
+        b'<?xml version="1.0" encoding="UTF-8"?>'
+        b"<OpenAPI_ServiceResponse><cmmMsgHeader><errMsg>HTTP_ERROR</errMsg>"
+        b"<returnReasonCode>04</returnReasonCode></cmmMsgHeader></OpenAPI_ServiceResponse>"
+    )
+    with pytest.raises(okr.YearbookUnavailable, match="error envelope"):
+        okr.parse_rows(envelope)
+
+
+def test_loader_rejects_malformed_and_non_numeric_responses() -> None:
+    with pytest.raises(okr.YearbookUnavailable, match="not XML"):
+        okr.parse_rows(b"<not xml")
+    with pytest.raises(okr.YearbookUnavailable, match="not an integer"):
+        okr.parse_rows(
+            _envelope("<row><wrttimeid>2020</wrttimeid><seq>1</seq><tot>n/a</tot></row>")
+        )
+    with pytest.raises(okr.YearbookUnavailable, match="wrttimeid"):
+        okr.parse_rows(_envelope("<row><wrttimeid>x</wrttimeid><seq>1</seq></row>"))
+
+
+def test_loader_refuses_a_peril_with_no_cause_column() -> None:
+    with pytest.raises(okr.YearbookUnavailable, match="no cause column"):
+        okr.load_year_series("river_flood", key="fixture", fetch=_stub(LOADER_FIXTURE))
+
+
+def test_loader_names_the_key_variable_when_it_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(okr.KEY_ENV, raising=False)
+    with pytest.raises(okr.YearbookUnavailable, match=okr.KEY_ENV):
+        okr.fetch_rows()
+
+
+def test_loader_output_still_fails_the_calibration_gate() -> None:
+    """Having the observed data is not permission to calibrate on it.
+
+    A national aggregate covering wind+surge+rain, in KRW millions, against a wind-only
+    point-asset model in USD fails on units, coverage and scope — all three reported.
+    """
+    series = okr.load_year_series("tropical_cyclone", key="fixture", fetch=_stub(LOADER_FIXTURE))
+    report = val.comparability_report(
+        observed=series,
+        modelled_unit="USD",
+        modelled_covers=("wind",),
+        modelled_scope="",
+        is_original_subset=False,
+        hazard_label="TC IBTrACS",
+    )
+    assert report["comparison_status"] == val.COMPARISON_NOT_COMPARABLE
+    assert report["calibration_allowed"] is False
+    joined = " | ".join(report["blockers"])
+    assert "unit mismatch" in joined
+    assert "missing rain, surge" in joined
+    assert "scope undeclared" in joined
+
+
+def test_only_the_subperil_blocker_survives_fixing_units_and_scope() -> None:
+    """Units and scope are plumbing and can be fixed; the coverage gap is physics and cannot."""
+    series = okr.load_year_series("tropical_cyclone", key="fixture", fetch=_stub(LOADER_FIXTURE))
+    report = val.comparability_report(
+        observed=series,
+        modelled_unit="KRW million",
+        modelled_covers=("wind",),
+        modelled_scope="national:KOR",
+        is_original_subset=True,
+    )
+    assert report["calibration_allowed"] is False
+    assert report["blockers"] == [
+        "observed aggregates sub-perils the model does not carry: missing rain, surge"
+    ]

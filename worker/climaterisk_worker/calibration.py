@@ -205,14 +205,15 @@ def compute_calibration(request: dict[str, Any]) -> dict[str, Any]:
         return {
             "status": "error",
             "detail": (
-                "행정안전부 재해연보 (disaster_yearbook) has no loader yet. The field names ARE "
-                "confirmed (컬럼정의서 + Swagger, 2026-09-07: wrttimeid, seq, typhoon, …), but "
-                "three things still block a loader: no data.go.kr service key for 15107318; the "
-                "API publishes no unit element (the source publication uses 천원 in detail "
-                "tables and 백만원 in summary tables, and that cannot be transferred to the "
-                "API); and `seq` (분류 일련번호) has no label, so a property-damage row cannot "
-                "be told from a casualty row. No substitute series is used. "
-                "See docs/OBSERVED_LOSSES_KR_SPEC.md §4, §5, §12."
+                "행정안전부 재해연보 (disaster_yearbook) now HAS a loader — "
+                "climaterisk_worker.observed_kr (15107318, 컬럼정의서 + Swagger field names) — "
+                "and it builds a real 2016-2023 national ObservedSeries. Calibration is still "
+                "refused, and not for want of data: a 재해연보 태풍 figure books wind + surge + "
+                "rain together while this runner models wind only, so fitting v_half to it would "
+                "make the wind curve absorb rain and surge damage (spec §6-1); and a national "
+                "total cannot be fitted to a point portfolio (spec §8). Both are reported by "
+                "calibration_gate as blockers. Use the series for validation/comparison instead. "
+                "See docs/OBSERVED_LOSSES_KR_SPEC.md §6-1, §8."
             ),
         }
 
