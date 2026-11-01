@@ -2,12 +2,21 @@
 // is synced back to the backend (which owns it).
 
 import type {
+  AssetImportResult,
+  AssetTemplate,
   FinanceResult,
   HazardCatalog,
   IngestSource,
+  KoreaStatus,
   Libraries,
   MeasureSpec,
+  MunicipalitiesResponse,
+  OfflineStatus,
   OpenDataFetchResult,
+  PhysicalRiskModelsBody,
+  PhysicalRiskReadiness,
+  PhysicalRiskTable,
+  RunProgress,
   Portfolio,
   Run,
   TransitionResult,
@@ -25,6 +34,46 @@ async function http<T>(url: string, init?: RequestInit): Promise<T> {
   }
   if (resp.status === 204) return undefined as T;
   return (await resp.json()) as T;
+}
+
+/** The asset import templates (kind, columns, notes, download URL). */
+export async function getAssetTemplates(): Promise<{ templates: AssetTemplate[] }> {
+  return http<{ templates: AssetTemplate[] }>("/api/libraries/asset-templates");
+}
+
+/**
+ * Upload an xlsx / csv in one of the templates. The server refuses the whole file on any bad
+ * row (422 with line-numbered errors); the thrown Error then carries those lines.
+ */
+export async function importAssets(
+  sessionId: string,
+  file: File,
+  kind: string,
+  mode: "merge" | "replace",
+): Promise<AssetImportResult> {
+  const form = new FormData();
+  form.append("file", file, file.name);
+  const qs = new URLSearchParams({ kind, mode });
+  const resp = await fetch(`/api/session/${sessionId}/assets/import?${qs}`, {
+    method: "POST",
+    body: form, // no Content-Type header: the browser sets the multipart boundary
+  });
+  if (!resp.ok) {
+    let detail = `${resp.status}`;
+    try {
+      const body = (await resp.json()) as { detail?: unknown };
+      const d = body.detail;
+      if (typeof d === "string") detail = d;
+      else if (d && typeof d === "object" && Array.isArray((d as { errors?: unknown }).errors)) {
+        const e = d as { message?: string; errors: string[] };
+        detail = `${e.message ?? "file refused"}: ${e.errors.join(" · ")}`;
+      }
+    } catch {
+      /* keep the status */
+    }
+    throw new Error(detail);
+  }
+  return (await resp.json()) as AssetImportResult;
 }
 
 /** Fetch the existing session (from localStorage) or create a fresh one. */
@@ -52,6 +101,24 @@ export async function saveModel(model: Portfolio): Promise<Portfolio> {
 
 export async function getLibraries(): Promise<Libraries> {
   return http<Libraries>("/api/libraries");
+}
+
+export async function getKoreaStatus(): Promise<KoreaStatus> {
+  return http<KoreaStatus>("/api/status/korea");
+}
+
+/** The backend's mode flag (``offline``) from the liveness probe. */
+export async function getHealth(): Promise<{ status: string; version: string; offline: boolean }> {
+  return http<{ status: string; version: string; offline: boolean }>("/api/health");
+}
+
+export async function getOfflineStatus(): Promise<OfflineStatus> {
+  return http<OfflineStatus>("/api/status/offline");
+}
+
+/** Refresh the cached Data API listing (a worker job; refused by the server when offline). */
+export async function submitDataApiIndex(sessionId: string): Promise<Run> {
+  return http<Run>(`/api/session/${sessionId}/dataapi-index`, { method: "POST" });
 }
 
 export async function getHazardCatalog(): Promise<HazardCatalog> {
@@ -178,4 +245,41 @@ export async function fetchOpenData(
   const qs = new URLSearchParams({ source_id: sourceId });
   if (country) qs.set("country", country);
   return http<OpenDataFetchResult>(`/api/data/fetch?${qs.toString()}`, { method: "POST" });
+}
+
+/** Submit a global / country / Korea-local hazard-replacement run (same impact function). */
+export async function submitPhysicalRiskModels(
+  sessionId: string,
+  body: PhysicalRiskModelsBody = {},
+): Promise<Run> {
+  return http<Run>(`/api/session/${sessionId}/physical-risk-models`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+/** The three models, their definitions and the per-hazard readiness table (static). */
+export async function getPhysicalRiskReadiness(): Promise<PhysicalRiskReadiness> {
+  return http<PhysicalRiskReadiness>(`/api/libraries/physical-risk-models`);
+}
+
+/** Canonical batch table + export frames + summary counts of a finished three-model run. */
+export async function getPhysicalRiskTable(sessionId: string, runId: string): Promise<PhysicalRiskTable> {
+  return http<PhysicalRiskTable>(`/api/session/${sessionId}/run/${runId}/physical-risk-table`);
+}
+
+/** The bundled Korea municipality representative points (V0.2), with provenance. */
+export async function getMunicipalities(level?: string): Promise<MunicipalitiesResponse> {
+  const qs = level ? `?level=${encodeURIComponent(level)}` : "";
+  return http<MunicipalitiesResponse>(`/api/libraries/municipalities${qs}`);
+}
+
+/** Coarse progress (done / total calculations) of a running batch. */
+export async function getRunProgress(sessionId: string, runId: string): Promise<RunProgress> {
+  return http<RunProgress>(`/api/session/${sessionId}/run/${runId}/progress`);
+}
+
+/** Recent runs of one kind for the session (run history), newest first, outputs included. */
+export async function listRuns(sessionId: string, kind = "physical_risk_models", limit = 10): Promise<Run[]> {
+  return http<Run[]>(`/api/session/${sessionId}/runs?kind=${kind}&limit=${limit}`);
 }

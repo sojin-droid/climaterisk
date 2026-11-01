@@ -162,7 +162,7 @@ def build_html_report(
         phys_rows += (
             f"<tr><td>{_esc(r['peril'].replace('_', ' '))}</td>"
             f"<td>{_esc(r.get('target_year'))}</td>"
-            f"<td class='num'>{_money(present or 0, cur)}</td>"
+            f"<td class='num'>{_money(present, cur) if present is not None else '—'}</td>"
             f"<td class='num'>{_money(r['aai_agg'], cur)}</td>"
             f"<td class='num'>{delta_s}</td></tr>"
         )

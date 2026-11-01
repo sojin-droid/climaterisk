@@ -86,6 +86,306 @@ def submit_litpop(
     return manager.submit_litpop(portfolio, country.upper(), source, peril)
 
 
+class PhysicalRiskModelsBody(BaseModel):
+    """Options for a three-model run; every field has the platform default."""
+
+    hazards: list[str] | None = None  # subset of RF / CF / TC / HEAT
+    models: list[str] | None = None  # subset of GLOBAL_BASELINE / DATA_API_COUNTRY / KOREA_LOCAL
+    # Per-hazard models (Recommended mode: one model per hazard). Overrides ``models`` for
+    # the hazards it names; without it every hazard runs under every model in ``models``.
+    hazard_models: dict[str, list[str]] | None = None
+    target_year: int | None = None
+    country: str | None = None  # ISO3; resolved from the assets when omitted
+    # "present" (like-for-like present climate per hazard) enables climate_change_multiplier
+    baseline_scenario: str | None = None
+    facility_ids: list[str] | None = None  # subset of the session's assets; all when omitted
+    # V0.2 — municipality mode: the bundled representative points instead of the assets.
+    assessment_target: str = "FACILITY"  # FACILITY | MUNICIPALITY
+    municipality_ids: list[str] | None = None  # ids from GET /libraries/municipalities
+    asset_values: dict[str, float] | None = None  # municipality id -> user-supplied USD value
+    # V0.3 POC — REPRESENTATIVE_POINT (default) and/or OFFICIAL_OFFICE_POINT
+    anchors: list[str] | None = None
+    # Economic-growth step: asset values grow from valuation_year (config default) to the
+    # target year at annual_growth_pct per year; reported as a scalar, rows stay unscaled.
+    annual_growth_pct: float | None = None
+    valuation_year: int | None = None
+
+
+def _validated_growth(
+    body: PhysicalRiskModelsBody, anchor_years: list[int]
+) -> tuple[float | None, int | None]:
+    """Refuse a growth assumption the engine would refuse later, with the reason up front."""
+    if body.annual_growth_pct is None:
+        if body.valuation_year is not None:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, detail="valuation_year needs annual_growth_pct"
+            )
+        return None, None
+    from climaterisk.physical_risk.metrics import exposure_growth_record, load_config
+
+    ceiling = float(load_config()["exposure_growth"]["max_annual_growth_pct"])
+    if body.annual_growth_pct > ceiling:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail=f"annual_growth_pct above the configured ceiling of {ceiling:g} % per year",
+        )
+    target = body.target_year or max(anchor_years or [2050])
+    try:
+        exposure_growth_record(body.annual_growth_pct, target, body.valuation_year)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return body.annual_growth_pct, body.valuation_year
+
+
+def _validated_anchors(anchors: list[str] | None, municipality_ids: list[str]) -> list[str]:
+    """V0.3 POC anchor rules — never a silent fallback to the representative point.
+
+    Official Office alone is refused for a municipality without a government-published
+    office coordinate; with both anchors, such a municipality keeps its representative point
+    and its office cell reads "Not available in V0.3 POC".
+    """
+    from climaterisk.physical_risk.official_offices import (
+        ANCHOR_OFFICIAL_OFFICE,
+        ANCHOR_REPRESENTATIVE,
+        ANCHORS,
+        NOT_AVAILABLE_LABEL,
+        supported_ids,
+    )
+
+    chosen = list(dict.fromkeys(anchors or [ANCHOR_REPRESENTATIVE]))
+    bad = [a for a in chosen if a not in ANCHORS]
+    if bad or not chosen:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, detail=f"anchors must be a subset of {list(ANCHORS)}"
+        )
+    if ANCHOR_OFFICIAL_OFFICE in chosen:
+        supported = set(supported_ids())
+        missing = [m for m in municipality_ids if m not in supported]
+        if ANCHOR_REPRESENTATIVE not in chosen and missing:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail=f"Official Office {NOT_AVAILABLE_LABEL} for: {missing}",
+            )
+    return chosen
+
+
+@router.post("/{session_id}/physical-risk-models", response_model=Run)
+def submit_physical_risk_models(
+    session_id: str, body: PhysicalRiskModelsBody, store: StoreDep, manager: ManagerDep
+) -> Run:
+    """Submit a global / country / Korea-local hazard-replacement run; polled via run-status.
+
+    The same exposure and the same published CLIMADA impact function are applied under
+    each model — only the hazard source changes (``docs/physical-risk-models.md``).
+    """
+    portfolio = store.get(session_id)
+    if portfolio is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="session not found")
+    if body.country is not None and len(body.country) != 3:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="country must be an ISO3 code")
+    if body.assessment_target not in ("FACILITY", "MUNICIPALITY"):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, detail="assessment_target must be FACILITY or MUNICIPALITY"
+        )
+    growth_pct, valuation_year = _validated_growth(body, portfolio.scenario.anchor_years)
+    if body.assessment_target == "MUNICIPALITY":
+        from climaterisk.physical_risk.municipalities import load_municipalities
+
+        if not body.municipality_ids:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, detail="select at least one municipality"
+            )
+        known_m = {m.municipality_id for m in load_municipalities()}
+        unknown_m = sorted(set(body.municipality_ids) - known_m)
+        if unknown_m:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, detail=f"unknown municipality ids: {unknown_m}"
+            )
+        for mid, value in (body.asset_values or {}).items():
+            if mid not in set(body.municipality_ids):
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    detail=f"asset value given for a municipality not selected: {mid}",
+                )
+            if value is None or float(value) <= 0:
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    detail=f"asset value for {mid} must be a positive USD amount (or omitted)",
+                )
+        anchors = _validated_anchors(body.anchors, body.municipality_ids)
+        return manager.submit_physical_risk_models(
+            portfolio,
+            hazards=body.hazards,
+            models=body.models,
+            hazard_models=body.hazard_models,
+            target_year=body.target_year,
+            country=body.country.upper() if body.country else None,
+            baseline_scenario=body.baseline_scenario,
+            anchors=anchors,
+            assessment_target="MUNICIPALITY",
+            municipality_ids=body.municipality_ids,
+            asset_values={k: float(v) for k, v in (body.asset_values or {}).items()},
+            annual_growth_pct=growth_pct,
+            valuation_year=valuation_year,
+        )
+    if body.facility_ids is not None:
+        known = {a.id for a in portfolio.assets}
+        unknown = sorted(set(body.facility_ids) - known)
+        if unknown:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, detail=f"unknown facility ids: {unknown}"
+            )
+        if not body.facility_ids:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="select at least one asset")
+    return manager.submit_physical_risk_models(
+        portfolio,
+        hazards=body.hazards,
+        models=body.models,
+        hazard_models=body.hazard_models,
+        target_year=body.target_year,
+        country=body.country.upper() if body.country else None,
+        baseline_scenario=body.baseline_scenario,
+        facility_ids=body.facility_ids,
+        annual_growth_pct=growth_pct,
+        valuation_year=valuation_year,
+    )
+
+
+@router.get("/{session_id}/runs", response_model=list[Run])
+def list_runs(
+    session_id: str,
+    manager: ManagerDep,
+    store: StoreDep,
+    kind: str = "physical_risk_models",
+    limit: int = 10,
+) -> list[Run]:
+    """Recent runs of one kind for the session, newest first — the run history.
+
+    Outputs are included (the Run model carries them), so a reopened run can be shown and
+    exported again without recomputing.
+    """
+    if store.get(session_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="session not found")
+    return manager.list_runs(session_id, kind, max(1, min(limit, 50)))
+
+
+@router.get("/{session_id}/run/{run_id}/progress")
+def get_run_progress(session_id: str, run_id: str, manager: ManagerDep) -> dict[str, Any]:
+    """Coarse progress of a running batch: ``done`` / ``total`` calculations and the step.
+
+    Read from ``progress.json`` that the worker rewrites after each hazard x model batch;
+    an empty dict while nothing has been written yet.
+    """
+    run = manager.poll(run_id)
+    if run is None or run.session_id != session_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="run not found")
+    path = get_settings().runs_path / run_id / "progress.json"
+    if not path.is_file():
+        return {"status": run.status}
+    try:
+        data: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"status": run.status}
+    data["status"] = run.status
+    return data
+
+
+@router.get("/{session_id}/run/{run_id}/physical-risk-export.xlsx")
+def export_physical_risk_models_xlsx(session_id: str, run_id: str, manager: ManagerDep) -> Response:
+    """The finished three-model run as an Excel workbook (openpyxl).
+
+    Sheets: run_info, hazard_results, asset_summary, global_vs_country,
+    global_vs_korea_local, climate_change (when a baseline scenario was run), methodology.
+    Empty cells are unpriced fields — never zeros.
+    """
+    from climaterisk.physical_risk.excel_export import report_filename, workbook_bytes
+
+    run = manager.poll(run_id)
+    if run is None or run.session_id != session_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="run not found")
+    if run.status != "done" or not run.output or "rows" not in run.output:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail="run is not a finished physical-risk-models run"
+        )
+    filename = report_filename(run.output, run.created_at)
+    return Response(
+        workbook_bytes(run.output),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/{session_id}/run/{run_id}/simple-summary")
+def get_simple_summary(session_id: str, run_id: str, manager: ManagerDep) -> dict[str, Any]:
+    """The simple-mode summary of a finished physical-risk run (one-screen view).
+
+    Headline figures, per-시도 present-vs-future table, return periods, largest assets and
+    coverage notes — sums and lookups over the run's own rows and curves
+    (:func:`climaterisk.physical_risk.simple_summary.build_simple_summary`).
+    """
+    from climaterisk.config import get_settings
+    from climaterisk.physical_risk.display_copy import recommended_models
+    from climaterisk.physical_risk.simple_summary import build_simple_summary
+
+    run = manager.poll(run_id)
+    if run is None or run.session_id != session_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="run not found")
+    if run.status != "done" or not run.output or "rows" not in run.output:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail="run is not a finished physical-risk-models run"
+        )
+    return build_simple_summary(
+        run.output,
+        krw_per_usd=get_settings().krw_per_usd,
+        preferred_models=recommended_models(),
+    )
+
+
+@router.get("/{session_id}/run/{run_id}/physical-risk-table")
+def get_physical_risk_table(
+    session_id: str,
+    run_id: str,
+    manager: ManagerDep,
+    hazard: str | None = None,
+    model: str | None = None,
+    risk_level: str | None = None,
+    scenario: str | None = None,
+) -> dict[str, Any]:
+    """The batch table of a finished three-model run, filtered, in the canonical columns.
+
+    Also returns the five export-compatible frames so the Excel step is a pure write.
+    """
+    from climaterisk.physical_risk.results_table import (
+        CANONICAL_COLUMNS,
+        export_frames,
+        filter_rows,
+        table_rows,
+    )
+
+    run = manager.poll(run_id)
+    if run is None or run.session_id != session_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="run not found")
+    if run.status != "done" or not run.output or "rows" not in run.output:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail="run is not a finished physical-risk-models run"
+        )
+    from climaterisk.physical_risk.display_copy import recommended_models
+    from climaterisk.physical_risk.results_table import summary_counts
+
+    rows = filter_rows(
+        run.output["rows"], hazard=hazard, model=model, risk_level=risk_level, scenario=scenario
+    )
+    target = str(run.output.get("assessment_target") or "FACILITY")
+    return {
+        "columns": list(CANONICAL_COLUMNS),
+        "rows": table_rows(rows),
+        "n_total": len(run.output["rows"]),
+        "assessment_target": target,
+        "frames": export_frames(run.output["rows"], target=target),
+        "summary_counts": summary_counts(run.output["rows"], recommended_models()),
+    }
+
+
 @router.post("/{session_id}/hazard-preview", response_model=Run)
 def submit_hazard_preview(
     session_id: str,
@@ -218,6 +518,25 @@ def submit_ingest(session_id: str, body: IngestBody, store: StoreDep, manager: M
     anchor = portfolio.scenario.anchor_years
     year = body.year or (max(anchor) if anchor else 2050)
     return manager.submit_ingest(portfolio, body.source, body.peril, scenario, year)
+
+
+@router.post("/{session_id}/dataapi-index", response_model=Run)
+def submit_dataapi_index(session_id: str, store: StoreDep, manager: ManagerDep) -> Run:
+    """Cache the CLIMADA Data API dataset listing for offline reference (worker job).
+
+    Refused in offline mode — the index can only be refreshed while online.
+    """
+    if store.get(session_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="session not found")
+    if get_settings().offline:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "offline mode (CLIMATERISK_OFFLINE=1): the Data API index can only be "
+                "refreshed while online"
+            ),
+        )
+    return manager.submit_dataapi_index(session_id)
 
 
 @router.get("/{session_id}/latest-runs", response_model=dict[str, Run])

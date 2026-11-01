@@ -15,6 +15,7 @@ import time
 import uuid
 from pathlib import Path
 
+from climaterisk import paths
 from climaterisk.config import Settings
 from climaterisk.core.entities import Portfolio
 from climaterisk.engines.base import (
@@ -25,6 +26,7 @@ from climaterisk.engines.base import (
     IngestRequest,
     LitPopRequest,
     MeasureSpec,
+    PhysicalRiskModelsRequest,
     PhysicalRunRequest,
     SupplyChainRequest,
     UncertaintyRequest,
@@ -84,7 +86,12 @@ class RunManager:
             # during long multi-peril runs (otherwise it stays empty until the process exits).
             "PYTHONUNBUFFERED": "1",
             "CLIMATERISK_HAZARD_DB": str(self._settings.hazard_db_path),
+            # Same roots as the backend (DATA_ROOT, KMA, CLIMADA data dir), resolved from
+            # env → .env → default in climaterisk.paths — never from the worker's cwd.
+            **paths.worker_env(),
         }
+        if self._settings.offline:
+            env["CLIMATERISK_OFFLINE"] = "1"  # the worker then never consults the Data API
         if self._settings.dem_path:
             env["CLIMATERISK_DEM_PATH"] = str(self._settings.dem_path)
         if self._settings.emdat_path:
@@ -171,6 +178,19 @@ class RunManager:
         run.status = "running"
         return run
 
+    def submit_dataapi_index(self, session_id: str, data_types: list[str] | None = None) -> Run:
+        """Refresh the cached CLIMADA Data API listing (metadata only; needs the network)."""
+        run_id = uuid.uuid4().hex
+        run = self._store.create(run_id, session_id, "n/a", ["dataapi_index"])
+        request = {
+            "mode": "dataapi_index",
+            "session_id": session_id,
+            "data_types": list(data_types) if data_types else None,
+        }
+        self._spawn(run_id, self._settings.runs_path / run_id, json.dumps(request, indent=2))
+        run.status = "running"
+        return run
+
     def submit_ingest(
         self, portfolio: Portfolio, source: str, peril: str, scenario: str, year: int
     ) -> Run:
@@ -178,6 +198,67 @@ class RunManager:
         run_id = uuid.uuid4().hex
         run = self._store.create(run_id, portfolio.id, scenario, [f"ingest:{source}"])
         request = IngestRequest.from_portfolio(portfolio, source, peril, scenario, year)
+        self._spawn(run_id, self._settings.runs_path / run_id, request.model_dump_json(indent=2))
+        run.status = "running"
+        return run
+
+    def submit_physical_risk_models(
+        self,
+        portfolio: Portfolio,
+        *,
+        hazards: list[str] | None = None,
+        models: list[str] | None = None,
+        hazard_models: dict[str, list[str]] | None = None,
+        target_year: int | None = None,
+        country: str | None = None,
+        baseline_scenario: str | None = None,
+        facility_ids: list[str] | None = None,
+        assessment_target: str = "FACILITY",
+        municipality_ids: list[str] | None = None,
+        asset_values: dict[str, float] | None = None,
+        anchors: list[str] | None = None,
+        annual_growth_pct: float | None = None,
+        valuation_year: int | None = None,
+    ) -> Run:
+        """Create a three-model physical-risk run (global / country / Korea-local hazard).
+
+        ``assessment_target="MUNICIPALITY"`` prices the bundled municipality representative
+        points (``municipality_ids``) instead of the portfolio's assets; ``asset_values`` are
+        the only source of a municipality's value.
+        """
+        run_id = uuid.uuid4().hex
+        run = self._store.create(
+            run_id, portfolio.id, portfolio.scenario.climate, ["physical_risk_models"]
+        )
+        if assessment_target == "MUNICIPALITY":
+            request = PhysicalRiskModelsRequest.from_municipalities(
+                portfolio.id,
+                portfolio.scenario.climate,
+                list(municipality_ids or []),
+                asset_values=asset_values,
+                hazards=hazards,
+                models=models,
+                hazard_models=hazard_models,
+                target_year=target_year or (max(portfolio.scenario.anchor_years or [2050])),
+                country=country or "KOR",
+                baseline_scenario=baseline_scenario,
+                anchors=anchors,
+                annual_growth_pct=annual_growth_pct,
+                valuation_year=valuation_year,
+            )
+        else:
+            request = PhysicalRiskModelsRequest.from_portfolio(
+                portfolio,
+                hazards=hazards,
+                models=models,
+                hazard_models=hazard_models,
+                target_year=target_year,
+                country=country,
+                baseline_scenario=baseline_scenario,
+                facility_ids=facility_ids,
+                annual_growth_pct=annual_growth_pct,
+                valuation_year=valuation_year,
+            )
         self._spawn(run_id, self._settings.runs_path / run_id, request.model_dump_json(indent=2))
         run.status = "running"
         return run
@@ -214,6 +295,14 @@ class RunManager:
         self._spawn(run_id, self._settings.runs_path / run_id, request.model_dump_json(indent=2))
         run.status = "running"
         return run
+
+    def list_runs(self, session_id: str, kind: str, limit: int = 10) -> list[Run]:
+        """Recent runs of one kind (see ``RunStore.list_by_kind``), each polled/finalised."""
+        out = []
+        for run in self._store.list_by_kind(session_id, kind, limit):
+            polled = self.poll(run.id)
+            out.append(polled or run)
+        return out
 
     def latest_runs(self, session_id: str) -> dict[str, Run]:
         """Most recent finished run of each kind for a session (see ``RunStore``)."""

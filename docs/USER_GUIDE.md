@@ -25,6 +25,11 @@ conda env create -f worker/climaterisk_worker/env_climada.yml --prefix ./.climad
 cp .env.example .env                                  # optional: ports, paths
 ```
 
+**Windows without a developer stack:** ask for the bundle zip (built with
+`scripts\make_windows_bundle.ps1`, see `docs/WINDOWS_BUNDLE.md`), unzip it into a short path
+such as `C:\climaterisk`, and double-click `Start climaterisk.bat`. Nothing in this section
+or the next is needed then.
+
 ## 3. Start
 
 ```bash
@@ -72,6 +77,12 @@ explicit message telling you to build the env.
   login-gated). Pick the country code, then *Model exposure*.
 - **Map layer (preview)** colours the map with a peril's hazard footprint before any run, so you can
   see what data exists where.
+- **Import assets (xlsx / csv)** loads a whole portfolio from a template: *coordinates* (one
+  located asset per row, value required), *시군구* or *시도* (one administrative unit per row,
+  placed at its official representative point; value optional → screening only). Download the
+  template, fill the `assets` sheet, upload. *merge* replaces rows with the same id and keeps the
+  rest (a quarterly re-upload is idempotent); *replace* swaps the whole portfolio. Any bad row
+  refuses the whole file with its line number — nothing is half-imported.
 - *Search location* finds a place by name.
 
 **Scenarios** — pick the climate pathway (RCP2.6/4.5/6.0/8.5, mapped to SSP where a source needs
@@ -141,18 +152,45 @@ python3 scripts/fetch_floodmap_kor.py                            # 환경부 flo
 
 The complete list with links lives in **[DATA_SOURCES.md](DATA_SOURCES.md)**; the summary:
 
+Locations: `<DATA_ROOT>` is `CLIMATERISK_DATA_ROOT` (default `~/Data/climaterisk`); CLIMADA's data
+directory is CLIMADA's own (default `~/climada/data`). Details: [DATA_LAYOUT.md](DATA_LAYOUT.md).
+
 | Data | Access | Where it goes |
 |---|---|---|
-| CLIMADA hazards (typhoon, river flood, wildfire, earthquake) | automatic from the CLIMADA Data API on first run | `data/hazard_db/` |
-| Natural Earth boundaries, WorldPop population | free, Data tab or `curl` (README) | `data/downloads/`, `~/climada/data/` |
-| E-OBS daily Tmax (Europe heat) | free, 0.9 GB `curl` (README) | `~/climada/data/` |
+| CLIMADA hazards (typhoon, river flood, wildfire, earthquake) | automatic from the CLIMADA Data API on first run | CLIMADA's data directory; pre-cached layers in `<DATA_ROOT>/derived/hazard_db/` |
+| Natural Earth boundaries, WorldPop population | free, Data tab or `curl` (README) | `data/downloads/`, CLIMADA's data directory |
+| E-OBS daily Tmax (Europe heat) | free, 0.9 GB `curl` (README) | CLIMADA's data directory |
 | WIOD16 MRIOT (supply chain) | automatic, ~900 MB | CLIMADA cache |
-| KMA 남한상세 1 km scenarios (Korea heat) | **account** at 기후변화 상황지도 — see `KMA_DOWNLOAD_LIST.md` | `~/climada/data/kma/` |
-| GPW v4 population (LitPop) | **NASA Earthdata login** | `~/climada/data/` |
+| KMA 남한상세 1 km scenarios (Korea heat) | **account** at 기후변화 상황지도 — see `KMA_DOWNLOAD_LIST.md` | `<DATA_ROOT>/external/kma/` |
+| GPW v4 population (LitPop) | **NASA Earthdata login** | CLIMADA's data directory |
 | Korean loss statistics (재해연보), KOSIS age structure | **API key** — intended for vulnerability calibration; the current `POST /api/session/{id}/calibration` reads only an EM-DAT CSV (`CLIMATERISK_EMDAT_PATH`), so a 재해연보 loader is still to be written | (not wired yet) |
 
 Vulnerability curves are global defaults until calibrated on national loss records; results for a
 new country should be read as *relative* until then (`RISK_REGISTER.md` §C).
+
+## 7a. Offline / closed network
+
+Set `CLIMATERISK_OFFLINE=1` in `.env` (or the shell) on a machine without network access.
+Then:
+
+- the worker **never contacts the network**: it reads the local hazard catalog and CLIMADA's
+  own download cache (every Data API dataset fetched on an earlier online run — same files,
+  same numbers). Anything never fetched fails at once with "fetch it once while online"
+  instead of a network timeout. Running each analysis once while online is the simplest
+  preparation;
+- *Download here* and *Fetch & ingest* on the Data tab are refused with a message;
+- maps draw assets, municipalities and results on a plain background (OpenStreetMap's tile
+  policy does not allow bundling tiles), and *Search location* is disabled.
+
+**Prepare while online** — Data tab → *Offline readiness* lists what is present:
+
+1. Ingest the hazards you need (*Fetch & ingest*, or `scripts/build_hazard.py cache|ingest`).
+2. Download the drop-ins the card lists (WorldPop, E-OBS, Natural Earth, GPW if you have the
+   login; KMA archives for Korean heat).
+3. *Refresh* the Data API index (`scripts/build_hazard.py index`) so the card can still tell
+   you what the API offers.
+4. Copy the data root (`CLIMATERISK_DATA_ROOT`, see `docs/DATA_LAYOUT.md`) to the offline
+   machine and set the flag.
 
 ## 8. Troubleshooting
 
@@ -173,3 +211,12 @@ new country should be read as *relative* until then (`RISK_REGISTER.md` §C).
 `ARCHITECTURE.md` (three-process design, GPL boundary) · `API.md` · `HEATWAVE_EUROPE.md` (heat
 mortality in depth) · `KOREA_ASSET_MANAGER_GUIDE.md` · `RISK_REGISTER.md` (known limits and their
 status) · `poster/` (conference poster).
+
+## Status check (Korea 1 km readiness)
+
+Opening `Physical Risk.app` now offers **"현황 체크" / "실행"**. The first starts the same servers and
+lands on the Data tab's **현황 체크** card (`?view=data&status=1`). The card only *reads* local state:
+KMA 남한상세 files (variable, period, format), KOR catalog layers (requested vs served scenario,
+label/variable conflicts), 1 km grades (`5km-current` / `1km-data-only` / `missing`; `1km-ready` cannot
+appear until the metadata condition is met), credential **presence** (never values) and the CLIMADA
+worker environment. API: `GET /api/status/korea`. Grade rules: `docs/KOREA_1KM_IMPLEMENTATION_GAP.md`.

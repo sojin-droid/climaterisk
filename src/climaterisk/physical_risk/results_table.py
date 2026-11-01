@@ -1,0 +1,1270 @@
+"""The batch result table and the export-compatible frames — pure, stdlib-only.
+
+One canonical column order (``CANONICAL_COLUMNS``) is used by the API, the UI table and
+the Excel export, so the same result never appears under two shapes. Frames are lists of
+dicts — ``pandas.DataFrame(frame)`` or ``openpyxl`` can consume them directly — and the
+five sheets of the final export (``hazard_results``, ``asset_summary``,
+``global_vs_country``, ``global_vs_korea_local``, ``methodology``) are produced here so
+Phase 7/8 only has to write cells.
+
+Nothing here computes a loss; it arranges rows the engine produced. A model that produced
+no row for a facility/hazard is a missing comparison, reported as such, not zero.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterable
+from typing import Any
+
+from climaterisk.physical_risk.metrics import (
+    MODEL_DEFINITIONS,
+    ModelId,
+    ResultRow,
+    change_pct,
+    compare_models,
+    eal_as_pct_of_assets,
+    load_config,
+    relabel_comparison,
+)
+
+#: The batch table, in the order the UI and the export show it.
+CANONICAL_COLUMNS: tuple[str, ...] = (
+    "facility_id",
+    "facility_name",
+    "hazard_type",
+    "model_id",
+    "risk_level",
+    "potential_loss_usd",
+    "eal_usd",
+    "eal_as_pct_of_assets",
+    "hazard_source",
+    "impact_function_id",
+    "scenario",
+    "time_horizon",
+    "calculation_status",
+)
+
+#: Every column of the full ``hazard_results`` sheet — the canonical ones first, then the
+#: complete provenance and status detail.
+HAZARD_RESULTS_COLUMNS: tuple[str, ...] = (
+    *CANONICAL_COLUMNS,
+    "data_source",
+    "requested_scenario",
+    "served_scenario",
+    "hazard_dataset",
+    "hazard_data_version",
+    "hazard_country",
+    "impact_function_name",
+    "impact_function_source",
+    "exposure_source",
+    "exposure_version",
+    "hazard_intensity",
+    "hazard_intensity_unit",
+    "probability",
+    "return_period_years",
+    "potential_loss_return_period_years",
+    "flood_protection_return_period_years",
+    "flood_zero_damage_threshold_m",
+    "eal_undefended_usd",
+    "undefended_frequent_flooding",
+    "levee_protected",
+    "nearest_pump_station",
+    "nearest_pump_station_km",
+    "nearest_pump_station_design_frequency_years",
+    "asset_value_usd",
+    "asset_value_currency",
+    "risk_level_criteria",
+    "climate_change_multiplier",
+    "status_detail",
+    "confidence",
+    "property_type",
+    # V0.2 — assessment target and spatial resolution
+    "assessment_target",
+    "municipality_id",
+    "municipality_name",
+    "municipality_level",
+    "province_name",
+    "point_type",
+    "latitude",
+    "longitude",
+    "spatial_resolution",
+    "spatial_resolution_unit",
+    "spatial_resolution_description",
+    "spatial_unit_type",
+)
+
+#: Filter keys the batch table supports, mapped to the row attribute they test.
+FILTER_FIELDS: dict[str, str] = {
+    "hazard": "hazard_type",
+    "model": "model_id",
+    "risk_level": "risk_level",
+    "scenario": "scenario",
+}
+
+
+def _as_rows(rows: Iterable[ResultRow | dict[str, Any]]) -> list[ResultRow]:
+    return [r if isinstance(r, ResultRow) else ResultRow.from_dict(r) for r in rows]
+
+
+def table_rows(rows: Iterable[ResultRow | dict[str, Any]]) -> list[dict[str, Any]]:
+    """The batch table: one dict per row, canonical columns only, canonical order."""
+    return [{c: getattr(r, c) for c in CANONICAL_COLUMNS} for r in _as_rows(rows)]
+
+
+def filter_rows(
+    rows: Iterable[ResultRow | dict[str, Any]],
+    *,
+    hazard: str | Iterable[str] | None = None,
+    model: str | Iterable[str] | None = None,
+    risk_level: str | Iterable[str] | None = None,
+    scenario: str | Iterable[str] | None = None,
+) -> list[ResultRow]:
+    """Rows matching every given filter (each accepts one value or several)."""
+
+    def wanted(value: str | Iterable[str] | None) -> set[str] | None:
+        if value is None:
+            return None
+        return {value} if isinstance(value, str) else set(value)
+
+    criteria = {
+        FILTER_FIELDS["hazard"]: wanted(hazard),
+        FILTER_FIELDS["model"]: wanted(model),
+        FILTER_FIELDS["risk_level"]: wanted(risk_level),
+        FILTER_FIELDS["scenario"]: wanted(scenario),
+    }
+    out = []
+    for r in _as_rows(rows):
+        if all(want is None or getattr(r, attr) in want for attr, want in criteria.items()):
+            out.append(r)
+    return out
+
+
+def hazard_results_frame(rows: Iterable[ResultRow | dict[str, Any]]) -> list[dict[str, Any]]:
+    """The ``hazard_results`` sheet — every row, full provenance, plus the data-scope label."""
+    out = []
+    for r in _as_rows(rows):
+        line = {c: getattr(r, c) for c in HAZARD_RESULTS_COLUMNS if c != "data_source"}
+        line["data_source"] = _scope_short(r.model_id)
+        out.append({c: line.get(c) for c in HAZARD_RESULTS_COLUMNS})
+    return out
+
+
+_LEVEL_ORDER = {"Low": 0, "Medium": 1, "High": 2}
+
+
+def asset_summary_frame(rows: Iterable[ResultRow | dict[str, Any]]) -> list[dict[str, Any]]:
+    """The ``asset_summary`` sheet — one line per (facility x model).
+
+    ``eal_usd`` is the sum over hazards that were actually priced; ``priced_hazards`` and
+    ``unpriced_hazards`` say which were and were not, so a small total is never mistaken
+    for a complete one. ``max_risk_level`` is the highest band among priced hazards.
+    """
+    groups: dict[tuple[str, str], list[ResultRow]] = {}
+    for r in _as_rows(rows):
+        groups.setdefault((r.facility_id, r.model_id), []).append(r)
+    out = []
+    for (fid, model), items in sorted(groups.items()):
+        priced = [r for r in items if r.eal_usd is not None]
+        unpriced = [r for r in items if r.eal_usd is None]
+        value = next((r.asset_value_usd for r in items if r.asset_value_usd is not None), None)
+        total = sum(r.eal_usd for r in priced if r.eal_usd is not None) if priced else None
+        pct = (total / value * 100.0) if (total is not None and value) else None
+        levels = [r.risk_level for r in priced if r.risk_level]
+        out.append(
+            {
+                "facility_id": fid,
+                "facility_name": items[0].facility_name,
+                "model_id": model,
+                "asset_value_usd": value,
+                "eal_usd": total,
+                "eal_as_pct_of_assets": pct,
+                "max_risk_level": max(levels, key=lambda s: _LEVEL_ORDER.get(s, -1))
+                if levels
+                else None,
+                "priced_hazards": ",".join(sorted(r.hazard_type for r in priced)),
+                "unpriced_hazards": ",".join(
+                    sorted(f"{r.hazard_type}:{r.calculation_status}" for r in unpriced)
+                ),
+                "n_hazards": len(items),
+            }
+        )
+    return out
+
+
+def comparison_frame(
+    rows: Iterable[ResultRow | dict[str, Any]],
+    baseline_model: str,
+    comparison_model: str,
+    label: str,
+) -> list[dict[str, Any]]:
+    """One comparison line per (facility x hazard).
+
+    ``available`` is True only when **both** models priced the pair (both EALs present).
+    A pair where the comparison model produced no row, or a row without numbers
+    (``KOREA_LOCAL`` = NOT_IMPLEMENTED, heat = HAZARD_ONLY), is listed with
+    ``available = False`` and the two statuses, so the sheet says "not available" instead
+    of being silently shorter or showing zeros.
+    """
+    rs = _as_rows(rows)
+    pairs = sorted({(r.facility_id, r.hazard_type) for r in rs})
+    names = {r.facility_id: r.facility_name for r in rs}
+    out = []
+    for fid, haz in pairs:
+        cmp = compare_models(rs, baseline_model, comparison_model, fid, haz)
+        if cmp is None:
+            have = {r.model_id: r for r in rs if r.facility_id == fid and r.hazard_type == haz}
+            parts = []
+            for m in (baseline_model, comparison_model):
+                r = have.get(m)
+                parts.append(f"{m}: {r.calculation_status}" if r else f"{m}: not run")
+            out.append(
+                {
+                    "facility_id": fid,
+                    "facility_name": names[fid],
+                    "hazard_type": haz,
+                    "baseline_model_id": baseline_model,
+                    f"{label}_model_id": comparison_model,
+                    "baseline_calculation_status": have[baseline_model].calculation_status
+                    if baseline_model in have
+                    else None,
+                    f"{label}_calculation_status": have[comparison_model].calculation_status
+                    if comparison_model in have
+                    else None,
+                    "available": False,
+                    "detail": "not available — " + "; ".join(parts),
+                }
+            )
+            continue
+        relabelled = relabel_comparison(cmp, label)
+        priced = cmp["baseline_eal_usd"] is not None and cmp["comparison_eal_usd"] is not None
+        relabelled["available"] = priced
+        relabelled["detail"] = (
+            None
+            if priced
+            else (
+                f"not available — {baseline_model} is {cmp['baseline_calculation_status']}, "
+                f"{comparison_model} is {cmp['comparison_calculation_status']}"
+            )
+        )
+        out.append(relabelled)
+    return out
+
+
+def methodology_frame(config: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    """The ``methodology`` sheet — key/value lines that make the workbook self-describing."""
+    cfg = config or load_config()
+    lines: list[tuple[str, str]] = [("model", f"{m} = {d}") for m, d in MODEL_DEFINITIONS.items()]
+    lines += [
+        (
+            "impact_function",
+            "identical across models: ImpfRiverFlood.from_jrc_region_sector (RF), "
+            "ImpfSetTropCyclone regional calibration (TC); none exists for heat",
+        ),
+        ("eal", cfg["definitions"]["eal"]),
+        ("potential_loss", cfg["definitions"]["potential_loss"]),
+        ("probability", cfg["definitions"]["probability"]),
+        ("return_period", cfg["definitions"]["return_period"]),
+        ("risk_levels", cfg["risk_levels"]["attribution"]),
+    ]
+    lines += [(f"risk_band_{b['level']}", str(b["criteria"])) for b in cfg["risk_levels"]["bands"]]
+    lines += [
+        (
+            "change_pct",
+            "(comparison / baseline - 1) x 100; null when the baseline is 0 or missing",
+        ),
+        ("change_usd", "comparison - baseline, USD"),
+        (
+            "change_pp",
+            "comparison_pct - baseline_pct, percentage points; distinct from the relative "
+            "change_pct",
+        ),
+        (
+            "climate_change_multiplier",
+            "future_EAL / baseline_EAL within one model_id only; a model-vs-model ratio is a "
+            "hazard-source comparison, not a climate multiplier",
+        ),
+        (
+            "scenario",
+            "requested_scenario and served_scenario are recorded separately; a mismatch is "
+            "SCENARIO_MISMATCH with null financial fields",
+        ),
+        (
+            "exposure",
+            "user portfolio (lat, lon, asset_value) or LitPop when stated; population is never "
+            "used as an asset-value proxy",
+        ),
+    ]
+    return [{"key": k, "value": v} for k, v in lines]
+
+
+def export_frames(
+    rows: Iterable[ResultRow | dict[str, Any]],
+    config: dict[str, Any] | None = None,
+    target: str = "FACILITY",
+    baseline_rows: Iterable[ResultRow | dict[str, Any]] | None = None,
+    growth: dict[str, Any] | None = None,
+    loss_curves: Iterable[dict[str, Any]] | None = None,
+    baseline_loss_curves: Iterable[dict[str, Any]] | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    """Every export frame, keyed by frame name (the aggregate tier and non-expert views first).
+
+    ``target = "MUNICIPALITY"`` swaps the two non-expert sheets for their municipality
+    forms and adds *Province Summary*, *Spatial Resolution* and *Hazard Coverage*; the
+    Global comparison sheets are kept only when a Global run actually exists in ``rows``.
+    ``baseline_rows`` (the same-model baseline run, when one was made) gives *Portfolio
+    Totals* its paired present-vs-future columns; ``growth`` (the worker's
+    ``exposure_growth`` record) adds the economic-growth step to the same sheet.
+    ``loss_curves`` (the worker's ``portfolio_loss_curves``) add *Portfolio Loss Curve*
+    to a facility workbook; a run without them (older results, municipality runs) simply
+    has no such sheet.
+    """
+    rs = _as_rows(rows)
+    from climaterisk.physical_risk.display_copy import recommended_models
+
+    preferred = recommended_models()
+    totals = portfolio_totals_frame(rs, baseline_rows, preferred, target=target, growth=growth)
+    comparisons = {
+        "global_vs_country": comparison_frame(
+            rs, ModelId.GLOBAL_BASELINE.value, ModelId.DATA_API_COUNTRY.value, "country"
+        ),
+        "global_vs_korea_local": comparison_frame(
+            rs, ModelId.GLOBAL_BASELINE.value, ModelId.KOREA_LOCAL.value, "korea_local"
+        ),
+    }
+    if target == "MUNICIPALITY":
+        frames: dict[str, list[dict[str, Any]]] = {
+            "portfolio_totals": totals,
+            "municipality_summary": municipality_summary_frame(rs, preferred),
+            "municipality_risk_matrix": municipality_risk_matrix_frame(rs, preferred),
+            "province_summary": province_summary_frame(rs, preferred),
+            "hazard_results": hazard_results_frame(rs),
+            "spatial_resolution": spatial_resolution_frame(rs),
+            "hazard_coverage": hazard_coverage_frame(),
+        }
+        if any(r.model_id == ModelId.GLOBAL_BASELINE.value for r in rs):
+            frames.update(comparisons)
+        if _has_office_rows(rs):
+            frames["official_office_comparison"] = official_office_comparison_frame(rs, preferred)
+        frames["methodology"] = methodology_frame(config)
+        return frames
+    curves = list(loss_curves or [])
+    curve_frame = (
+        {
+            "portfolio_loss_curve": portfolio_loss_curve_frame(
+                curves, baseline_loss_curves, preferred, config
+            )
+        }
+        if curves
+        else {}
+    )
+    return {
+        "portfolio_totals": totals,
+        **curve_frame,
+        "portfolio_summary": portfolio_summary_frame(rs, preferred),
+        "asset_risk_matrix": asset_risk_matrix_frame(rs, preferred),
+        "hazard_results": hazard_results_frame(rs),
+        "asset_summary": asset_summary_frame(rs),
+        **comparisons,
+        "methodology": methodology_frame(config),
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Non-expert views — one primary row per (facility x hazard)                   #
+# --------------------------------------------------------------------------- #
+#: Hazard tags the portfolio views show, in column order, with their display names.
+PORTFOLIO_HAZARDS: tuple[tuple[str, str], ...] = (
+    ("RF", "Flood"),
+    ("CF", "Coastal Flood"),
+    ("TC", "Typhoon"),
+    ("HW", "Heatwave"),
+)
+
+#: Hazards a view shows only when the run assessed them. Coastal flood was added after
+#: results already existed (2026-10-14); a run without it should not grow a column of
+#: "Not assessed" nor count it in "n of m calculated".
+_OPTIONAL_VIEW_TAGS: frozenset[str] = frozenset({"CF"})
+
+
+def view_hazards(
+    rows: Iterable[ResultRow], table: tuple[tuple[str, str], ...]
+) -> tuple[tuple[str, str], ...]:
+    """``table`` without the optional hazards that no row assessed."""
+    present = {r.hazard_type for r in rows}
+    return tuple((t, lab) for t, lab in table if t not in _OPTIONAL_VIEW_TAGS or t in present)
+
+
+#: Preference when several models priced the same facility x hazard: most local first.
+_MODEL_PREFERENCE: tuple[str, ...] = (
+    ModelId.KOREA_LOCAL.value,
+    ModelId.DATA_API_COUNTRY.value,
+    ModelId.GLOBAL_BASELINE.value,
+)
+
+_UNAVAILABLE_STATUSES = frozenset(
+    {
+        "NOT_IMPLEMENTED",
+        "NO_HAZARD_DATA",
+        "NO_IMPACT_FUNCTION",
+        "NO_EXPOSURE_DATA",
+        "SCENARIO_MISMATCH",
+    }
+)
+
+
+def primary_row(
+    candidates: list[ResultRow], preferred_model: str | None = None
+) -> ResultRow | None:
+    """The row that represents a facility x hazard when several models produced one.
+
+    The recommended model wins when it produced a row with numbers or hazard intensity;
+    otherwise the most local model that did; otherwise the most local row of any status —
+    so an unavailable model never hides a priced one.
+    """
+    if not candidates:
+        return None
+    by_model = {r.model_id: r for r in candidates}
+
+    def informative(r: ResultRow) -> bool:
+        return r.eal_usd is not None or r.calculation_status == "HAZARD_ONLY"
+
+    order = ([preferred_model] if preferred_model else []) + list(_MODEL_PREFERENCE)
+    for model in order:
+        r = by_model.get(model)
+        if r is not None and informative(r):
+            return r
+    for model in order:
+        if model in by_model:
+            return by_model[model]
+    return candidates[0]
+
+
+def primary_rows(
+    rows: Iterable[ResultRow | dict[str, Any]], preferred: dict[str, str] | None = None
+) -> dict[tuple[str, str], ResultRow]:
+    """``{(facility_id, hazard_type): primary row}`` (see :func:`primary_row`).
+
+    ``preferred`` maps a hazard tag (``RF`` / ``TC`` / ``HW``) or readiness key (``HEAT``)
+    to the model id to prefer — normally ``display_copy.recommended_models()``.
+    """
+    pref = dict(preferred or {})
+    if "HEAT" in pref:
+        pref.setdefault("HW", pref["HEAT"])
+        pref.setdefault("HM", pref["HEAT"])
+    groups: dict[tuple[str, str], list[ResultRow]] = {}
+    for r in _as_rows(rows):
+        groups.setdefault((r.facility_id, r.hazard_type), []).append(r)
+    out: dict[tuple[str, str], ResultRow] = {}
+    for key, cands in groups.items():
+        chosen = primary_row(cands, pref.get(key[1]))
+        if chosen is not None:
+            out[key] = chosen
+    return out
+
+
+def _scope_short(model_id: str | None) -> str | None:
+    from climaterisk.physical_risk.display_copy import SCOPE_SHORT
+
+    return SCOPE_SHORT.get(model_id or "", model_id)
+
+
+def _status_short(status: str) -> str:
+    from climaterisk.physical_risk.display_copy import STATUS_SHORT
+
+    return STATUS_SHORT.get(status, status)
+
+
+def portfolio_summary_frame(
+    rows: Iterable[ResultRow | dict[str, Any]], preferred: dict[str, str] | None = None
+) -> list[dict[str, Any]]:
+    """The non-expert first sheet: one line per facility, one primary row per hazard.
+
+    Money and ratios are the engine's numbers, untouched; an unpriced hazard leaves its
+    money cells ``None`` and says why in its ``Status`` column. ``Overall EAL`` is the plain
+    sum of the priced hazards' EAL (an aggregation, not a risk score) and is ``None`` when
+    nothing was priced. No overall risk level is produced (methodology decision pending).
+    """
+    prim = primary_rows(rows, preferred)
+    facilities: dict[str, tuple[str, float | None]] = {}
+    for row in _as_rows(rows):
+        facilities.setdefault(row.facility_id, (row.facility_name, row.asset_value_usd))
+    hazards = view_hazards(_as_rows(rows), PORTFOLIO_HAZARDS)
+    out = []
+    for fid, (name, value) in facilities.items():
+        line: dict[str, Any] = {"Facility ID": fid, "Facility": name, "Asset Value": value}
+        total: float | None = None
+        priced = hazard_only = not_available = 0
+        for tag, label in hazards:
+            r = prim.get((fid, tag))
+            if r is not None:
+                if r.eal_usd is not None:
+                    priced += 1
+                elif r.calculation_status == "HAZARD_ONLY":
+                    hazard_only += 1
+                elif (
+                    r.calculation_status in _UNAVAILABLE_STATUSES or r.calculation_status == "ERROR"
+                ):
+                    not_available += 1
+            if r is None:
+                line[f"{label} Status"] = "Not assessed"
+                if tag != "HW":
+                    line[f"{label} Risk"] = None
+                    line[f"{label} EAL"] = None
+                    line[f"{label} EAL / Assets"] = None
+                else:
+                    line["Heatwave Tmax p95 (°C)"] = None
+                line[f"{label} Data Source"] = None
+                continue
+            line[f"{label} Status"] = _status_short(r.calculation_status)
+            if tag != "HW":
+                line[f"{label} Risk"] = r.risk_level
+                line[f"{label} EAL"] = r.eal_usd
+                line[f"{label} EAL / Assets"] = r.eal_as_pct_of_assets
+                if r.eal_usd is not None:
+                    total = (total or 0.0) + float(r.eal_usd)
+            else:
+                line["Heatwave Tmax p95 (°C)"] = r.hazard_intensity
+            line[f"{label} Data Source"] = _scope_short(r.model_id)
+        line["Priced Hazard Count"] = priced
+        line["Hazard-only Count"] = hazard_only
+        line["Not Available Count"] = not_available
+        line["Overall EAL"] = total  # plain sum of priced hazards — not a composite score
+        line["Overall EAL / Assets"] = (
+            total / value * 100.0 if (total is not None and value) else None
+        )
+        out.append(line)
+    return out
+
+
+def asset_risk_matrix_frame(
+    rows: Iterable[ResultRow | dict[str, Any]], preferred: dict[str, str] | None = None
+) -> list[dict[str, Any]]:
+    """Facility x hazard cells: the risk level where priced, else a short status label.
+
+    ``Overall`` counts calculated hazards ("2 of 3 calculated") — it is not a risk score.
+    """
+    prim = primary_rows(rows, preferred)
+    names = {r.facility_id: r.facility_name for r in _as_rows(rows)}
+    hazards = view_hazards(_as_rows(rows), PORTFOLIO_HAZARDS)
+    out = []
+    for fid, name in names.items():
+        line: dict[str, Any] = {"Facility ID": fid, "Facility": name}
+        priced = 0
+        for tag, label in hazards:
+            r = prim.get((fid, tag))
+            if r is None:
+                line[label] = "Not assessed"
+            elif r.risk_level is not None:
+                line[label] = r.risk_level
+                priced += 1
+            else:
+                line[label] = _status_short(r.calculation_status)
+        line["Overall"] = f"{priced} of {len(hazards)} calculated"
+        out.append(line)
+    return out
+
+
+def summary_counts(
+    rows: Iterable[ResultRow | dict[str, Any]], preferred: dict[str, str] | None = None
+) -> dict[str, int]:
+    """Counts for the results header, over primary rows only — no score, no ranking."""
+    prim = primary_rows(rows, preferred)
+    counts = {
+        # a municipality assessed at two anchors (V0.3 POC) counts once here
+        "assets_analyzed": len({r.municipality_id or fid for (fid, _), r in prim.items()}),
+        "high_risk": 0,
+        "medium_risk": 0,
+        "low_risk": 0,
+        "hazard_only": 0,
+        "not_available": 0,
+        "errors": 0,
+    }
+    for r in prim.values():
+        if r.risk_level == "High":
+            counts["high_risk"] += 1
+        elif r.risk_level == "Medium":
+            counts["medium_risk"] += 1
+        elif r.risk_level == "Low":
+            counts["low_risk"] += 1
+        elif r.calculation_status == "HAZARD_ONLY":
+            counts["hazard_only"] += 1
+        elif r.calculation_status == "ERROR":
+            counts["errors"] += 1
+        elif r.calculation_status in _UNAVAILABLE_STATUSES:
+            counts["not_available"] += 1
+    if any(r.point_type == "OFFICIAL_OFFICE_POINT" for r in prim.values()):
+        counts["points_analyzed"] = len({fid for fid, _ in prim})
+    return counts
+
+
+# --------------------------------------------------------------------------- #
+# V0.2 — municipality views, spatial resolution, hazard coverage                #
+# --------------------------------------------------------------------------- #
+#: Hazard tags of the municipality views, with the names the spec uses.
+MUNICIPALITY_HAZARDS: tuple[tuple[str, str], ...] = (
+    ("RF", "Flood"),
+    ("CF", "Coastal Flood"),
+    ("TC", "Tropical Cyclone"),
+    ("HW", "Heatwave"),
+)
+
+#: Short labels for the point type on the summary sheet.
+_POINT_TYPE_LABEL = {
+    "BOUNDARY_INTERIOR_POINT": "Boundary interior point",
+    "OFFICIAL_OFFICE_POINT": "Official office point (government-published)",
+}
+#: Coordinate-type labels (V0.3 POC) — shown only when a run includes office points.
+_COORDINATE_TYPE_LABEL = {
+    "BOUNDARY_INTERIOR_POINT": "Representative Point",
+    "OFFICIAL_OFFICE_POINT": "Official Office",
+}
+
+
+def _has_office_rows(rows: list[ResultRow]) -> bool:
+    return any(r.point_type == "OFFICIAL_OFFICE_POINT" for r in rows)
+
+
+def _muni_status_short(status: str) -> str:
+    from climaterisk.physical_risk.display_copy import MUNICIPALITY_STATUS_SHORT
+
+    return MUNICIPALITY_STATUS_SHORT.get(status) or _status_short(status)
+
+
+def _municipalities(rows: list[ResultRow]) -> dict[str, ResultRow]:
+    """First row per municipality (facility_id), in first-seen order."""
+    out: dict[str, ResultRow] = {}
+    for r in rows:
+        out.setdefault(r.facility_id, r)
+    return out
+
+
+def municipality_summary_frame(
+    rows: Iterable[ResultRow | dict[str, Any]], preferred: dict[str, str] | None = None
+) -> list[dict[str, Any]]:
+    """The municipality first sheet: one line per municipality, one primary row per hazard.
+
+    ``Financially Assessed`` says whether an asset value was supplied; without one the
+    money cells stay empty and the status reads "No asset value" — a screening result, not
+    a zero. Heatwave carries its hazard indicator only.
+    """
+    rs = _as_rows(rows)
+    prim = primary_rows(rs, preferred)
+    two_anchors = _has_office_rows(rs)
+    out = []
+    for fid, first in _municipalities(rs).items():
+        value = next(
+            (r.asset_value_usd for r in rs if r.facility_id == fid and r.asset_value_usd), None
+        )
+        line: dict[str, Any] = {
+            "Municipality ID": (first.municipality_id or fid) if two_anchors else fid,
+            "Municipality": first.municipality_name or first.facility_name,
+        }
+        if two_anchors:
+            line["Coordinate Type"] = _COORDINATE_TYPE_LABEL.get(
+                first.point_type or "", first.point_type
+            )
+        line |= {
+            "Level": first.municipality_level,
+            "Province": first.province_name,
+            "Representative Point": _POINT_TYPE_LABEL.get(first.point_type or "", first.point_type),
+            "Asset Value": value,
+        }
+        priced_any = False
+        for tag, label in view_hazards(rs, MUNICIPALITY_HAZARDS):
+            r = prim.get((fid, tag))
+            if r is None:
+                line[f"{label} Status"] = "Not assessed"
+                if tag != "HW":
+                    line[f"{label} Risk"] = None
+                    line[f"{label} EAL"] = None
+                    line[f"{label} EAL / Assets"] = None
+                    line[f"{label} Hazard Intensity"] = None
+                else:
+                    line["Heatwave Tmax p95 (°C)"] = None
+                line[f"{label} Data Source"] = None
+                continue
+            line[f"{label} Status"] = _muni_status_short(r.calculation_status)
+            if tag != "HW":
+                line[f"{label} Risk"] = r.risk_level
+                line[f"{label} EAL"] = r.eal_usd
+                line[f"{label} EAL / Assets"] = r.eal_as_pct_of_assets
+                line[f"{label} Hazard Intensity"] = (
+                    f"{r.hazard_intensity:g} {r.hazard_intensity_unit or ''}".strip()
+                    if r.hazard_intensity is not None
+                    else None
+                )
+                priced_any = priced_any or r.eal_usd is not None
+            else:
+                line["Heatwave Tmax p95 (°C)"] = r.hazard_intensity
+            line[f"{label} Data Source"] = _scope_short(r.model_id)
+        line["Financially Assessed"] = (
+            "Yes" if priced_any else ("No — asset value not supplied" if not value else "No")
+        )
+        out.append(line)
+    return out
+
+
+def municipality_risk_matrix_frame(
+    rows: Iterable[ResultRow | dict[str, Any]], preferred: dict[str, str] | None = None
+) -> list[dict[str, Any]]:
+    """Municipality x hazard cells: the risk level where priced, else a short status label.
+
+    Text only (High / Medium / Low / Hazard only / No asset value / Unavailable …); colour
+    in the workbook is an aid, never the message.
+    """
+    rs = _as_rows(rows)
+    prim = primary_rows(rs, preferred)
+    two_anchors = _has_office_rows(rs)
+    out = []
+    for fid, first in _municipalities(rs).items():
+        line: dict[str, Any] = {
+            "Municipality ID": (first.municipality_id or fid) if two_anchors else fid,
+            "Municipality": first.municipality_name or first.facility_name,
+        }
+        if two_anchors:
+            line["Coordinate Type"] = _COORDINATE_TYPE_LABEL.get(
+                first.point_type or "", first.point_type
+            )
+        priced = 0
+        hazards = view_hazards(rs, MUNICIPALITY_HAZARDS)
+        for tag, label in hazards:
+            r = prim.get((fid, tag))
+            if r is None:
+                line[label] = "Not assessed"
+            elif r.risk_level is not None:
+                line[label] = r.risk_level
+                priced += 1
+            else:
+                line[label] = _muni_status_short(r.calculation_status)
+        line["Calculated"] = f"{priced} of {len(hazards)} calculated"
+        out.append(line)
+    return out
+
+
+def anchor_cell(r: ResultRow | None) -> str:
+    """One comparison cell: the risk level (or short status) and the hazard intensity read.
+
+    E.g. ``High (8.314 m)``, ``Hazard only (34.06 degC)``, ``No asset value (0 m)``. Text only.
+    """
+    if r is None:
+        return "Not assessed"
+    label = r.risk_level or _muni_status_short(r.calculation_status)
+    if r.hazard_intensity is None:
+        return label
+    return f"{label} ({r.hazard_intensity:.4g} {r.hazard_intensity_unit or ''})".replace(" )", ")")
+
+
+def official_office_comparison_frame(
+    rows: Iterable[ResultRow | dict[str, Any]], preferred: dict[str, str] | None = None
+) -> list[dict[str, Any]]:
+    """V0.3 POC — *Official Office Comparison*: one line per municipality in the run.
+
+    Representative point vs government-published office point under the same hazards,
+    models and impact functions. The distance is descriptive only; neither point is called
+    more accurate, better or preferred. A municipality without a published office
+    coordinate reads "Not available in V0.3 POC" — its representative point is never
+    reused as an office point.
+    """
+    from climaterisk.physical_risk.municipalities import load_municipalities
+    from climaterisk.physical_risk.official_offices import (
+        NOT_AVAILABLE_LABEL,
+        haversine_km,
+        office_facility_id,
+        offices_by_id,
+    )
+
+    rs = _as_rows(rows)
+    prim = primary_rows(rs, preferred)
+    reps = {m.municipality_id: m for m in load_municipalities()}
+    offices = offices_by_id()
+    fids = {r.facility_id for r in rs}
+    order: list[str] = []
+    for r in rs:
+        mid = r.municipality_id or r.facility_id
+        if mid not in order:
+            order.append(mid)
+    out = []
+    for mid in order:
+        rep_pt, office = reps.get(mid), offices.get(mid)
+        ofid = office_facility_id(mid)
+        # the office point counts only when it is published AND was assessed in this run
+        pub = office if office is not None and office.available and ofid in fids else None
+        line: dict[str, Any] = {
+            "municipality": rep_pt.municipality_name if rep_pt else mid,
+            "office_name": office.office_name if office else NOT_AVAILABLE_LABEL,
+            "office_address": pub.address if pub else None,
+            "office_lat": pub.latitude if pub else None,
+            "office_lon": pub.longitude if pub else None,
+            "coordinate_method": pub.coordinate_method if pub else NOT_AVAILABLE_LABEL,
+            "coordinate_crs": pub.coordinate_crs if pub else None,
+            "coordinate_format": pub.coordinate_format if pub else None,
+            "coordinate_source": (
+                f"{pub.source_dataset} ({pub.source_provider}; {pub.source_url})" if pub else None
+            ),
+            "coordinate_source_date": pub.source_last_modified if pub else None,
+            "polygon_check": pub.polygon_check if pub else None,
+            "representative_lat": rep_pt.latitude if rep_pt else None,
+            "representative_lon": rep_pt.longitude if rep_pt else None,
+        }
+        for tag, key in (("RF", "flood"), ("TC", "tc"), ("HW", "heatwave")):
+            line[f"{key}_representative"] = (
+                anchor_cell(prim.get((mid, tag))) if mid in fids else "Not assessed"
+            )
+            line[f"{key}_official_office"] = (
+                anchor_cell(prim.get((ofid, tag))) if pub else NOT_AVAILABLE_LABEL
+            )
+        distance = None
+        if pub and rep_pt and pub.latitude is not None and pub.longitude is not None:
+            distance = round(
+                haversine_km(rep_pt.latitude, rep_pt.longitude, pub.latitude, pub.longitude), 3
+            )
+        line["distance_between_points_km"] = distance
+        line["office_status"] = office.office_status if office else NOT_AVAILABLE_LABEL
+        out.append(line)
+    return out
+
+
+def spatial_resolution_frame(rows: Iterable[ResultRow | dict[str, Any]]) -> list[dict[str, Any]]:
+    """One line per (hazard x data scope) in the run, with the resolution the worker measured.
+
+    Rows carry what the adapter read from the dataset; the declared registry value is
+    listed beside it so a discrepancy is visible. Drought and sea-level rise are appended
+    from the registry as N/A so the sheet always shows all five hazards.
+    """
+    from climaterisk.physical_risk.coverage import (
+        EXTENDED_HAZARDS,
+        RESOLUTION_NOTE,
+        km_class,
+        resolution_for,
+    )
+    from climaterisk.physical_risk.display_copy import HAZARD_LABEL, SCOPE_LABEL
+    from climaterisk.physical_risk.models import hazard_key_for_tag
+
+    rs = _as_rows(rows)
+    seen: dict[tuple[str, str], ResultRow] = {}
+    for r in rs:
+        seen.setdefault((r.hazard_type, r.model_id), r)
+    out: list[dict[str, Any]] = []
+    for (tag, model), r in sorted(seen.items()):
+        key = hazard_key_for_tag(tag) or tag
+        declared = resolution_for(key, model)
+        measured = r.spatial_resolution
+        out.append(
+            {
+                "Hazard": HAZARD_LABEL.get(key, key),
+                "Data Scope": SCOPE_LABEL.get(model, model),
+                "Model ID": model,
+                "Dataset": r.hazard_dataset,
+                "Spatial Resolution": measured,
+                "Unit": r.spatial_resolution_unit,
+                "Spatial Unit": r.spatial_unit_type,
+                "Approx. Korea Scale": (
+                    km_class(float(measured), str(r.spatial_resolution_unit))
+                    if measured is not None and r.spatial_resolution_unit
+                    else None
+                ),
+                "Description": r.spatial_resolution_description,
+                "Declared (registry)": (
+                    f"{declared['value']:g} {declared['unit']}" if declared else None
+                ),
+                "Read From": declared["metadata_field"] if declared else None,
+                "Status": r.calculation_status,
+                "Note": RESOLUTION_NOTE,
+            }
+        )
+    for ext in EXTENDED_HAZARDS.values():
+        out.append(
+            {
+                "Hazard": ext["label"],
+                "Data Scope": None,
+                "Model ID": None,
+                "Dataset": None,
+                "Spatial Resolution": None,
+                "Unit": None,
+                "Spatial Unit": None,
+                "Approx. Korea Scale": None,
+                "Description": ext["resolution_text"],
+                "Declared (registry)": None,
+                "Read From": None,
+                "Status": ext["status"],
+                "Note": RESOLUTION_NOTE,
+            }
+        )
+    return out
+
+
+def hazard_coverage_frame() -> list[dict[str, Any]]:
+    """The *Hazard Coverage* sheet — the five-hazard table, generated from the registries."""
+    from climaterisk.physical_risk.coverage import coverage_table
+
+    return [
+        {k: v for k, v in row.items() if k not in ("hazard_key", "models")}
+        for row in coverage_table()
+    ]
+
+
+# --------------------------------------------------------------------------- #
+# Aggregate tiers — portfolio totals (top) and province summary (middle)       #
+# --------------------------------------------------------------------------- #
+#: Statuses that mean "assessed, hazard present, nothing priced" (never a data defect).
+_HAZARD_ONLY_STATUSES = frozenset({"HAZARD_ONLY"})
+
+#: Municipality levels of the 시도 tier (their representative point is one of the points
+#: counted under their own province).
+_SIDO_LEVELS = frozenset({"METROPOLITAN", "PROVINCE"})
+
+
+def _sum_or_none(values: list[float]) -> float | None:
+    return float(sum(values)) if values else None
+
+
+def one_anchor_per_municipality(rows: list[ResultRow]) -> list[ResultRow]:
+    """Keep one spatial anchor per municipality, so an aggregate counts it once.
+
+    With the V0.3 office anchor a municipality is assessed at two points — its boundary
+    representative point and its government-published office point — and the same supplied
+    asset value is placed at both. Adding both would count the municipality, its value and
+    its loss twice. Aggregates therefore use the representative point when it was assessed
+    and the office point only when it is the sole anchor. Rows without a ``municipality_id``
+    (facility runs) are returned untouched.
+    """
+    office = "OFFICIAL_OFFICE_POINT"
+    best: dict[str, ResultRow] = {}
+    for r in rows:
+        if r.municipality_id is None:
+            continue
+        current = best.get(r.municipality_id)
+        if current is None or (current.point_type == office and r.point_type != office):
+            best[r.municipality_id] = r
+    keep = {r.facility_id for r in best.values()}
+    return [r for r in rows if r.municipality_id is None or r.facility_id in keep]
+
+
+def portfolio_totals_frame(
+    rows: Iterable[ResultRow | dict[str, Any]],
+    baseline_rows: Iterable[ResultRow | dict[str, Any]] | None = None,
+    preferred: dict[str, str] | None = None,
+    *,
+    target: str = "FACILITY",
+    growth: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """The top tier: one line per hazard, then one for all priced hazards together.
+
+    Only **expected annual loss adds across points** (expectation is linear), so it is the
+    only money summed. A return-period loss is deliberately absent: per-point 100-year
+    losses come from different events, and their sum is not a portfolio 100-year loss —
+    that figure is read from the summed event losses in :func:`portfolio_loss_curve_frame`.
+    Every line says how many points the sum covers (``Priced``) out of how many were
+    assessed, and ``Priced Asset Value`` is the value behind it, so a total over 3 of 30
+    points cannot read as a total over 30. Counts are per point, one primary row per
+    point × hazard (:func:`primary_rows`); the all-hazards line counts a point once.
+
+    With a baseline run the paired columns compare the *same* points under the *same*
+    model in both scenarios — a pair needs both rows priced — and ``EAL Change %`` is
+    ``future / baseline - 1``. Points without a baseline pair are left out of both paired
+    sums, which is why ``Future EAL (paired)`` can be smaller than ``Total EAL``.
+
+    With a ``growth`` record (``exposure_growth_record``) every line also carries the
+    economic-growth step of the ECA decomposition. ``Target-year EAL`` is ``Total EAL``
+    times the growth factor; with a baseline the three-step chain is ``Baseline EAL``
+    (today's hazard, today's exposure) → ``Growth-step EAL`` (today's hazard, grown
+    exposure) → ``Climate-step EAL`` (future hazard, grown exposure), with the two deltas
+    spelled out so they add up to the whole change. The scaling is exact: impact is linear
+    in exposure value. ``EAL Change %`` stays the pure climate ratio.
+
+    A municipality assessed at two anchors counts once (:func:`one_anchor_per_municipality`).
+    """
+    rs = one_anchor_per_municipality(_as_rows(rows))
+    prim = primary_rows(rs, preferred)
+    base_prim = primary_rows(one_anchor_per_municipality(_as_rows(baseline_rows or [])), preferred)
+    paired = bool(base_prim)
+    factor = float(growth["factor"]) if growth else None
+    point_label = "Municipalities" if target == "MUNICIPALITY" else "Assets"
+
+    def growth_cells(line: dict[str, Any]) -> None:
+        """Add the economic-growth columns to one line (the engine's numbers × factor)."""
+        if factor is None:
+            return
+        total = line["Total EAL"]
+        line["Growth Factor"] = factor
+        line["Target-year EAL"] = None if total is None else total * factor
+        if not paired:
+            return
+        b_sum, f_sum = line["Baseline EAL"], line["Future EAL (paired)"]
+        line["Growth-step EAL"] = None if b_sum is None else b_sum * factor
+        line["Climate-step EAL"] = None if f_sum is None else f_sum * factor
+        line["Δ Economic Growth EAL"] = None if b_sum is None else b_sum * (factor - 1.0)
+        line["Δ Climate Change EAL"] = (
+            None if b_sum is None or f_sum is None else (f_sum - b_sum) * factor
+        )
+
+    hazards = view_hazards(
+        rs, MUNICIPALITY_HAZARDS if target == "MUNICIPALITY" else PORTFOLIO_HAZARDS
+    )
+
+    lines: list[dict[str, Any]] = []
+    all_points: set[str] = set()
+    priced_points: dict[str, float | None] = {}  # point -> its asset value
+    hazard_only_points: set[str] = set()
+    all_eal: list[float] = []
+    all_pairs: list[tuple[float, float]] = []
+    for tag, label in hazards:
+        cells = {fid: r for (fid, h), r in prim.items() if h == tag}
+        priced = {fid: r for fid, r in cells.items() if r.eal_usd is not None}
+        hazard_only = [
+            fid
+            for fid, r in cells.items()
+            if r.eal_usd is None and r.calculation_status in _HAZARD_ONLY_STATUSES
+        ]
+        not_available = len(cells) - len(priced) - len(hazard_only)
+        eal = _sum_or_none([float(r.eal_usd) for r in priced.values() if r.eal_usd is not None])
+        value = _sum_or_none([float(r.asset_value_usd or 0.0) for r in priced.values()])
+        pairs: list[tuple[float, float]] = []
+        for fid, r in priced.items():
+            b = base_prim.get((fid, tag))
+            if b is not None and b.eal_usd is not None and b.model_id == r.model_id:
+                pairs.append((float(b.eal_usd), float(r.eal_usd or 0.0)))
+        line: dict[str, Any] = {
+            "Hazard": label,
+            f"{point_label} Assessed": len(cells),
+            "Priced": len(priced),
+            "Hazard Only": len(hazard_only),
+            "Not Available": not_available,
+            "Priced Asset Value": value,
+            "Total EAL": eal,
+            "Total EAL / Assets": eal_as_pct_of_assets(eal, value),
+        }
+        if paired:
+            b_sum = _sum_or_none([b for b, _ in pairs])
+            f_sum = _sum_or_none([f for _, f in pairs])
+            line |= {
+                "Pairs Compared": len(pairs),
+                "Baseline EAL": b_sum,
+                "Future EAL (paired)": f_sum,
+                "EAL Change %": change_pct(f_sum, b_sum),
+            }
+        growth_cells(line)
+        lines.append(line)
+        all_points |= set(cells)
+        for fid, r in priced.items():
+            priced_points.setdefault(fid, r.asset_value_usd)
+        hazard_only_points |= set(hazard_only)
+        all_eal += [float(r.eal_usd) for r in priced.values() if r.eal_usd is not None]
+        all_pairs += pairs
+
+    all_value = _sum_or_none([float(v or 0.0) for v in priced_points.values()])
+    all_total = _sum_or_none(all_eal)
+    overall: dict[str, Any] = {
+        "Hazard": "All priced hazards",
+        f"{point_label} Assessed": len(all_points),
+        "Priced": len(priced_points),
+        "Hazard Only": len(hazard_only_points - set(priced_points)),
+        "Not Available": len(all_points - set(priced_points) - hazard_only_points),
+        "Priced Asset Value": all_value,
+        "Total EAL": all_total,
+        "Total EAL / Assets": eal_as_pct_of_assets(all_total, all_value),
+    }
+    if paired:
+        b_sum = _sum_or_none([b for b, _ in all_pairs])
+        f_sum = _sum_or_none([f for _, f in all_pairs])
+        overall |= {
+            "Pairs Compared": len(all_pairs),
+            "Baseline EAL": b_sum,
+            "Future EAL (paired)": f_sum,
+            "EAL Change %": change_pct(f_sum, b_sum),
+        }
+    growth_cells(overall)
+    lines.append(overall)
+    return lines
+
+
+def province_summary_frame(
+    rows: Iterable[ResultRow | dict[str, Any]], preferred: dict[str, str] | None = None
+) -> list[dict[str, Any]]:
+    """The middle tier of a municipality workbook: one line per 시도, counts only.
+
+    A municipality result is a representative-point screening, never an area aggregate,
+    so this sheet adds **no money** across municipalities. Per hazard it says how many of
+    the province's assessed municipalities fall in each band, the highest band among
+    them, how many were not priced, and for heat the highest indicator read. The
+    province's own representative point (a 시도-tier municipality) is one of the points
+    counted under it, flagged in ``Includes Province Point``. A municipality assessed at
+    two anchors counts once (:func:`one_anchor_per_municipality`).
+    """
+    rs = one_anchor_per_municipality(_as_rows(rows))
+    prim = primary_rows(rs, preferred)
+    first = _municipalities(rs)
+    by_province: dict[str, list[str]] = {}
+    for fid, r in first.items():
+        by_province.setdefault(r.province_name or "(unknown)", []).append(fid)
+    out = []
+    for province, fids in sorted(by_province.items()):
+        line: dict[str, Any] = {
+            "Province": province,
+            "Municipalities Assessed": len({first[f].municipality_id or f for f in fids}),
+            "Includes Province Point": "Yes"
+            if any(first[f].municipality_level in _SIDO_LEVELS for f in fids)
+            else "No",
+        }
+        for tag, label in view_hazards(rs, MUNICIPALITY_HAZARDS):
+            cells = [prim[(f, tag)] for f in fids if (f, tag) in prim]
+            if tag == "HW":
+                reads = [c.hazard_intensity for c in cells if c.hazard_intensity is not None]
+                line["Heatwave Assessed"] = len(cells)
+                line["Heatwave Tmax p95 max (°C)"] = max(reads) if reads else None
+                continue
+            levels = [c.risk_level for c in cells if c.risk_level]
+            for level in ("High", "Medium", "Low"):
+                line[f"{label} {level}"] = sum(1 for lv in levels if lv == level)
+            line[f"{label} Highest Risk"] = (
+                max(levels, key=lambda s: _LEVEL_ORDER.get(s, -1)) if levels else None
+            )
+            line[f"{label} Not Priced"] = sum(1 for c in cells if c.risk_level is None)
+        out.append(line)
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# Portfolio loss curve — the non-additive aggregate                            #
+# --------------------------------------------------------------------------- #
+#: Cell statuses written by the worker's ``aggregate`` module. Repeated as strings: the
+#: backend reads the worker's JSON and imports no worker code (GPL boundary).
+_RP_ABOVE = "RETURN_PERIOD_NOT_RESOLVABLE"
+_RP_BELOW = "SHORTER_THAN_CURVE"
+#: Group levels the worker writes, in sheet order, with the label the reader sees.
+_CURVE_LEVEL_ORDER: tuple[str, ...] = ("PORTFOLIO", "ASSET_CLASS", "PROVINCE")
+_CURVE_LEVEL_LABEL: dict[str, str] = {
+    "PORTFOLIO": "Portfolio",
+    "ASSET_CLASS": "Asset class",
+    "PROVINCE": "Province",
+}
+
+
+def _class_label(sector: Any) -> str:
+    """``commercial`` → ``Commercial`` (the JRC sector, as the reader sees it)."""
+    return str(sector or "").replace("_", " ").capitalize()
+
+
+def portfolio_loss_curve_frame(
+    curves: Iterable[dict[str, Any]],
+    baseline_curves: Iterable[dict[str, Any]] | None = None,
+    preferred: dict[str, str] | None = None,
+    config: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """One line per (run x area x hazard x data scope): the portfolio's return-period losses.
+
+    The worker builds each curve from **event-level** losses added across the priced
+    assets of one hazard set (``climaterisk_worker.physical_risk.aggregate``), so a
+    ``100-yr Loss`` here is the portfolio's own 100-year loss — not the sum of the assets'
+    100-year losses, which is shown beside it as ``Sum of Standalone`` with the
+    diversification benefit ``1 - portfolio / standalone sum``. Hazards are never added to
+    each other: their event sets are unrelated, so there is no all-hazards line. A return
+    period outside a curve is an empty cell with the reason in ``Note``.
+
+    ``Assets with Modeled Hazard`` counts the priced assets the dataset reaches at all; when
+    it is 0 the zero losses are flagged in ``Note`` as a coverage gap, not an absence of risk.
+
+    Each line also says which **asset classes** (JRC sector of the property type —
+    commercial / residential / industrial / …) and which **impact functions** its priced
+    assets used: a flood curve mixes the JRC sector curves of its assets (each asset's event
+    losses come from its own function; only the money is added). The ``Asset class`` lines
+    are the same curve restricted to one class.
+
+    Ordering: the run (future, then baseline), the portfolio, then each asset class, then
+    each 시도; the recommended data scope first.
+    """
+    from climaterisk.physical_risk.display_copy import HAZARD_LABEL, SCOPE_LABEL
+
+    cfg = config or load_config()
+    rps = [float(rp) for rp in cfg["portfolio_loss_curve"]["return_periods_years"]]
+    representative = float(cfg["potential_loss"]["return_period_years"])
+    preferred = preferred or {}
+    hazard_order = [tag for tag, _ in PORTFOLIO_HAZARDS]
+
+    def sort_key(c: dict[str, Any]) -> tuple[Any, ...]:
+        tag = str(c.get("hazard_type"))
+        level = str(c.get("group_level"))
+        return (
+            _CURVE_LEVEL_ORDER.index(level)
+            if level in _CURVE_LEVEL_ORDER
+            else len(_CURVE_LEVEL_ORDER),
+            str(c.get("group_name") or ""),
+            hazard_order.index(tag) if tag in hazard_order else len(hazard_order),
+            preferred.get(tag) != c.get("model_id"),
+            str(c.get("model_id")),
+        )
+
+    lines: list[dict[str, Any]] = []
+    for run, batch in (("Future", curves), ("Baseline", baseline_curves or [])):
+        for c in sorted(batch, key=sort_key):
+            tag = str(c.get("hazard_type"))
+            cells = {float(x["return_period_years"]): x for x in c.get("losses") or []}
+            level = str(c.get("group_level"))
+            name = c.get("group_name")
+            line: dict[str, Any] = {
+                "Run": run,
+                "Level": _CURVE_LEVEL_LABEL.get(level, level),
+                "Group": (
+                    "Portfolio"
+                    if level == "PORTFOLIO"
+                    else _class_label(name)
+                    if level == "ASSET_CLASS"
+                    else name
+                ),
+                "Hazard": HAZARD_LABEL.get(tag, tag),
+                "Data Scope": SCOPE_LABEL.get(str(c.get("model_id")), c.get("model_id")),
+                "Recommended": "Yes" if preferred.get(tag) == c.get("model_id") else "No",
+                "Scenario": c.get("requested_scenario"),
+                "Assets Assessed": c.get("points_assessed"),
+                "Assets Priced": c.get("points_priced"),
+                "Assets with Modeled Hazard": c.get("points_with_hazard"),
+                "Asset Classes": " · ".join(
+                    f"{_class_label(k)} {n}" for k, n in (c.get("asset_classes") or {}).items()
+                )
+                or None,
+                "Impact Functions": " · ".join(
+                    f"{f.get('impact_function_name')} (id {f.get('impact_function_id')}) "
+                    f"×{f.get('assets')}"
+                    for f in c.get("impact_functions") or []
+                )
+                or None,
+                "Priced Asset Value": c.get("priced_asset_value"),
+                "Portfolio EAL": c.get("eal"),
+            }
+            for rp in rps:
+                line[f"{rp:g}-yr Loss"] = (cells.get(rp) or {}).get("loss")
+            rep = cells.get(representative) or {}
+            line[f"Sum of Standalone {representative:g}-yr Losses"] = rep.get(
+                "sum_of_standalone_losses"
+            )
+            line[f"Diversification Benefit % ({representative:g}-yr)"] = rep.get(
+                "diversification_pct"
+            )
+            lo, hi = c.get("curve_return_period_min"), c.get("curve_return_period_max")
+            line["Curve Range (years)"] = (
+                f"{lo:.3g} – {hi:.3g}" if lo is not None and hi is not None else None
+            )
+            notes = [str(c["detail"])] if c.get("detail") else []
+            if c.get("status") == "NO_PRICED_POINTS":
+                notes.append("no asset was priced under this data scope")
+            elif c.get("points_with_hazard") == 0:
+                notes.append(
+                    "this hazard dataset shows no hazard at any of these assets, so every loss "
+                    "is 0 — a data-coverage result, not evidence of no risk (the river-flood "
+                    "sets carry no pluvial, coastal or small-river flooding)"
+                )
+            above = [f"{rp:g}" for rp, x in cells.items() if x.get("status") == _RP_ABOVE]
+            below = [f"{rp:g}" for rp, x in cells.items() if x.get("status") == _RP_BELOW]
+            if above:
+                notes.append(
+                    f"{', '.join(above)}-yr beyond the rarest event of this curve — left blank, "
+                    "not the largest event's loss"
+                )
+            if below:
+                notes.append(
+                    f"{', '.join(below)}-yr shorter than the most frequent point of this curve "
+                    "— left blank"
+                )
+            line["Note"] = "; ".join(notes) or None
+            lines.append(line)
+    return lines

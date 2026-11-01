@@ -1,0 +1,16 @@
+municipality_id,municipality,office_name,dataset_checked,dataset_id,provider,has_office_row,has_lat_lon,result
+SGIS-11,서울특별시,서울특별시청,data.go.kr catalogue (city / 중구 / national terms),—,—,no,—,OFFICIAL_COORDINATE_NOT_AVAILABLE
+SGIS-11,서울특별시,서울특별시청,서울시 주요 공기업 리스트 정보 (서울 열린데이터광장),OA-12991,서울특별시,not checked (names/addresses only by description),no,rejected: no coordinates
+SGIS-11,서울특별시,서울특별시청,서울시 도시계획시설(공공·문화체육시설) 위치정보,OA-20961,서울특별시,no (planning zoning),n/a,rejected: planning-facility area not an office point
+SGIS-21,부산광역시,부산광역시청,부산광역시_연제구_공공기관 현황,15025212,부산광역시 연제구,"yes (""부산광역시청, 부산광역시의회"")",yes (위도/경도),GOVERNMENT_PUBLISHED
+SGIS-21,부산광역시,부산광역시청,부산광역시_구군 행정기관현황(SHP),15084225,부산광역시,no (공개공지 layer),yes,rejected: no city-hall row
+SGIS-22,대구광역시,대구광역시청,대구광역시_공공기관 및 관공서 리스트,15111262,대구광역시,yes (two campuses),no,rejected: no coordinates; two campuses
+SGIS-22,대구광역시,대구광역시청,대구광역시 중구 / 북구 catalogue,—,—,no,—,OFFICIAL_COORDINATE_NOT_AVAILABLE
+SGIS-23,인천광역시,인천광역시청,인천광역시_행정기관 현황,15013638,인천광역시,yes,no,rejected: address only
+SGIS-23,인천광역시,인천광역시청,인천광역시_공공청사 도로명주소 현황,15048910,인천광역시,yes,no,rejected: address only
+SGIS-23,인천광역시,인천광역시청,인천광역시 연수구_관내 공공기관 현황,15039792,인천광역시 연수구,no,no,rejected
+SGIS-24,광주광역시,광주광역시청,전남광주통합특별시 서구_우리동네생활지도,15134842,전남광주통합특별시 서구,no,yes,rejected: no city-hall row
+SGIS-25,대전광역시,대전광역시청,대전광역시_청사 시설 및 설비현황,15081279,대전광역시,building facts,no,rejected: no coordinates
+SGIS-25,대전광역시,대전광역시청,대전광역시 서구 catalogue,—,—,no,—,OFFICIAL_COORDINATE_NOT_AVAILABLE
+SGIS-26,울산광역시,울산광역시청,울산광역시 울주군_방사능 방재정보 생활기반시설 공간정보,15095521,울산광역시 울주군,no (남구청 only),yes (EPSG:5187),rejected: no city-hall row
+ALL,—,—,행정안전부_생활안전지도 관공서,15101885,행정안전부,unknown,WMS image only,rejected: WMS rendering service; separate key; no downloadable coordinate records

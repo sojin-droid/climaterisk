@@ -7,7 +7,8 @@ Perils (climada v6.x, all hazard data from the CLIMADA Data API — no petals ne
 Each peril computes the FUTURE horizon and a PRESENT-day baseline, and reports the
 delta. Future estimation comes from the Data API's future hazard sets:
   - TC: climate_scenario (rcp26/45/60/85) × ref_year (2040/2060/2080); present = "None".
-  - RF: climate_scenario (rcp26/60/85) × year_range; present = historical / 1980_2000.
+  - RF: climate_scenario (rcp26/60/85) × year_range; present = same RCP, earliest window
+    (2010_2030, same GHM x GCM chain; the reanalysis-forced historical set is not used).
 
 Per-asset vulnerability params (``tc_v_half``, flood depth-damage curve) are resolved
 by the backend and arrive in each asset dict — this module reads them directly.
@@ -351,7 +352,8 @@ def _run_tropical_cyclone(
 ) -> dict[str, Any]:
     from climada.entity import ImpactFuncSet
     from climada.entity.impact_funcs.trop_cyclone import ImpfTropCyclone
-    from climada.util.api_client import Client
+
+    from climaterisk_worker._dataapi import make_client
 
     ref_year = _nearest(_TC_REF_YEARS, max(anchor_years) if anchor_years else _TC_REF_YEARS[0])
     iso3s = _per_asset_iso3([a["lat"] for a in assets], [a["lon"] for a in assets])
@@ -370,7 +372,7 @@ def _run_tropical_cyclone(
     impf_ids = [impf_id_by_v[round(v, 1)] for v in vh_per_asset]
     exp, src_idx = _build_exposures(assets, "impf_TC", impf_ids)
 
-    client = Client()
+    client = make_client()
 
     def fetch(scenario: str, year: int | None):  # type: ignore[no-untyped-def]
         props: dict[str, str] = {
@@ -492,7 +494,7 @@ def _run_river_flood(
     anchor_years: list[int],
     options: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    from climada.util.api_client import Client
+    from climaterisk_worker._dataapi import make_client
 
     scenario = _RF_SCENARIO_MAP.get(climate_scenario, "rcp60")
     target = max(anchor_years) if anchor_years else 2050
@@ -505,7 +507,7 @@ def _run_river_flood(
     impf_set, impf_ids, curve_note = _flood_impf_set(assets, iso3s, options, "RF", "flood_class")
     exp, src_idx = _build_exposures(assets, "impf_RF", impf_ids)
 
-    client = Client()
+    client = make_client()
 
     def fetch(scen: str, yr: str):  # type: ignore[no-untyped-def]
         props = {"climate_scenario": scen, "year_range": yr}
@@ -524,7 +526,10 @@ def _run_river_flood(
 
     cat_haz = catalog.load_hazard("river_flood", climate_scenario, iso3 or "global", target)
     future = _impact(exp, impf_set, cat_haz or fetch(scenario, year_range))
-    present = _impact(exp, impf_set, fetch("historical", "1980_2000"))
+    # Present = the same RCP product's earliest window (same 24 GHM x GCM chain). The Data
+    # API "historical" flood set is reanalysis-forced, so a delta against it mixes the
+    # model-chain change with the climate change (14x vs 2.9x on the 1,000-building sample).
+    present_window = _RF_YEAR_RANGES[0]
     src = "local catalog" if cat_haz is not None else f"{iso3 or 'global'} {scenario} {year_range}"
 
     eai = _eai_by_asset(future, src_idx, len(assets))
@@ -532,9 +537,15 @@ def _run_river_flood(
     fc = future.calc_freq_curve(_rps)
     _ys = _yearset_summary(future)
     _warn = getattr(future, "_warn", None)
-    present_aai = float(present.aai_agg)
     future_aai = float(future.aai_agg)
-    delta = ((future_aai - present_aai) / present_aai * 100.0) if present_aai > 0 else None
+    present_aai: float | None = None
+    if year_range != present_window:  # the earliest window has no earlier one to compare to
+        present_aai = float(_impact(exp, impf_set, fetch(scenario, present_window)).aai_agg)
+    delta = (
+        ((future_aai - present_aai) / present_aai * 100.0)
+        if present_aai is not None and present_aai > 0
+        else None
+    )
 
     return {
         "peril": "river_flood",
@@ -542,6 +553,7 @@ def _run_river_flood(
         "target_year": int(year_range[5:]),
         "aai_agg": future_aai,
         "present_aai_agg": present_aai,
+        "present_period": f"{scenario} {present_window}",
         "delta_pct": delta,
         "total_value": float(sum(a["value"] for a in assets)),
         "per_asset": [
@@ -558,7 +570,11 @@ def _run_river_flood(
             "max_resolvable_return_period": _max_rp,
             "record_years": _rec_yrs,
         },
-        "detail": f"{src} RF set; {curve_note}",
+        "detail": (
+            f"{src} RF set; present = {scenario} {present_window}"
+            + ("" if present_aai is not None else " (target is the present window: no delta)")
+            + f"; {curve_note}"
+        ),
     }
 
 
@@ -579,7 +595,8 @@ def _run_wildfire(
     screening-grade (GAP G3).
     """
     from climada.entity import ImpactFunc, ImpactFuncSet
-    from climada.util.api_client import Client
+
+    from climaterisk_worker._dataapi import make_client
 
     iso3s = _per_asset_iso3([a["lat"] for a in assets], [a["lon"] for a in assets])
     iso3 = _single_country_iso3(iso3s)
@@ -588,7 +605,9 @@ def _run_wildfire(
 
     cat_haz = catalog.load_hazard("wildfire", "historical", iso3, 2020)
     haz = cat_haz or resilient_get_hazard(
-        Client(), "wildfire", properties={"spatial_coverage": "country", "country_iso3alpha": iso3}
+        make_client(),
+        "wildfire",
+        properties={"spatial_coverage": "country", "country_iso3alpha": iso3},
     )
     wf_src = "local catalog" if cat_haz is not None else "Data API"
     htype = haz.haz_type  # "WFseason"; intensity is brightness temperature (K)
@@ -650,14 +669,15 @@ def _run_european_windstorm(
 ) -> dict[str, Any]:
     from climada.entity import ImpactFuncSet
     from climada.entity.impact_funcs.storm_europe import ImpfStormEurope
-    from climada.util.api_client import Client
+
+    from climaterisk_worker._dataapi import make_client
 
     ssp = {"rcp26": "ssp126", "rcp45": "ssp245", "rcp60": "ssp370", "rcp85": "ssp585"}.get(
         climate_scenario, "ssp585"
     )
     iso3s = _per_asset_iso3([a["lat"] for a in assets], [a["lon"] for a in assets])
 
-    client = Client()
+    client = make_client()
     # CMIP6 future windstorm hazard is published with Europe-wide coverage (not per-country);
     # it covers any European asset. Pick one GCM dataset and fetch by its exact properties.
     base = {"data_source": "CMIP6", "spatial_coverage": "Europe"}
@@ -738,7 +758,8 @@ def _run_earthquake(
     """Earthquake (geophysical — observed catalogue, no climate scenario; MMI intensity)."""
     import numpy as np
     from climada.entity import ImpactFunc, ImpactFuncSet
-    from climada.util.api_client import Client
+
+    from climaterisk_worker._dataapi import make_client
 
     iso3s = _per_asset_iso3([a["lat"] for a in assets], [a["lon"] for a in assets])
     iso3 = _single_country_iso3(iso3s)
@@ -747,7 +768,7 @@ def _run_earthquake(
 
     cat_haz = catalog.load_hazard("earthquake", "observed", iso3, 2020)
     eq_props = {"spatial_coverage": "country", "country_iso3alpha": iso3, "event_type": "observed"}
-    haz = cat_haz or resilient_get_hazard(Client(), "earthquake", properties=eq_props)
+    haz = cat_haz or resilient_get_hazard(make_client(), "earthquake", properties=eq_props)
     htype = haz.haz_type  # "EQ"; intensity is Modified Mercalli Intensity (MMI)
     # Per-class MMI damage function: shared eq_mmi breakpoints, per-asset eq_mdr curve
     # (resolved from the vulnerability class / studio override / EQ preset).
@@ -1170,7 +1191,7 @@ def _run_heat_mortality(
     default_headcount = float(opts.get("default_headcount") or _DEFAULT_HEADCOUNT)
     assumed = [a for a in assets if not float(a.get("headcount") or 0.0) > 0.0]
 
-    impf_set, impf_ids = hm.build_impact_functions(haz_type=haz.haz_type)
+    impf_set, impf_ids = hm.build_impact_functions(haz_type=haz.haz_type, country=region)
     impf_col = f"impf_{haz.haz_type}"
 
     # One exposure row per (site, age band); value = people in that band at that site.
@@ -1184,7 +1205,7 @@ def _run_heat_mortality(
         share65 = hm.share_over65_for(
             float(a["lat"]), float(a["lon"]), iso3s[i], opts.get("share_over65")
         )
-        for band in hm.AGE_BANDS:
+        for band in hm.age_bands_for(region):
             frac = share65 if band.key == "o65" else 1.0 - share65
             lats.append(float(a["lat"]))
             lons.append(float(a["lon"]))
@@ -1233,7 +1254,7 @@ def _run_heat_mortality(
         # What the model is, and what its parameters rest on. CLIMADA ships no
         # heat-mortality impact function, so the curve is this repository's own and its
         # parameters are indicative — the UI shows this alongside the number.
-        "parameter_status": hm.provenance_summary(),
+        "parameter_status": hm.provenance_summary(region),
         "detail": (
             f"{region} heat mortality (local catalog, {scenario_note}; exceedance degree-days "
             f"above the minimum-mortality comfort band, custom climaterisk age-stratified "

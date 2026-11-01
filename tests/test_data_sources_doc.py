@@ -45,6 +45,12 @@ def test_no_document_still_asks_for_the_daily_max_file() -> None:
         text = (REPO / rel).read_text(encoding="utf-8")
         assert "tx_ens_mean" not in text, f"{rel} still points at the daily-max file"
 
+    # The Korean counterpart drifted the same way: CLIMADA_METHODS.md described the KMA
+    # layers as daily TAMAX long after the loader moved to TA.
+    for rel in ("docs/CLIMADA_METHODS.md", "docs/METHODOLOGY.md", "docs/DATA_SOURCES.md"):
+        text = (REPO / rel).read_text(encoding="utf-8")
+        assert "daily TAMAX" not in text, f"{rel} still describes the KMA input as daily max"
+
 
 def test_the_gated_sources_are_marked_as_needing_a_person() -> None:
     doc = DOC.read_text(encoding="utf-8")

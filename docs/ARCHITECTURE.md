@@ -39,6 +39,7 @@ server-side in `data/app.db` (SQLite, WAL). Edits are synced back with a debounc
 |---|---|
 | `core/` | Domain entities + enums (pure data, no I/O) |
 | `data/` | SQLite session store, bundled-library loaders |
+| `paths.py` | the single path authority: repo root, `CLIMATERISK_DATA_ROOT` layout, CLIMADA data dir — see [DATA_LAYOUT.md](DATA_LAYOUT.md) |
 | `engines/` | The physical-engine request/result JSON contract |
 | `transition/` | Light transition-risk math (Phase 3) |
 | `api/` | FastAPI app + routers (thin) |
@@ -47,7 +48,7 @@ server-side in `data/app.db` (SQLite, WAL). Edits are synced back with a debounc
 
 The platform can build and use its **own** CLIMADA-ready hazard library instead of
 depending only on the live CLIMADA Data API (which lacks coastal flood / heat /
-drought and only has historical wildfire). The catalog lives in `data/hazard_db/`
+drought and only has historical wildfire). The catalog lives in `<DATA_ROOT>/derived/hazard_db/` (transitionally the repo-local `data/hazard_db/`)
 (git-ignored; rebuilt from real sources) with a `catalog.json` manifest indexing
 HDF5 hazards by `(peril, climate_scenario, region, year)`.
 
@@ -68,12 +69,23 @@ real source ──ingest──▶ standardized grid (cells × years × intensity
 - **Catalog** (`worker/climaterisk_worker/catalog.py`): manifest lookup + `from_hdf5`.
 - **Resolver:** each worker peril runner calls `catalog.load_hazard(...)` first and
   falls back to the Data API. Result `detail` reports which source was used.
+- **Country mask** (`worker/climaterisk_worker/hazard_mask.py`): a *global* Data-API set
+  cached under a country key is first cut to that country's land plus a buffer
+  (`_params.MASK_BUFFER_DEG`, 0.1° ≈ 10 km; 0 = strict polygon), so the neighbours'
+  centroids never leak into a `KOR` entry. Geometry is CLIMADA's own
+  `get_country_geometries` (Natural Earth 10m); only centroid columns are selected —
+  events and frequencies are untouched. The catalog entry records the mask
+  (`mask.n_centroids_before/after`, `spatial_coverage`). Country-coverage products
+  from the API are already cut and are left as served.
 - **CLI** (`scripts/build_hazard.py`): `convert <grid.json>` (real ingestion output)
-  or `cache --data-type … --props …` (cache a Data-API hazard); `list` shows entries.
+  or `cache --data-type … --props …` (cache a Data-API hazard; `--mask-country ISO3`
+  applies the country mask); `list` shows entries.
 - **API:** `GET /api/hazard-catalog` exposes the manifest to the UI.
 
 This is the on-ramp for filling Data-API gaps: produce a standardized grid from any
 real source and `convert` it; the platform then serves that peril/region locally.
+Every file a new peril touches — enum, library, runner, ingest, frontend, docs, tests —
+is listed in [ADDING_A_PERIL.md](ADDING_A_PERIL.md).
 
 ## Dimensional model
 

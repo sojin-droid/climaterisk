@@ -22,7 +22,8 @@ import type {
   Run,
 } from "../types";
 import { AssetEditor } from "../components/AssetEditor";
-import { getHazardCatalog, getRun, hazardPreviewImageUrl, submitHazardPreview } from "../lib/api";
+import { getHazardCatalog, getRun, hazardPreviewImageUrl, importAssets, submitHazardPreview } from "../lib/api";
+import { OFFLINE_MAP_NOTE, useOffline } from "../lib/offline";
 import { formatScenario, money } from "../lib/format";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -178,7 +179,34 @@ export function MapView({
   const [litpopCountry, setLitpopCountry] = useState("KOR");
 
   // Place search (Nominatim) — pans the map to the picked result.
+  const offline = useOffline();
   const [searchQ, setSearchQ] = useState("");
+  const [importKind, setImportKind] = useState("latlon");
+  const [importMode, setImportMode] = useState<"merge" | "replace">("merge");
+  const [importBusy, setImportBusy] = useState(false);
+  const [importMsg, setImportMsg] = useState<string | null>(null);
+  const [importErr, setImportErr] = useState(false);
+
+  async function doImport(file: File) {
+    setImportBusy(true);
+    setImportMsg(null);
+    setImportErr(false);
+    try {
+      const res = await importAssets(model.id, file, importKind, importMode);
+      patchModel({ assets: res.portfolio.assets });
+      const r = res.report;
+      setImportMsg(
+        `${file.name}: ${r.rows_read} rows — ${r.added.length} added, ${r.replaced.length} replaced` +
+          (r.removed.length ? `, ${r.removed.length} removed` : "") +
+          (r.warnings.length ? ` · ${r.warnings.join(" · ")}` : ""),
+      );
+    } catch (e) {
+      setImportErr(true);
+      setImportMsg(e instanceof Error ? e.message : String(e));
+    } finally {
+      setImportBusy(false);
+    }
+  }
   const [searchHits, setSearchHits] = useState<PlaceHit[]>([]);
   const [searchBusy, setSearchBusy] = useState(false);
   const [searchErr, setSearchErr] = useState<string | null>(null);
@@ -186,7 +214,8 @@ export function MapView({
 
   async function doSearch() {
     const q = searchQ.trim();
-    if (!q || searchBusy) return;
+    // Offline: never send the query to Nominatim — whether from the button or the Enter key.
+    if (offline || !q || searchBusy) return;
     setSearchBusy(true);
     setSearchErr(null);
     setSearchHits([]);
@@ -338,13 +367,20 @@ export function MapView({
   return (
     <div className="mapview">
       <div className="map">
+        {offline && (
+          <div className="hint" style={{ position: "absolute", zIndex: 500, margin: 8, padding: "2px 6px", background: "var(--bg)", borderRadius: 4 }}>
+            {OFFLINE_MAP_NOTE}
+          </div>
+        )}
         <MapContainer center={[36.2, 127.9]} zoom={7} scrollWheelZoom>
           {/* The literal center above is only the cold-start view (no assets yet). */}
           <FitToAssets assets={model.assets} />
-          <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          />
+          {!offline && (
+            <TileLayer
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            />
+          )}
           <ClickToAdd onAdd={onMapClick} />
           <FlyTo target={flyTarget} />
           {draft.length > 0 &&
@@ -440,6 +476,51 @@ export function MapView({
           />
         ) : (
           <>
+            <div style={{ marginBottom: 10 }}>
+              <div className="section-title">Import assets (xlsx / csv)</div>
+              <div className="hint" style={{ marginTop: 4 }}>
+                Download a template, fill it, upload it. Three granularities: coordinates, 시군구, 시도 (the
+                last two are placed at the official representative point).{" "}
+                {(["latlon", "sigungu", "sido"] as const).map((k, i) => (
+                  <span key={k}>
+                    {i > 0 ? " · " : ""}
+                    <a href={`/api/libraries/asset-templates/${k}.xlsx`} download>
+                      {k}
+                    </a>
+                  </span>
+                ))}
+              </div>
+              <div className="form-row" style={{ marginTop: 6, gap: 6, flexWrap: "wrap" }}>
+                <select className="field-inline" value={importKind} onChange={(e) => setImportKind(e.target.value)}>
+                  <option value="latlon">coordinates</option>
+                  <option value="sigungu">시군구</option>
+                  <option value="sido">시도</option>
+                </select>
+                <select
+                  className="field-inline"
+                  value={importMode}
+                  onChange={(e) => setImportMode(e.target.value as "merge" | "replace")}
+                >
+                  <option value="merge">merge (same ids replaced)</option>
+                  <option value="replace">replace whole portfolio</option>
+                </select>
+                <input
+                  type="file"
+                  accept=".xlsx,.csv"
+                  disabled={importBusy}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) void doImport(f);
+                    e.target.value = "";
+                  }}
+                />
+              </div>
+              {importMsg && (
+                <p className="hint" style={{ marginTop: 4, color: importErr ? "var(--danger)" : undefined }}>
+                  {importMsg}
+                </p>
+              )}
+            </div>
             <div style={{ marginBottom: 4 }}>
               <div className="section-title">Search location</div>
               <div className="form-row" style={{ marginTop: 6 }}>
@@ -453,7 +534,12 @@ export function MapView({
                     if (e.key === "Enter") doSearch();
                   }}
                 />
-                <button className="btn" onClick={doSearch} disabled={searchBusy || !searchQ.trim()}>
+                <button
+                  className="btn"
+                  onClick={doSearch}
+                  disabled={offline || searchBusy || !searchQ.trim()}
+                  title={offline ? "Place search needs the network (OSM Nominatim)" : undefined}
+                >
                   {searchBusy ? <span className="spinner" /> : "Search"}
                 </button>
               </div>

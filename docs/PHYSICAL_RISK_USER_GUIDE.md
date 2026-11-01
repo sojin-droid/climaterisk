@@ -1,0 +1,117 @@
+# Physical Risk Assessment — user guide (no CLIMADA knowledge needed)
+
+**A CLIMADA-based physical-risk assessment tool for portfolios of real-estate assets.** It combines global- and country-level hazards (the CLIMADA Data API global sets and their country cuts — not domestic source data) with asset values to produce probabilistic financial loss (EAL, Potential Loss) for Flood and Tropical Cyclone; Heatwave is reported as hazard exposure only, because no applicable CLIMADA Impact Function exists.
+
+**Select your assets → Select hazards → Run → Download Excel.** That is the whole workflow.
+Everything below explains what you will see; nothing here changes how the numbers are made.
+
+## The screen (Models tab)
+
+1. **Select assets** — tick the assets to assess. Search by name, id or type; *Select all* /
+   *Clear*; the pill says "n of m assets selected". Assets come from the Map tab — placed by
+   hand, or imported there from a template (coordinates / 시군구 / 시도; *Import assets*).
+2. **Select hazards** — Flood, Tropical Cyclone, Heatwave. One line under each says what is
+   modeled. Heatwave is *hazard only*: it reports how hot, not how much money.
+3. **Analysis** — leave **Recommended**. The tool picks, for each hazard, the most local data
+   that can actually run (today: the Korea country dataset for flood and typhoon; KMA data
+   for heat). Nothing large is downloaded. **Custom** lets you add the Global reference (for
+   a data comparison) or the present-climate baseline (for a climate-change multiplier: the same
+   models' present — flood 2010–2030 of the same scenario, typhoon 1980–2020 tracks); anything
+   that cannot run is greyed out with the reason.
+4. **RUN ASSESSMENT** — one batch for every asset × hazard. The line under the button counts
+   the calculations; a progress line shows "n / N calculations complete".
+
+## Reading the results
+
+- **Physical Risk Summary** — how many asset-hazard results are High / Medium / Low, how many
+  are hazard-only, how many are not available. *These counts are not a portfolio score.*
+- **Asset risk matrix** — one row per asset: asset value and the level for each hazard.
+  **High / Medium / Low** are computed risk levels; **Hazard only** means the hazard is known
+  but no loss can be priced; **Unavailable / N/A** means nothing could be calculated (the
+  reason is in the detail).
+- **Asset detail** (click a row) — for each hazard: Risk, **EAL** (expected annual loss),
+  **EAL / Asset value**, **Potential loss** (the 100-year loss), Data source and Impact
+  function. **Why High?** shows the ratio next to the band's rule, the method chain, the
+  impact function and the dataset that produced the number.
+- **Financial loss: Not available** is *not* $0. A computed zero (a dry site) is shown as $0
+  with status Calculated; "Not available" means the loss was not calculated, and the reason
+  says why (for heat: no applicable CLIMADA impact function exists).
+- **Global vs Country** appears when both were run. They use the same impact function; the
+  country dataset is a spatial subset of the same Data API family, so a near-zero difference
+  is expected. It is a pipeline-consistency check, not a measure of Korea localization.
+- **Recent assessments** — reopen or re-download any earlier run.
+
+## The Excel (Download Excel)
+
+`Physical_Risk_Report_<N>_Assets_<YYYYMMDD>.xlsx`
+
+| sheet | what it is for |
+|---|---|
+| Portfolio Totals | the top tier: one line per hazard and one for all priced hazards — points assessed / priced / hazard-only / not available, the asset value behind the priced points, their EAL summed (the only money that adds across points; 100-year losses are not summed), and, when a baseline scenario was run, Baseline EAL / Future EAL (paired) / EAL Change % over the same points and data scope. With an annual exposure growth rate (Custom mode) it adds the economic-growth step: Growth Factor, Target-year EAL, and the chain Baseline → Growth-step → Climate-step EAL with both deltas |
+| Portfolio Summary | one line per asset: value, each hazard's status / risk / EAL / EAL ÷ assets / data source, counts of priced / hazard-only / not-available hazards, Overall EAL (a plain sum, not a score) |
+| Asset Risk Matrix | the on-screen matrix |
+| Hazard Results | every asset × hazard × data scope row with full provenance (for analysts) |
+| Global vs Country | the data comparison, where both were run |
+| Global vs Korea Local | kept for structure; today it says NOT_IMPLEMENTED for flood/typhoon |
+| Portfolio Loss Curve | asset runs only: the portfolio's own 10 / 25 / 50 / 100 / 250-year losses for each hazard and data scope, then the same per asset class (Commercial / Residential / Industrial / … — the JRC sector your property type maps to, which also picks the flood damage curve) and per 시도 when assets carry a province. *Asset Classes* and *Impact Functions* show what each line's assets used: a flood portfolio mixes the sector curves, one per asset. *Assets with Modeled Hazard* counts the assets the hazard data reaches at all — when it is 0 the line's losses are 0 because the dataset has no hazard there (e.g. a coastal site outside the river-flood model), which is **not** evidence of no risk; the Note says so. Computed from each event's loss added across the assets — so it is a true portfolio figure, unlike adding the assets' own 100-year losses. *Sum of Standalone 100-yr Losses* shows that naive sum and *Diversification Benefit %* the gap. A blank cell means the hazard data does not reach that return period (the Note says which). Hazards are not added to each other |
+| Climate Change | only when the present-climate baseline was run (per asset × data scope multipliers; the portfolio-level pairing is on Portfolio Totals). A flood multiplier against the Data API *historical* set is refused — it is built from a different model chain |
+| Methodology | what was assessed, data sources, CLIMADA method, impact functions, EAL, potential loss, risk levels, climate multiplier, limitations, statuses |
+| Run Info | scenario, year, country, readiness |
+
+Rules you can rely on: a blank cell is *not calculated* (its status column says why);
+`0` is a computed zero; currency is `$1,234`; ratios are `0.746%`; risk cells are coloured
+but the word is always there.
+
+## Municipalities instead of assets (V0.2)
+
+At the top of the screen, *Assessment Target* offers **Municipalities** (default) or **My
+Assets**. With Municipalities you pick from 269 official representative points (every 시·도
+and 시·군·구 unit of Statistics Korea's 2025 boundaries), search by name or province, filter by
+level, and optionally type an asset value (USD) next to a municipality. Then the same steps:
+hazards → Recommended → Run → map + table → Excel.
+
+What you get per municipality:
+
+- **without an asset value** — hazard screening: the modeled hazard intensity at the
+  representative point, the data source, the hazard grid size and the status *No asset value*.
+  No loss is estimated; the money cells stay blank.
+- **with an asset value** — the same financial assessment as for an asset (EAL, potential
+  loss, EAL ÷ assets, risk level) with the same CLIMADA impact function.
+
+Read every municipality result with this sentence in mind (it is printed on the screen, in the
+detail panel and in the Excel): *This result represents hazard conditions at the selected
+municipality's representative point. It is not a municipality-wide spatial aggregation.* The
+point is an interior point of the official boundary, not the city hall.
+
+The header also lists what the tool covers today — Flood and Tropical Cyclone with financial
+risk, Heatwave hazard-only, Drought and Sea-level rise not ready — each with a one-line reason,
+and the grid size of every hazard dataset. A finer grid does not by itself mean a more accurate
+model.
+
+The municipality Excel (`Municipality_Physical_Risk_Report_<N>_Municipalities_<YYYYMMDD>.xlsx`)
+has *Municipality Summary*, *Municipality Risk Matrix*, *Hazard Results*, *Spatial Resolution*,
+*Hazard Coverage*, *Methodology* and *Run Info*. Command line equivalent:
+
+```bash
+./.climada-env/bin/python scripts/municipality_physical_risk.py municipalities.csv \
+    --hazards flood,typhoon,heatwave --models recommended --output report.xlsx
+```
+
+## What the tool does not do (today)
+
+The full list, with reasons, is §15 of [`physical-risk-models.md`](physical-risk-models.md);
+the municipality-specific limits are §7 of [`municipality-physical-risk.md`](municipality-physical-risk.md).
+
+- No Korea-local flood or typhoon dataset yet (domestic source adapters not implemented).
+- Heatwave has no financial impact function — hazard only.
+- No Korea-specific impact functions; published CLIMADA functions only.
+- No overall portfolio risk score.
+- Values are **modeled** expected losses under the selected CLIMADA hazard and impact-function
+  assumptions — not observed damage, not a safety guarantee.
+
+Command line equivalent (same calculation):
+
+```bash
+./.climada-env/bin/python scripts/physical_risk_batch.py assets.csv \
+    --hazards flood,typhoon,heatwave --models recommended --output report.xlsx
+```

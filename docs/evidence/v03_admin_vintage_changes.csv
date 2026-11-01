@@ -1,0 +1,6 @@
+source_vintage,target_vintage,old_name,new_name,old_code,new_code,mapping_status,evidence
+data.go.kr providers 2026-09,SGIS 2025_2Q,광주광역시,전남광주통합특별시,24,,MERGED; NEW_CODE_UNVERIFIED,provider name 전남광주통합특별시 on data.go.kr
+data.go.kr providers 2026-09,SGIS 2025_2Q,전라남도,전남광주통합특별시,36,,MERGED; NEW_CODE_UNVERIFIED,provider name 전남광주통합특별시 on data.go.kr
+data.go.kr providers 2026-09,SGIS 2025_2Q,인천광역시 중구,제물포구 / 영종구,23010,,SPLIT_REORGANISED; NEW_CODE_UNVERIFIED,"providers 인천광역시 제물포구, 인천광역시 영종구"
+data.go.kr providers 2026-09,SGIS 2025_2Q,인천광역시 동구,제물포구,23020,,REORGANISED; NEW_CODE_UNVERIFIED,provider 인천광역시 제물포구
+data.go.kr providers 2026-09,SGIS 2025_2Q,인천광역시 서구,서해구 (+ 검단구 not observed),23080,,SPLIT_REORGANISED; NEW_CODE_UNVERIFIED,provider 인천광역시 서해구; 검단구 not found

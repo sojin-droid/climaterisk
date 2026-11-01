@@ -45,8 +45,8 @@ macOS 때문에 생기는 제약 두 가지가 있습니다.
 
 ## 한국 포트폴리오
 
-- 태풍·하천홍수·산불·지진은 첫 실행 때 CLIMADA Data API에서 자동으로 받아 `data/hazard_db/`에 캐시합니다.
-- 폭염 사망은 기상청 남한상세 1 km 파일이 필요합니다(로그인). 절차와 파일 목록: `KMA_DOWNLOAD_LIST.md` → 파일을 `~/climada/data/kma/`에 넣고 `./.climada-env/bin/python scripts/heat_korea.py register`.
+- 태풍·하천홍수·산불·지진은 첫 실행 때 CLIMADA Data API에서 자동으로 받습니다(CLIMADA 자체 데이터 폴더에 캐시; 사전 캐시한 레이어는 `<DATA_ROOT>/derived/hazard_db/`).
+- 폭염 사망은 기상청 남한상세 1 km 파일이 필요합니다(로그인). 절차와 파일 목록: `KMA_DOWNLOAD_LIST.md` → 파일을 `<DATA_ROOT>/external/kma/`(기본 `~/Data/climaterisk/external/kma/`, 배치 규칙은 `DATA_LAYOUT.md`)에 넣고 `./.climada-env/bin/python scripts/heat_korea.py register`.
 - 홍수위험지도 SHP는 `python3 scripts/fetch_floodmap_kor.py`로 받되 비상업 라이선스입니다.
 - 취약성 곡선은 국내 손실자료로 보정하기 전까지 글로벌 기본값입니다(`RISK_REGISTER.md` C절).
 
@@ -60,3 +60,12 @@ macOS 때문에 생기는 제약 두 가지가 있습니다.
 | 결과가 0 | 카드의 해석문 확인: footprint 밖 / 임계 미만 / 데이터 없음 |
 | 새로 고침 후 결과 사라짐 | 결과는 브라우저 세션 단위로 복원됩니다. 다른 브라우저·프로필은 새 세션입니다 |
 | 포트 충돌 | `.env`의 `CLIMATERISK_BACKEND_PORT` / `CLIMATERISK_FRONTEND_PORT` |
+
+## 현황 체크 (한국 1 km 준비 상태)
+
+`Physical Risk.app`을 열면 **"현황 체크" / "실행"** 두 버튼이 뜹니다. "현황 체크"는 같은 서버를 띄운 뒤
+Data 탭의 **현황 체크** 카드로 바로 들어갑니다(`?view=data&status=1`). 카드는 디스크·카탈로그·환경변수를
+**읽기만** 합니다 — KMA 남한상세 파일(변수·기간·형식), KOR 카탈로그 레이어(요청/제공 시나리오 불일치,
+라벨-변수 충돌), 1 km 등급(`5km-current` / `1km-data-only` / `missing`; `1km-ready`는 메타데이터 조건 전까지
+나오지 않음), 자격증명 **존재 여부**(값은 표시하지 않음), CLIMADA 워커 환경. 백엔드 API는
+`GET /api/status/korea`. 등급 정의: `docs/KOREA_1KM_IMPLEMENTATION_GAP.md`.

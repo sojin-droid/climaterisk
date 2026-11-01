@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 Scientific modelling project (data science / energy / finance / economic).
-Docs: `docs/ARCHITECTURE.md` (structure), `docs/METHODOLOGY.md` + `docs/CLIMADA_METHODS.md` (methods, native-vs-custom audit), `docs/CLIMADA_COVERAGE.md`, `docs/GAP_ANALYSIS_KO.md`, `docs/RISK_REGISTER.md`, `docs/USER_GUIDE.md`.
+Docs: `docs/ARCHITECTURE.md` (structure), `docs/DATA_LAYOUT.md` (repo vs `CLIMATERISK_DATA_ROOT`, path inventory; `src/climaterisk/paths.py` is the only path authority), `docs/METHODOLOGY.md` + `docs/CLIMADA_METHODS.md` (methods, native-vs-custom audit), `docs/CLIMADA_COVERAGE.md`, `docs/GAP_ANALYSIS_KO.md`, `docs/RISK_REGISTER.md`, `docs/SCOPE.md` (use tier per peril), `docs/ADDING_A_PERIL.md` (checklist for a new peril), `docs/WINDOWS_BUNDLE.md` (no-install zip), `docs/USER_GUIDE.md`.
 
 ## Commands
 
@@ -12,6 +12,7 @@ uv run pytest --cov=src        # tests + coverage
 uv run ruff check . --fix      # lint + autofix
 uv run ruff format .           # format
 uv run mypy src/               # type-check
+npm --prefix frontend/climaterisk run test:e2e   # browser flows (Playwright, fake worker; see tests/e2e)
 ```
 
 If `uv` is not yet adopted, fall back to `pip install -e ".[dev]"` and `pytest` / `ruff` / `mypy` directly. Don't introduce `setup.py`, `requirements.txt`, `flake8`, or `black` configs — `pyproject.toml` is the single source of truth.
@@ -58,7 +59,7 @@ src/<pkg>/
   config.py   loads .env, validates types
   logger.py   centralized logging
 tests/        mirrors src/
-docs/         ARCHITECTURE.md, METHODOLOGY.md, CLIMADA_METHODS.md, CLIMADA_COVERAGE.md, GAP_ANALYSIS_KO.md, RISK_REGISTER.md, USER_GUIDE.md, API.md
+docs/         ARCHITECTURE.md, METHODOLOGY.md, CLIMADA_METHODS.md, CLIMADA_COVERAGE.md, GAP_ANALYSIS_KO.md, RISK_REGISTER.md, SCOPE.md, ADDING_A_PERIL.md, USER_GUIDE.md, API.md
 .env, .env.example
 pyproject.toml    single source of truth
 ```

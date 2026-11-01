@@ -290,6 +290,78 @@ export interface HazardCatalog {
   entries: HazardCatalogEntry[];
 }
 
+// 현황 체크 (mirror of src/climaterisk/data/korea_status.py) — a reading of local state.
+export interface KoreaKmaFile {
+  file: string;
+  variable: string;
+  scenario_token: string;
+  model: string | null;
+  years: [number, number];
+  format: string;
+  kind: "archive" | "member";
+  size_mb: number;
+}
+export interface KoreaKorLayer {
+  peril: string;
+  file: string;
+  requested_scenario: string;
+  served_scenario: string | null;
+  scenario_mismatch: boolean;
+  year: number | null;
+  n_events: number | null;
+  n_centroids: number | null;
+  source: string;
+  from_kma: boolean;
+  stored_resolution_note: string | null;
+  label_variable_conflict: boolean;
+  grade: string;
+}
+/** GET /api/status/offline — what runs without the network, and what will not. */
+export interface OfflineStatus {
+  offline: boolean;
+  env_var: string;
+  catalog: {
+    dir: string;
+    n_layers: number;
+    perils: Record<string, { layers: number; regions: string[]; scenarios: string[] }>;
+    note: string;
+  };
+  dataapi_index: {
+    present: boolean;
+    path: string;
+    fetched_at: string | null;
+    age_days: number | null;
+    counts: Record<string, number>;
+    n_datasets?: number;
+    error?: string;
+  };
+  local_files: { name: string; path: string; present: boolean; files?: string[] }[];
+  online_only: { feature: string; offline: string }[];
+  how_to_prepare: string;
+}
+
+export interface KoreaStatus {
+  kma: {
+    dir: string;
+    dir_exists: boolean;
+    files: KoreaKmaFile[];
+    variables_present: string[];
+    variables_offered: string[];
+    variables_consumed_by_code: string[];
+    note: string;
+  };
+  catalog: {
+    dir: string;
+    kor_layers: KoreaKorLayer[];
+    perils_with_kor_layer: string[];
+    scenario_mismatches: string[];
+    label_variable_conflicts: string[];
+  };
+  one_km: { ready: string[]; grades: Record<string, string>; rule: string };
+  credentials: { env: string; purpose: string; present: boolean; length: number }[];
+  environment: { worker_env_present: boolean; git_branch: string | null };
+}
+
 // Run results (mirror of src/climaterisk/engines/base.py + runs/store.py).
 export interface AssetImpact {
   id: string;
@@ -522,6 +594,7 @@ export interface Run {
     | UncertaintyResult
     | LitPopResult
     | IngestResult
+    | PhysicalRiskModelsOutput
     | SupplyChainResult
     | CalibrationResult
     | ForecastResult
@@ -550,4 +623,296 @@ export interface TransitionResult {
   per_asset: AssetCarbon[];
   method: string;
   detail: string | null;
+}
+
+// Physical-risk models — Phase 3 hazard replacement (mirror of
+// src/climaterisk/physical_risk/metrics.py ResultRow and engines/base.py PhysicalRiskModelsOutput).
+export type PhysicalRiskModelId = "GLOBAL_BASELINE" | "DATA_API_COUNTRY" | "KOREA_LOCAL";
+
+export interface PhysicalRiskRow {
+  facility_id: string;
+  facility_name: string;
+  hazard_type: string;
+  model_id: PhysicalRiskModelId | string;
+  hazard_source: string | null;
+  hazard_dataset: string | null;
+  hazard_data_version: string | null;
+  hazard_country: string | null;
+  impact_function_id: number | null;
+  impact_function_name: string | null;
+  impact_function_source: string | null;
+  exposure_source: string | null;
+  exposure_version: string | null;
+  requested_scenario: string | null;
+  served_scenario: string | null;
+  scenario: string | null;
+  time_horizon: string | null;
+  hazard_intensity: number | null;
+  hazard_intensity_unit: string | null;
+  probability: number | null;
+  return_period_years: number | null;
+  asset_value_usd: number | null;
+  asset_value_currency: string | null;
+  potential_loss_usd: number | null;
+  potential_loss_return_period_years: number | null;
+  eal_usd: number | null;
+  eal_as_pct_of_assets: number | null;
+  // flood defences (RF / CF): design return period applied, EAL without it, and whether the
+  // undefended cell floods at the most frequent return period (land presumed defended)
+  flood_protection_return_period_years?: number | null;
+  eal_undefended_usd?: number | null;
+  undefended_frequent_flooding?: boolean | null;
+  // river flood: levee-protected cell (near a located 배수펌프장) and the nearest pump station
+  levee_protected?: boolean | null;
+  nearest_pump_station?: string | null;
+  nearest_pump_station_km?: number | null;
+  nearest_pump_station_design_frequency_years?: number | null;
+  risk_level: string | null;
+  risk_level_criteria: string | null;
+  calculation_status: string;
+  status_detail: string | null;
+  confidence: string | null;
+  property_type: string | null;
+  // V0.2 — assessment target and spatial resolution
+  assessment_target?: "FACILITY" | "MUNICIPALITY" | string;
+  municipality_id?: string | null;
+  municipality_name?: string | null;
+  municipality_level?: string | null;
+  province_name?: string | null;
+  point_type?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  spatial_resolution?: number | null;
+  spatial_resolution_unit?: string | null;
+  spatial_resolution_description?: string | null;
+  spatial_unit_type?: string | null;
+}
+
+// V0.2 — a municipality representative point (assets/libraries/korea_municipalities.csv).
+export interface Municipality {
+  municipality_id: string;
+  municipality_name: string;
+  municipality_level: string;
+  province_name: string;
+  office_name: string | null;
+  address: string | null;
+  latitude: number;
+  longitude: number;
+  point_type: string;
+  admin_code: string;
+  source: string;
+  source_layer: string;
+  source_version: string;
+  source_licence: string;
+  source_crs: string;
+  tier: string;
+}
+
+export interface MunicipalityDataset {
+  total: number;
+  by_level: Record<string, number>;
+  point_types: string[];
+  source: string[];
+  source_version: string[];
+  source_licence: string[];
+  representative_point_definition: string;
+  path: string;
+  warning: string;
+}
+
+// V0.3 POC — government-published official office point (assets/libraries/korea_official_offices.csv).
+export interface OfficialOffice {
+  municipality_id: string;
+  municipality_name: string;
+  office_name: string;
+  office_status: "AVAILABLE" | "OFFICIAL_COORDINATE_NOT_AVAILABLE" | "AMBIGUOUS_OFFICE" | string;
+  address: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  coordinate_method: string | null;
+  coordinate_crs: string | null; // "UNSPECIFIED" when the source states no CRS — never inferred
+  coordinate_format: string | null;
+  transformation: string | null;
+  source_dataset: string | null;
+  source_dataset_id: string | null;
+  source_provider: string | null;
+  source_url: string | null;
+  source_last_modified: string | null;
+  source_licence: string | null;
+  source_row_name: string | null;
+  polygon_check: string | null;
+  distance_to_representative_km: number | null;
+  note: string;
+  available: boolean;
+  facility_id: string;
+}
+
+export interface OfficialOfficeSummary {
+  target: string;
+  targets: number;
+  official_coordinates_found: number;
+  government_published: number;
+  unsupported: number;
+  supported_ids: string[];
+  coordinate_method: string;
+  coordinate_crs: string[];
+  coordinate_format: string[];
+  transformation: string[];
+  polygon_check_basis: string;
+  crs_not_specified_label: string;
+  sources: string[];
+  warning: string;
+  definition: string;
+  not_available_label: string;
+  provenance_label: string;
+}
+
+export type Anchor = "REPRESENTATIVE_POINT" | "OFFICIAL_OFFICE_POINT";
+
+export interface MunicipalitiesResponse {
+  municipalities: Municipality[];
+  summary: MunicipalityDataset;
+  levels: string[];
+  official_offices?: OfficialOffice[];
+  official_office_summary?: OfficialOfficeSummary;
+}
+
+export interface CoverageRow {
+  hazard_key: string;
+  Hazard: string;
+  "Hazard Data": string;
+  "Financial Loss": string;
+  "Risk Level": string;
+  Resolution: string;
+  Status: string;
+  Why: string;
+  models: Record<string, string>;
+}
+
+export interface PhysicalRiskModelsOutput {
+  status: string;
+  assessment_target?: "FACILITY" | "MUNICIPALITY" | string;
+  municipality_dataset?: MunicipalityDataset | null;
+  official_office_dataset?: Partial<OfficialOfficeSummary> | null;
+  climate_scenario: string;
+  target_year: number | null;
+  country: string | null;
+  rows: PhysicalRiskRow[];
+  baseline_scenario?: string | null;
+  baseline_rows?: PhysicalRiskRow[];
+  climate_change_multipliers?: Record<string, unknown>[];
+  comparisons: Record<string, Record<string, unknown>[]>;
+  readiness: PhysicalRiskReadiness;
+  adapters: Record<string, unknown>[];
+  impact_function_fixed: Record<string, boolean>;
+  detail: string | null;
+}
+
+export interface PhysicalRiskDisplay {
+  hazard_label: Record<string, string>;
+  hazard_copy: Record<string, string>;
+  scope_label: Record<string, string>;
+  scope_short: Record<string, string>;
+  scope_copy: Record<string, string>;
+  status_copy: Record<string, string>;
+  status_short: Record<string, string>;
+  risk_level_copy: Record<string, string>;
+  method_copy: Record<string, string>;
+  limitations: string[];
+  summary_note: string;
+  comparison_purpose: string;
+  recommended_models: Record<string, string>;
+  scope_availability: Record<string, Record<string, string>>;
+  comparison_note: string;
+  // V0.2
+  coverage_table: CoverageRow[];
+  coverage_lines: string[];
+  why_unavailable: Record<string, string>;
+  extended_hazards: Record<string, Record<string, unknown>>;
+  resolution_note: string;
+  resolution: { note: string; cells: Record<string, Record<string, Record<string, unknown>>>; extended: Record<string, unknown> };
+  municipality: {
+    target_municipalities: string;
+    target_facilities: string;
+    warning: string;
+    point_label: string;
+    screening_vs_financial: string;
+    financial_unavailable: string;
+    point_definition: string;
+    status_copy: Record<string, string>;
+    status_short: Record<string, string>;
+    dataset: MunicipalityDataset;
+  };
+}
+
+export interface PhysicalRiskReadiness {
+  models: string[];
+  definitions: Record<string, string>;
+  hazards: Record<string, Record<string, { status: string; hazard_source: string; detail: string }>>;
+  summary: Record<string, Record<string, string>>;
+  rule: string;
+  display: PhysicalRiskDisplay;
+}
+
+/** Asset import (xlsx / csv templates): what the server did with the file. */
+export interface AssetImportReport {
+  kind: string;
+  mode: string;
+  rows_read: number;
+  added: string[];
+  replaced: string[];
+  removed: string[];
+  warnings: string[];
+  errors: string[];
+}
+
+export interface AssetImportResult {
+  portfolio: Portfolio;
+  report: AssetImportReport;
+}
+
+export interface AssetTemplate {
+  kind: string;
+  title: string;
+  columns: string[];
+  required: string[];
+  notes: string[];
+  download: string;
+}
+
+export interface PhysicalRiskModelsBody {
+  hazards?: string[];
+  models?: string[];
+  // Recommended mode: one model per hazard (overrides `models` for the hazards it names)
+  hazard_models?: Record<string, string[]>;
+  target_year?: number;
+  country?: string;
+  baseline_scenario?: string;
+  facility_ids?: string[];
+  // Economic-growth step: asset values grow from the valuation year (config default) to the
+  // target year; reported as a scalar in the Excel Portfolio Totals, rows stay unscaled.
+  annual_growth_pct?: number;
+  valuation_year?: number;
+  // V0.2 — municipality mode
+  assessment_target?: "FACILITY" | "MUNICIPALITY";
+  municipality_ids?: string[];
+  asset_values?: Record<string, number>;
+  // V0.3 POC — spatial anchors (default REPRESENTATIVE_POINT)
+  anchors?: Anchor[];
+}
+
+export interface PhysicalRiskTable {
+  columns: string[];
+  rows: Record<string, unknown>[];
+  n_total: number;
+  assessment_target?: string;
+  frames: Record<string, Record<string, unknown>[]>;
+  summary_counts: Record<string, number>;
+}
+
+export interface RunProgress {
+  status: string;
+  done?: number;
+  total?: number;
+  current?: string | null;
 }

@@ -43,12 +43,9 @@ def test_file_gated_sources_fast_fail_with_actionable_help(
     source: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     # These need an explicit local data file we cannot synthesise, so they must fail
-    # fast with the actionable message — without importing CLIMADA. Point the resolvers
-    # at an empty tmp dir so real data under ~/climada/data can't defeat the fast-fail.
-    import climaterisk_worker.exposures as exposures
-
-    monkeypatch.setattr(exposures, "_HOME_CLIMADA", tmp_path)
-    monkeypatch.setattr(exposures, "_OSM_DIR", tmp_path / "osm")
+    # fast with the actionable message — without importing CLIMADA. Point CLIMADA's data
+    # directory at an empty tmp dir so real local data can't defeat the fast-fail.
+    monkeypatch.setenv("CLIMATERISK_CLIMADA_DATA_DIR", str(tmp_path))
     monkeypatch.delenv("CLIMATERISK_EXPOSURE_RASTER", raising=False)
     with pytest.raises(ExposureUnavailable) as exc:
         build_exposure(source, "JPN")

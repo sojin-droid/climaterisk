@@ -22,6 +22,8 @@ import json
 import sys
 from pathlib import Path
 
+import _console  # noqa: F401  (UTF-8 console; see scripts/_console.py)
+
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "worker"))
 
@@ -42,6 +44,15 @@ def cmd_cache(args: argparse.Namespace) -> None:
     from climada.util.api_client import Client
 
     haz = Client().get_hazard(args.data_type, properties=json.loads(args.props))
+    mask = None
+    if args.mask_country:
+        from climaterisk_worker.hazard_mask import mask_hazard_to_country
+
+        haz, mask = mask_hazard_to_country(haz, args.mask_country, buffer_deg=args.mask_buffer_deg)
+        print(
+            f"masked to {mask['iso3']} (+{mask['buffer_deg']:g} deg): "
+            f"{mask['n_centroids_before']} -> {mask['n_centroids_after']} centroids"
+        )
     db = catalog.catalog_dir()
     peril_dir = db / args.peril
     peril_dir.mkdir(parents=True, exist_ok=True)
@@ -57,9 +68,12 @@ def cmd_cache(args: argparse.Namespace) -> None:
         "file": f"{args.peril}/{fname}",
         "n_events": int(haz.size),
         "n_centroids": int(haz.centroids.size),
-        "source": f"CLIMADA Data API ({args.data_type}, cached)",
+        "source": f"CLIMADA Data API ({args.data_type}, cached)"
+        + (f"; masked to {mask['iso3']} land +{mask['buffer_deg']:g} deg" if mask else ""),
         "license": "per CLIMADA Data API",
     }
+    if mask:
+        entry["mask"] = mask
     catalog.register(entry)
     print(
         f"cached {entry['file']}  ({entry['n_events']} events × {entry['n_centroids']} centroids)"
@@ -80,6 +94,15 @@ def cmd_ingest(args: argparse.Namespace) -> None:
     }
     result = run_ingest(request)
     print(result.get("detail") or result.get("status"))
+
+
+def cmd_index(args: argparse.Namespace) -> None:
+    from climaterisk_worker.dataapi_index import DEFAULT_TYPES, build_index
+
+    index = build_index(tuple(args.data_type) if args.data_type else DEFAULT_TYPES)
+    print(f"cached Data API index: {index['n_datasets']} datasets -> {index['path']}")
+    for dt, err in index["errors"].items():
+        print(f"  {dt}: {err}")
 
 
 def cmd_list(_args: argparse.Namespace) -> None:
@@ -104,6 +127,20 @@ def main() -> None:
     for a in ("--data-type", "--peril", "--scenario", "--region", "--props"):
         pk.add_argument(a, required=True)
     pk.add_argument("--year", type=int, required=True)
+    pk.add_argument(
+        "--mask-country",
+        default=None,
+        metavar="ISO3",
+        help="keep only centroids inside this country's land (+ --mask-buffer-deg); use it "
+        "when caching a *global* set under a country region key",
+    )
+    pk.add_argument(
+        "--mask-buffer-deg",
+        type=float,
+        default=None,
+        help="buffer around the land polygon in degrees (default: _params.MASK_BUFFER_DEG; "
+        "0 = strict polygon)",
+    )
     pk.set_defaults(func=cmd_cache)
 
     pi = sub.add_parser(
@@ -115,6 +152,12 @@ def main() -> None:
     pi.add_argument("--year", type=int, required=True)
     pi.add_argument("--point", action="append", required=True, help="lat,lon (repeatable)")
     pi.set_defaults(func=cmd_ingest)
+
+    px = sub.add_parser(
+        "index", help="cache the Data API dataset listing (metadata) for offline reference"
+    )
+    px.add_argument("--data-type", action="append", help="limit to these types (repeatable)")
+    px.set_defaults(func=cmd_index)
 
     pl = sub.add_parser("list", help="list catalog entries")
     pl.set_defaults(func=cmd_list)

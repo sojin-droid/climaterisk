@@ -12,8 +12,10 @@ from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Repo root = three levels up from this file: src/climaterisk/config.py -> repo root.
-REPO_ROOT = Path(__file__).resolve().parents[2]
+from climaterisk import paths
+from climaterisk.paths import REPO_ROOT
+
+__all__ = ["REPO_ROOT", "Settings", "get_settings"]
 
 
 class Settings(BaseSettings):
@@ -21,7 +23,8 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(
         env_prefix="CLIMATERISK_",
-        env_file=".env",
+        # The repo's .env, located from this file — not from the working directory.
+        env_file=str(REPO_ROOT / ".env"),
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -36,10 +39,13 @@ class Settings(BaseSettings):
     # Storage (paths relative to the repo root unless absolute)
     data_dir: Path = Path("data")
     library_dir: Path = Path("assets/libraries")
-    # Local hazard catalog (HDF5 + catalog.json). Defaults to ``<data_dir>/hazard_db``;
-    # set CLIMATERISK_HAZARD_DB to relocate. The backend injects this into the worker
-    # env on spawn, so both sides resolve the catalog to the same single location.
+    # Local hazard catalog (HDF5 + catalog.json). Canonical: <DATA_ROOT>/derived/hazard_db
+    # (climaterisk.paths); set CLIMATERISK_HAZARD_DB to relocate. The backend injects the
+    # resolved path into the worker env on spawn, so both sides use one location.
     hazard_db_dir: Path | None = None
+    # External data root (KMA, municipality sources, derived products). Resolved by
+    # climaterisk.paths — declared here only so it is documented with the other settings.
+    data_root: Path | None = None
 
     # CLIMADA worker (Phase 2).
     # The worker runs in a PROJECT-LOCAL conda env (a prefix env inside the repo) —
@@ -58,6 +64,17 @@ class Settings(BaseSettings):
     # Wall-clock cap per worker run; exceeded runs are killed and reported as timed out
     # (guards against intractable jobs, e.g. a full-MRIO supply-chain solve).
     max_run_seconds: int = Field(default=900, ge=30)
+    # Offline (closed-network) mode. The worker never consults the CLIMADA Data API (a
+    # peril without a local catalog layer fails fast), the Data tab's downloads and
+    # ingests are refused, and the UI draws maps without basemap tiles and disables place
+    # search. Injected into the worker env as CLIMATERISK_OFFLINE. See
+    # climaterisk.data.offline_status for what runs offline.
+    offline: bool = False
+    # Built single-page UI to serve from the backend itself (the Windows bundle, or any run
+    # without the Vite dev server). Relative to the repo root unless absolute. Unset →
+    # frontend/climaterisk/dist when that directory exists (a `vite build`), else nothing is
+    # mounted and the Vite dev server is expected to proxy /api.
+    ui_dir: Path | None = None
     # Optional Copernicus DEM GeoTIFF (topography) for TC storm-surge (TCSurgeBathtub).
     # A manual drop-in; injected into the worker env as CLIMATERISK_DEM_PATH when set.
     dem_path: str | None = None
@@ -67,6 +84,11 @@ class Settings(BaseSettings):
 
     # Open-data fetcher (Data tab → "Download here"): per-request HTTP read timeout.
     download_timeout_seconds: int = Field(default=180, ge=10)
+
+    # Display exchange rate for the simple-mode summary (억 원). Default: Bank of Korea ECOS
+    # 731Y004 「주요국 통화의 대원화환율」 원/미국달러(매매기준율), 2025 annual average —
+    # the same rate the sample portfolio's values are converted with.
+    krw_per_usd: float = Field(default=1422.22, gt=0)
 
     # Logging
     log_level: str = "INFO"
@@ -102,15 +124,36 @@ class Settings(BaseSettings):
 
     @property
     def hazard_db_path(self) -> Path:
-        """Absolute path to the local hazard catalog (``<data_dir>/hazard_db`` by default).
+        """Absolute path to the local hazard catalog.
 
-        Single source of truth for the catalog directory: the backend reads the
-        manifest here and injects this path into the worker (``CLIMATERISK_HAZARD_DB``)
-        so both processes agree even when ``data_dir`` is relocated.
+        ``CLIMATERISK_HAZARD_DB`` wins; otherwise ``<DATA_ROOT>/derived/hazard_db`` once it
+        holds a catalogue; until then an existing ``<data_dir>/hazard_db`` keeps serving
+        (transitional — ``scripts/migrate_data_root.py`` moves it). The backend injects the
+        result into the worker (``CLIMATERISK_HAZARD_DB``) so both processes agree.
         """
         if self.hazard_db_dir is not None:
             return self._abspath(self.hazard_db_dir)
-        return self.data_path / "hazard_db"
+        canonical = paths.canonical_hazard_db()
+        if (canonical / "catalog.json").is_file():
+            return canonical
+        legacy = self._abspath(self.data_dir) / "hazard_db"
+        if (legacy / "catalog.json").is_file():
+            return legacy
+        return canonical
+
+    def resolve_ui_dir(self) -> Path | None:
+        """The built UI directory to serve, or None when there is nothing to serve.
+
+        An explicit ``ui_dir`` must exist (a typo must not silently fall back to the dev
+        proxy); the default is only used when ``frontend/climaterisk/dist`` is present.
+        """
+        if self.ui_dir is not None:
+            path = self._abspath(self.ui_dir)
+            if not (path / "index.html").is_file():
+                raise FileNotFoundError(f"CLIMATERISK_UI_DIR has no index.html: {path}")
+            return path
+        default = REPO_ROOT / "frontend" / "climaterisk" / "dist"
+        return default if (default / "index.html").is_file() else None
 
     @property
     def worker_dir(self) -> Path:

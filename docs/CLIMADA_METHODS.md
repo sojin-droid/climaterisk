@@ -52,7 +52,7 @@ country-to-region tables. Status vocabulary used from here on:
 | Calibration | result displayed only; no metadata; not consumed | record with provenance (source, period, objective, method, bounds, hazard, timestamp, schema) persisted to `data/calibrations/`; consumed when `options.tc_impf_default="calibrated"`; `fit_status="fitted"` | **Implemented** persistence/application; fit method unchanged; **Not validated** |
 | Uncertainty | SALib Sobol, TC only, uncited bounds, unseeded, described as "unsequa" in places | same method, now seeded (`_SOBOL_SEED`, `request["seed"]`), bounds labelled *indicative assumption* in code, result and UI; scope/method/bounds returned in the result; `unsequa` wording removed | **Partial** (TC only; bounds still assumptions) |
 | Validation | none beyond regression baselines and the Spain heat ranking | `validation.py`: observed-vs-modelled annual/event metrics (bias, MAE, RMSE, ratio, coverage) + observed-series contract; arithmetic tested on synthetic numbers only | **Framework only** — no observed Korean series wired |
-| Korean localization | on-ramps tested on synthetic files; regional presets not applied; heat SSP unreachable | KOR now receives Eberenz WP4 / JRC Asia by default; KMA SSP mortality layers resolvable; `tcrain` ingester reachable from the API | **Partial** — still **no real KMA / 홍수위험지도 / 재해연보 data executed** |
+| Korean localization | on-ramps tested on synthetic files; regional presets not applied; heat SSP unreachable | KOR now receives Eberenz WP4 / JRC Asia by default; KMA SSP mortality layers resolvable; `tcrain` ingester reachable from the API | **Partial** — the **real KMA 남한상세 1 km files are now executed** (2026-09-11: MK-PRISM v3.1 2000–2019 + SSP2-4.5/5-8.5 2021–2030, 4312 cells at 0.05°, 6 layers registered, 2018 reproduced as the record summer); 홍수위험지도 / 재해연보 still not executed |
 | Wildfire | historical only, no ignition threshold (documented) | unchanged; runner docstring now states historical-only + indicative sigmoid | **Partial** (no code change) |
 | TCRain ingest | worker refiner blocked by API whitelist | `INGEST_SOURCES` includes `tcrain`; whitelist == Data tab == worker refiners (tested) | **Implemented** |
 
@@ -424,7 +424,7 @@ Uncertainty · Adaptation · Validation · Status · Main gap.
 | Impact function | `ImpactFunc(haz_type="RF", intensity=flood_depth_m, mdd=…, paa=1)` built by `_flood_impf_set`; `mdd` = explicit override → **JRC regional residential preset by ISO3** (default; KOR → Asia) → class curve (generic fallback, JRC-Europe-like `[0,.25,.40,.60,.75,.85,.92,.95]`). Preset values baked offline from petals `ImpfRiverFlood.from_jrc_region_sector` | `[CLIMADA NATIVE]` preset values; `[CLIMATERISK CUSTOM]` selection + fallback arrays |
 | CLIMADA component | `ImpactCalc`, `calc_freq_curve`, `impact_yearset` | `[CLIMADA NATIVE]` |
 | Custom component | Scenario remap `rcp45→rcp60` (`_params.py`), year-range snapping, Aqueduct frequency model | `[CLIMATERISK CUSTOM]` |
-| Main risk metric | Future `aai_agg`, `eai`, RP curve, yearset, `delta_pct` vs Data API `historical/1980_2000` | — |
+| Main risk metric | Future `aai_agg`, `eai`, RP curve, yearset, `delta_pct` vs the same RCP product's earliest window `2010_2030` (same GHM × GCM chain; since 2026-10-16 — the reanalysis-forced `historical/1980_2000` set mixed the model-chain change into the delta, 14.4× vs 2.9× on the 1,000-building sample) | — |
 | Future scenario | Data API `rcp × year_range` (window containing `max(anchor_years)`, default `2030_2050`) | `[EXTERNAL]` |
 | Calibration | None; 6 JRC continental presets opt-in | `[NOT IMPLEMENTED]` |
 | Uncertainty | None (Sobol is TC-only) | `[NOT IMPLEMENTED]` |
@@ -543,7 +543,7 @@ CLIMADA-standard peril.
 | `ImpactFunc` / `ImpactFuncSet` container | CLIMADA | Native |
 | Heat-mortality vulnerability curve | climaterisk | Custom |
 | Age stratification (<65 / ≥65) | climaterisk | Custom |
-| Baseline mortality | climaterisk | Indicative — no source identified |
+| Baseline mortality | KOR: KOSIS 사망원인통계 DT_1B34E01 (2024) via `age_bands_for` · elsewhere: legacy climaterisk pair | **External** for KOR (KOSIS-anchored baseline); indicative elsewhere |
 | Heat-onset threshold (band upper edge) | Kim 2020 (KOR, 93rd percentile of the summer daily-mean distribution) | **External** for KOR; extrapolated elsewhere |
 | Adaptation slope (MMT vs climate) | Tobías et al. 2021 (0.8 degC per degC) | **External** |
 | Band width, β, age split | climaterisk | Indicative — no source identified |
@@ -552,21 +552,21 @@ CLIMADA-standard peril.
 | Empirical validation | Korean mortality / loss data | Not validated |
 
 Every constant, its exact value, its location in the code and its provenance class is
-inventoried in **`docs/HEAT_MORTALITY_PROVENANCE.md`** (1 external, 2 internal fits, 15
-indicative or unknown of 18) and mirrored in code as `heat_mortality.PARAMETER_PROVENANCE`;
+inventoried in **`docs/HEAT_MORTALITY_PROVENANCE.md`** (6 external, 2 internal fits, 16
+indicative or unknown of 24) and mirrored in code as `heat_mortality.PARAMETER_PROVENANCE`;
 the runner returns it as `parameter_status` and the Results card displays it.
 
 | Row | Content | Tag |
 |---|---|---|
-| Hazard source | **Catalog only**, key `("heat_mortality", <requested scenario>, region, target)` with a `historical` fallback that is named in `detail` (`_resolve_heat_hazard`, fixed 2026-09-07; previously hard-wired to `historical`). Layers built from E-OBS `tx` (Europe, `eobs.py`), KMA 남한상세 daily TAMAX (`kma_scenario.py`, coarsened 5×5 to 0.05°), or the synthetic season generator | `[EXTERNAL]` data, `[CLIMATERISK CUSTOM]` hazard |
+| Hazard source | **Catalog only**, key `("heat_mortality", <requested scenario>, region, target)` with a `historical` fallback that is named in `detail` (`_resolve_heat_hazard`, fixed 2026-09-07; previously hard-wired to `historical`). Layers built from E-OBS `tg` (Europe, `eobs.py`), KMA 남한상세 daily mean `TA` (`kma_scenario.py`, coarsened 5×5 to 0.05°), or the synthetic season generator | `[EXTERNAL]` data, `[CLIMATERISK CUSTOM]` hazard |
 | Hazard type | `HM`, units `degC-days` | custom tag |
 | Hazard representation | One event per summer season (Jun–Sep, 122 days); intensity = season exceedance degree-days above the local minimum-mortality comfort band `mmt_high = a + b·mean_Tmax` fitted on 54 hand-set city values; `frequency = 1/n_seasons` | `[CLIMATERISK CUSTOM]` |
 | Exposure | Two `Exposures` rows per site (<65 / ≥65), `value = headcount × share`, `value_unit="persons"`; headcount default 250 when missing (stated in `detail`); ≥65 share from override → `COUNTRY_SHARE_OVER65["KOR"]=0.203` → nearest reference city | `[CLIMATERISK CUSTOM]` |
-| Impact function | Two custom `ImpactFunc`s: `mdd(D) = min(baseline_daily_mortality × a·D^b, 1)`, `paa=1`; `(a,b)` fitted by `dose_curve` on a **seeded synthetic ensemble** (400 seasons) bridging degree-days to `Σ max(exp(β·ΔT)−1, 0)`; `β` = 0.010 (<65) / 0.034 (≥65), baselines 1.3e-3 and 45e-3 per person-year — no citation in code | `[CLIMATERISK CUSTOM]` |
+| Impact function | Two custom `ImpactFunc`s: `mdd(D) = min(baseline_daily_mortality × a·D^b, 1)`, `paa=1`; `(a,b)` fitted by `dose_curve` on a **seeded synthetic ensemble** (400 seasons) bridging degree-days to `Σ max(exp(β·ΔT)−1, 0)`; `β` = 0.010 (<65) / 0.034 (≥65), baselines per country via `age_bands_for`: KOR 163.2 / 2,928.4 deaths per 100,000 person-years (KOSIS DT_1B34E01, 2024 — cited), elsewhere the legacy 130 / 4,500 pair (no citation) | `[CLIMATERISK CUSTOM]` |
 | CLIMADA component | `ImpactCalc`, `calc_freq_curve` (`P:1196-1199`) | `[CLIMADA NATIVE]` |
 | Custom component | Everything else, including `grid_from_summer_tmax`, `standardized_grid`, comfort band, dose curve | `[CLIMATERISK CUSTOM]` |
 | Main risk metric | `aai_agg` = expected annual heat-attributable **deaths**; `per_asset.eai` deaths; RP curve (45 E-OBS summers → cap 22.5 yr); `result_kind="mortality"`; **no yearset** (`P:1217`) | — |
-| Future scenario | Requested scenario layer when registered (KMA SSP windows filed under `rcp45/rcp85` by `scripts/heat_korea.py` are now resolved), else `historical` with an explicit fallback note; no present→future delta is computed for heat (`present_aai_agg=None`). Tested end-to-end on **synthetic spec-conformant KMA files** (`test_kma_scenario.py`, CLIMADA-gated) — no real KMA file has been run | `[PARTIAL]`, not validated |
+| Future scenario | Requested scenario layer when registered (KMA SSP windows filed under `rcp45/rcp85` by `scripts/heat_korea.py` are now resolved), else `historical` with an explicit fallback note; no present→future delta is computed for heat (`present_aai_agg=None`). Tested end-to-end on synthetic spec-conformant KMA files and, since 2026-09-11, on the **real 남한상세 1 km archives**: MK-PRISM v3.1 2000–2019 (NetCDF, 0.005° subsampled onto the 0.01° scenario nodes) and SSP2-4.5 / SSP5-8.5 2021–2030 (ASCII, streamed from the tar without unpacking). All windows are pinned to one 4312-cell footprint (`kma_scenario.common_footprint`) because the observed and ensemble land masks differ. Observed mean exceedance load 6.7 DD/cell-season against 24.4 (SSP2-4.5) and 25.9 (SSP5-8.5) for 2021–2030, and the observed window ranks **2018 first by 3.7×** — Korea's record summer — with 2003 last (`test_real_kma_files_reproduce_the_ranking_of_korean_summers`). The 2030 anchor is built from 10 seasons, not the intended 20, because only the 2021–2030 archives are on disk; the 2050/2070/2090 anchors are not registered | `[PARTIAL]`, hazard reproduces the observed record; the vulnerability side is still uncalibrated |
 | Calibration | Parameters hand-set; dose curve fitted to the model's own synthetic ensemble, not to observed mortality | `[NOT IMPLEMENTED]` (to data) |
 | Uncertainty / Adaptation | None | `[NOT IMPLEMENTED]` |
 | Validation | Spain: E-OBS observed grid reproduces the 2022/2003 ranking of summers (`tests/test_heat_mortality.py::test_observed_grid_reproduces_the_real_ranking_of_spanish_summers`, skips without E-OBS); extreme years under-predicted ≈2.3× vs MoMo (`docs/HEATWAVE_EUROPE.md`). **No Korean validation** | `[PARTIAL]` (Europe), `[NOT IMPLEMENTED]` (Korea) |
@@ -602,7 +602,7 @@ There is no single platform baseline. Each runner defines "present" by its hazar
 | Peril | Present hazard | Code |
 |---|---|---|
 | TC | Data API `climate_scenario="None"` synthetic set | `P:395` |
-| River flood | Data API `historical`, `year_range=1980_2000` | `P:503` |
+| River flood | Data API same RCP, `year_range=2010_2030` (the `historical` 1980_2000 set is reanalysis-forced — not a like-for-like present; `metrics.hazard_forcing_family`) | `P:532` |
 | Windstorm | Data API CMIP6 `climate_scenario="None"` (best-effort) | `P:649-659` |
 | Coastal flood | Catalog `historical` | `P:821` |
 | Heat mortality | Catalog `historical` (E-OBS 1980→latest; KMA MK-PRISM 2000–2019 filed as year 2020) | `P:1159`, `heat_korea.py` |

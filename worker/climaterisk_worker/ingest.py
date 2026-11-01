@@ -25,6 +25,7 @@ from __future__ import annotations
 from typing import Any, NamedTuple
 
 from climaterisk_worker import catalog
+from climaterisk_worker._params import MASK_BUFFER_DEG, offline
 from climaterisk_worker._params import (
     RF_SCENARIO_MAP as _RF_SCENARIO_MAP,
 )
@@ -39,7 +40,10 @@ from climaterisk_worker._params import (
 )
 
 # --- Aqueduct Floods v2 (WRI, CC-BY 4.0) ---------------------------------------
-_AQ_BASE = "http://wri-projects.s3.amazonaws.com/AqueductFloodTool/download/v2"
+# Aqueduct Floods v2 GeoTIFF host. The original wri-projects S3 prefix
+# (AqueductFloodTool/download/v2) was emptied — every file 404s and the listing is blank
+# (checked 2026-10-14); the same file names are served here with HTTP range support.
+_AQ_BASE = "https://aqueduct.wridata.org/AqueductFloods20"
 # Return periods (years) published for riverine flood; each is one event layer.
 _AQ_RIVER_RPS = (5, 10, 25, 50, 100, 250, 500, 1000)
 # One representative GCM keeps the fetch deterministic (full ensemble is large).
@@ -50,7 +54,11 @@ _AQ_SCENARIO = {"rcp26": "rcp4p5", "rcp45": "rcp4p5", "rcp60": "rcp8p5", "rcp85"
 # Coastal flood (inuncoast_*): return periods + subsidence/sea-level-rise tokens.
 _AQ_COAST_RPS = (2, 5, 10, 25, 50, 100, 250, 500, 1000)
 _AQ_COAST_SUBSIDENCE = "wtsub"  # with subsidence (more conservative than nosub)
-_AQ_COAST_SLR = "0"  # sea-level-rise scenario token (0 = 50th-percentile central estimate)
+# Sea-level-rise token. Aqueduct's bare "0" is the 95th-percentile SLR projection (the
+# upper tail — climada_petals CoastalFlood.from_aqueduct_tif maps percentile "95" -> "0");
+# the 5th / 50th are "0_perc_05" / "0_perc_50". The Studio keeps "0" (conservative); the
+# Models-tab adapter reads the 50th (physical_risk_config.json coastal_flood).
+_AQ_COAST_SLR = "0"
 
 # DEM mosaic decimation cap: 30 m GLO-30 over a portfolio bbox is millions of cells,
 # which makes the bathtub-surge model run out of memory. Cap the larger dimension to
@@ -328,17 +336,32 @@ def ingest_dataapi(request: dict[str, Any]) -> dict[str, Any]:
     region = _region_for_points(points)
     plan = _dataapi_plan(peril, request["scenario"], int(request["year"]), region)
     client = Client()
+    coverage = "country"
     if plan.country_only:
         haz = client.get_hazard(plan.data_type, properties=dict(plan.properties))
     else:
-        haz = _fetch_country_or_global(client, plan.data_type, dict(plan.properties), region)
+        haz, coverage = _fetch_country_or_global(
+            client, plan.data_type, dict(plan.properties), region
+        )
+
+    # A global set cached under a country key is masked to that country's land (+ buffer):
+    # the neighbours' centroids must not leak into a "KOR" entry (hazard_mask).
+    mask: dict[str, Any] | None = None
+    if coverage == "global" and region != "global" and request.get("mask_country", True):
+        from climaterisk_worker.hazard_mask import mask_hazard_to_country
+
+        buffer = float(request.get("mask_buffer_deg", MASK_BUFFER_DEG))
+        haz, mask = mask_hazard_to_country(haz, region, buffer_deg=buffer)
 
     db = catalog.catalog_dir()
     peril_dir = db / peril
     peril_dir.mkdir(parents=True, exist_ok=True)
     fname = f"{haz.haz_type}_{plan.catalog_scenario}_{region}_{plan.catalog_year}.hdf5"
     haz.write_hdf5(str(peril_dir / fname))
-    return {
+    source = f"CLIMADA Data API ({peril}, {plan.src_scenario}, {coverage} coverage, cached)"
+    if mask:
+        source += f"; masked to {mask['iso3']} land +{mask['buffer_deg']:g} deg"
+    entry: dict[str, Any] = {
         "peril": peril,
         "haz_type": haz.haz_type,
         "climate_scenario": plan.catalog_scenario,
@@ -348,22 +371,30 @@ def ingest_dataapi(request: dict[str, Any]) -> dict[str, Any]:
         "file": f"{peril}/{fname}",
         "n_events": int(haz.size),
         "n_centroids": int(haz.centroids.size),
-        "source": f"CLIMADA Data API ({peril}, {plan.src_scenario}, cached)",
+        "source": source,
         "license": "per CLIMADA Data API",
+        "spatial_coverage": coverage,
     }
+    if mask:
+        entry["mask"] = mask
+    return entry
 
 
-def _fetch_country_or_global(client: Any, data_type: str, props: dict[str, str], region: str):  # type: ignore[no-untyped-def]
-    """Fetch a country-coverage hazard if the region is known, else the global set."""
+def _fetch_country_or_global(  # type: ignore[no-untyped-def]
+    client: Any, data_type: str, props: dict[str, str], region: str
+):
+    """``(hazard, coverage)``: the country-coverage product if the region has one, else global."""
     if region != "global":
         try:
             return client.get_hazard(
                 data_type,
                 properties={**props, "spatial_coverage": "country", "country_iso3alpha": region},
-            )
+            ), "country"
         except Exception:
             pass
-    return client.get_hazard(data_type, properties={**props, "spatial_coverage": "global"})
+    return client.get_hazard(
+        data_type, properties={**props, "spatial_coverage": "global"}
+    ), "global"
 
 
 # --- Copernicus DEM refiner (topography for TC storm surge) ---------------------
@@ -568,6 +599,15 @@ _REFINERS = {
 def run_ingest(request: dict[str, Any]) -> dict[str, Any]:
     """Dispatch an ingest request, register hazard entries in the catalog, and report it."""
     source = request.get("source", "")
+    if offline():
+        return {
+            "status": "error",
+            "source": source,
+            "detail": (
+                "offline mode (CLIMATERISK_OFFLINE): ingestion downloads from the network and "
+                "is refused — run it while online, the result is a file in the catalog"
+            ),
+        }
     refiner = _REFINERS.get(source)
     if refiner is None:
         return {"status": "error", "source": source, "detail": f"unknown ingest source '{source}'"}

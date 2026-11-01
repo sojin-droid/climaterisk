@@ -9,7 +9,12 @@ Base path: `/api` (the Vite dev server proxies it to the backend on port 8099).
 | GET | `/api/session/{id}` | Return the portfolio for a session (404 if unknown) |
 | PUT | `/api/session/{id}` | Replace the whole portfolio (full-model sync); returns it |
 | DELETE | `/api/session/{id}` | Delete a session (204; 404 if unknown) |
+| POST | `/api/session/{id}/assets/import` | Multipart `file` (xlsx or csv) in a template; `?kind=latlon|sigungu|sido&mode=merge|replace`. Returns `{portfolio, report}`; 422 with line-numbered `errors` refuses the whole file |
+| GET | `/api/libraries/asset-templates` | The three asset templates (columns, required, notes, download URL) |
+| GET | `/api/libraries/asset-templates/{kind}.xlsx` | Download a template (README + `assets` sheet with example rows) |
 | POST | `/api/session/{id}/run` | Submit a physical-risk run (spawns the CLIMADA worker; poll `GET …/run/{run_id}`) |
+| GET | `/api/status/offline` | Offline readiness: local catalog layers per peril, drop-in files, the cached Data API index, online-only features with their offline behaviour |
+| POST | `/api/session/{id}/dataapi-index` | Cache the CLIMADA Data API dataset listing (metadata only; a worker job, refused when `CLIMATERISK_OFFLINE=1`) |
 | GET | `/api/libraries` | All bundled libraries (sectors, perils, scenarios, impact_functions) |
 | GET | `/api/libraries/{name}` | A single named library (404 if unknown) |
 
@@ -28,6 +33,7 @@ variants selected by `mode`) and the CLIMADA worker writes `data/runs/<id>/resul
 (`PhysicalRunOutput` etc.). All are defined in `src/climaterisk/engines/base.py`.
 
 > The table above is **incomplete** (2026-09-07 audit): cost-benefit, uncertainty, litpop,
-> hazard-preview, forecast, calibration, supplychain, ingest, finance, latest-runs, run
+> hazard-preview, forecast, calibration, supplychain, ingest, finance, latest-runs,
+> physical-risk-models (+ `run/{id}/physical-risk-table`, `run/{id}/simple-summary` (simple-mode one-screen summary: headline figures, 시도 present-vs-future table, return periods, largest assets, coverage notes; `simple_summary.py`), `run/{id}/physical-risk-export.xlsx`, `run/{id}/progress`, `runs?kind=`, `libraries/physical-risk-models`; see `physical-risk-models.md` §11; V0.2 adds `assessment_target` / `municipality_ids` / `asset_values` on the POST body and `GET /api/libraries/municipalities[?level=]`, see `municipality-physical-risk.md` §6), run
 > detail/preview/export, transition, report, method-figure, data-fetch and hazard-catalog routes
 > exist under `src/climaterisk/api/routers/`. Use the live OpenAPI page for the authoritative list.

@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ensureSession, getLibraries, saveModel } from "./lib/api";
+import { ensureSession, getHealth, getLibraries, saveModel } from "./lib/api";
+import { OfflineContext } from "./lib/offline";
 import { useResults } from "./lib/useResults";
 import type { Libraries, Portfolio } from "./types";
-import { ActivityBar, type ViewId } from "./layout/ActivityBar";
+import { ActivityBar, VIEW_IDS, type ViewId } from "./layout/ActivityBar";
 import { MapView } from "./views/MapView";
 import { ScenariosView } from "./views/ScenariosView";
 import { ResultsView } from "./views/ResultsView";
+import { ModelsView } from "./views/ModelsView";
 import { AdaptationView } from "./views/AdaptationView";
 import { FinanceView } from "./views/FinanceView";
 import { SupplyChainView } from "./views/SupplyChainView";
@@ -17,16 +19,32 @@ import { MethodView } from "./views/MethodView";
 export function App() {
   const [model, setModel] = useState<Portfolio | null>(null);
   const [libraries, setLibraries] = useState<Libraries | null>(null);
-  const [view, setView] = useState<ViewId>("map");
+  const [offline, setOffline] = useState(false);
+  // A launcher may land the user on a specific tab (Physical Risk.app → 현황 체크 opens
+  // ?view=data&status=1). Anything not a known ViewId falls back to the map.
+  const [view, setView] = useState<ViewId>(() => {
+    const wanted = new URLSearchParams(window.location.search).get("view");
+    return wanted && VIEW_IDS.includes(wanted as ViewId) ? (wanted as ViewId) : "map";
+  });
   const [sync, setSync] = useState<"idle" | "saving" | "error">("idle");
   const initialLoad = useRef(true);
   const saveTimer = useRef<number | undefined>(undefined);
+  // The JSON the server is known to hold. Autosave only when the model differs from it, so
+  // a model that merely arrived from the server (a second bootstrap under React StrictMode,
+  // a reload) never schedules a PUT. A stale PUT of an unchanged model could otherwise land
+  // after a server-side change — e.g. the asset import endpoint — and silently wipe it.
+  const lastSynced = useRef<string | null>(null);
 
   // Bootstrap: load libraries + the session model, dropping any unsupported perils
   // that a previous session may have persisted (e.g. river_flood before Phase 2+).
   useEffect(() => {
     (async () => {
-      const [libs, portfolio] = await Promise.all([getLibraries(), ensureSession()]);
+      const [libs, portfolio, health] = await Promise.all([
+        getLibraries(),
+        ensureSession(),
+        getHealth().catch(() => ({ offline: false })),
+      ]);
+      setOffline(Boolean(health.offline));
       const supported = new Set(
         libs.perils.perils.filter((p) => p.supported_mvp).map((p) => p.id),
       );
@@ -37,8 +55,15 @@ export function App() {
         ? { ...portfolio, run_config: { ...portfolio.run_config, perils } }
         : portfolio;
       setLibraries(libs);
+      lastSynced.current = JSON.stringify(changed ? portfolio : model);
       setModel(model);
-      if (changed) saveModel(model).catch(() => {});
+      if (changed) {
+        saveModel(model)
+          .then(() => {
+            lastSynced.current = JSON.stringify(model);
+          })
+          .catch(() => {});
+      }
     })().catch((e) => {
       console.error("bootstrap failed", e);
     });
@@ -51,11 +76,16 @@ export function App() {
       initialLoad.current = false;
       return;
     }
+    const json = JSON.stringify(model);
+    if (json === lastSynced.current) return; // nothing the server does not already hold
     window.clearTimeout(saveTimer.current);
     setSync("saving");
     saveTimer.current = window.setTimeout(() => {
       saveModel(model)
-        .then(() => setSync("idle"))
+        .then(() => {
+          lastSynced.current = json;
+          setSync("idle");
+        })
         .catch(() => setSync("error"));
     }, 600);
     return () => window.clearTimeout(saveTimer.current);
@@ -81,6 +111,7 @@ export function App() {
   }
 
   return (
+    <OfflineContext.Provider value={offline}>
     <div className="app">
       <ActivityBar view={view} onChange={setView} />
       <div className="workspace">
@@ -142,6 +173,7 @@ export function App() {
               calRunId={results.calRun?.id}
             />
           )}
+          {view === "models" && <ModelsView model={model} />}
           {view === "adaptation" && (
             <AdaptationView
               model={model}
@@ -185,5 +217,6 @@ export function App() {
         </div>
       </div>
     </div>
+    </OfflineContext.Provider>
   );
 }

@@ -32,3 +32,4 @@ dependencies:
   # climada_petals is not on conda-forge — pip-install it on top of the conda climada stack.
   - pip:
       - climada_petals>=6.1  # coastal flood, TC surge/rain, landslide, supply-chain, forecast, …
+      - openpyxl>=3.1  # scripts/physical_risk_batch.py writes the Excel workbook from this env

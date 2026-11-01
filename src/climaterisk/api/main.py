@@ -42,9 +42,23 @@ def create_app() -> FastAPI:
     api = APIRouter(prefix="/api")
 
     @api.get("/health", tags=["health"])
-    def health() -> dict[str, str]:
-        """Liveness probe used by ``run.command``."""
-        return {"status": "ok", "service": "climaterisk", "version": app.version}
+    def health() -> dict[str, object]:
+        """Liveness probe used by ``run.command``; ``offline`` tells the UI the mode."""
+        return {
+            "status": "ok",
+            "service": "climaterisk",
+            "version": app.version,
+            "offline": get_settings().offline,
+        }
+
+    @api.get("/status/offline", tags=["status"])
+    def status_offline() -> dict[str, object]:
+        """Offline readiness — local catalog layers, drop-in files, the cached Data API
+        index and the online-only features with their offline behaviour. A reading of
+        local state only (``climaterisk.data.offline_status``)."""
+        from climaterisk.data.offline_status import offline_status
+
+        return offline_status()
 
     @api.get("/hazard-catalog", tags=["hazard"])
     def hazard_catalog() -> dict[str, object]:
@@ -53,6 +67,17 @@ def create_app() -> FastAPI:
 
         return read_catalog()
 
+    @api.get("/status/korea", tags=["status"])
+    def status_korea() -> dict[str, object]:
+        """현황 체크 — KMA archives on disk, KOR catalog layers, credentials (by name), 1 km grades.
+
+        A reading of local state only: nothing is parsed with CLIMADA and no value is inferred
+        (``climaterisk.data.korea_status``).
+        """
+        from climaterisk.data.korea_status import korea_status
+
+        return korea_status()
+
     api.include_router(session.router)
     api.include_router(run.router)
     api.include_router(transition.router)
@@ -60,6 +85,15 @@ def create_app() -> FastAPI:
     api.include_router(libraries.router)
     api.include_router(data.router)
     app.include_router(api)
+
+    # The built single-page UI, served by the backend itself (Windows bundle; any run without
+    # the Vite dev server). Mounted last so /api/* keeps precedence over the static files.
+    ui = settings.resolve_ui_dir()
+    if ui is not None:
+        from fastapi.staticfiles import StaticFiles
+
+        app.mount("/", StaticFiles(directory=str(ui), html=True), name="ui")
+        logger.info("serving the built UI from %s", ui)
 
     logger.info("climaterisk API ready on %s:%d", settings.backend_host, settings.backend_port)
     return app

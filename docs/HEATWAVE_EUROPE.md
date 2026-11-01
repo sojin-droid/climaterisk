@@ -38,7 +38,7 @@ Then pick an **exposure** — the peril runs on any of three, so a facility is o
 |---|---|---|
 | **Facilities** (`headcount`) | deaths among people at *my sites* | select "Heat mortality (deaths)" with assets on the map; set each asset's `headcount` |
 | **Reference-city population** (`population_ref`) | deaths across a country's **major metros**, no facility needed | modeled-exposure run: `{country: "ESP", exposure_source: "population_ref", peril: "heat_mortality"}` |
-| **Population raster** (`raster`) | deaths across the **whole country** on a real grid | drop `<iso3>_ppp_2020_1km_Aggregated.tif` (WorldPop, free) in `~/climada/data`, then `exposure_source: "raster"` |
+| **Population raster** (`raster`) | deaths across the **whole country** on a real grid | drop `<iso3>_ppp_2020_1km_Aggregated.tif` (WorldPop, free) in CLIMADA's data directory (default `~/climada/data`), then `exposure_source: "raster"` |
 
 Population exposures carry **people** in `value`; `litpop._grid_to_assets` passes them as
 `headcount` and zeroes `value`, so no damage peril can mistake people for currency.
@@ -263,7 +263,8 @@ opts out).
 
 ```bash
 # open, no login (~0.8 GB, 0.25 deg regular grid, ensemble mean)
-curl -sSfL -o ~/climada/data/tg_ens_mean_0.25deg_reg_v31.0e.nc \
+CLIMADA_DIR="${CLIMATERISK_CLIMADA_DATA_DIR:-$HOME/climada/data}"   # CLIMADA's data directory
+curl -sSfL -o "$CLIMADA_DIR/tg_ens_mean_0.25deg_reg_v31.0e.nc" \
   https://knmi-ecad-assets-prd.s3.amazonaws.com/ensembles/data/Grid_0.25deg_reg_ensemble/tg_ens_mean_0.25deg_reg_v31.0e.nc
 ./.climada-env/bin/python scripts/heatwave_europe.py --register      # now observed
 ```

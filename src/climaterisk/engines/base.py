@@ -622,3 +622,203 @@ class ForecastResult(BaseModel):
     total_impact: float = 0.0  # ensemble-mean forecast impact over the portfolio
     per_asset: list[AssetImpact] = Field(default_factory=list)
     detail: str | None = None
+
+
+# --- Physical-risk models (Phase 3: global / country / Korea-local hazard replacement) ---
+
+
+def _optional_nonneg_float(value: Any) -> float | None:
+    """A numeric asset property as a float, or None when absent, blank or not a number."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return None
+    return out if out >= 0 else None
+
+
+class FacilitySpec(BaseModel):
+    """One portfolio asset as the physical-risk engine sees it (an exposure point)."""
+
+    facility_id: str
+    facility_name: str
+    latitude: float
+    longitude: float
+    asset_value_usd: float | None = None
+    asset_value_currency: str = "USD"
+    property_type: str | None = None
+    # Site-survey zero-damage flood threshold T (m): river / coastal flood damage is zero
+    # up to this outside depth, the published JRC curve applies above it. Absent → the
+    # curve exactly as published (docs/physical-risk-methodology.md §5).
+    flood_zero_damage_threshold_m: float | None = Field(default=None, ge=0)
+    # V0.2 — a municipality representative point (hazard screening; priced only with a
+    # user-supplied asset value). Absent for portfolio assets.
+    assessment_target: str = "FACILITY"
+    municipality_id: str | None = None
+    municipality_name: str | None = None
+    municipality_level: str | None = None
+    province_name: str | None = None
+    point_type: str | None = None
+
+
+class PhysicalRiskModelsRequest(BaseModel):
+    """Inputs for a three-model physical-risk run (``mode = physical_risk_models``).
+
+    The same exposure and the same published CLIMADA impact function are applied under
+    every model; only the hazard source differs (``docs/physical-risk-models.md``).
+    """
+
+    mode: str = "physical_risk_models"
+    session_id: str
+    facilities: list[FacilitySpec]
+    climate_scenario: str
+    target_year: int
+    hazards: list[str] = Field(default_factory=lambda: ["RF", "CF", "TC", "HEAT"])
+    models: list[str] = Field(
+        default_factory=lambda: ["GLOBAL_BASELINE", "DATA_API_COUNTRY", "KOREA_LOCAL"]
+    )
+    # Per-hazard models (Recommended mode: one model per hazard); overrides ``models`` for
+    # the hazards it names.
+    hazard_models: dict[str, list[str]] | None = None
+    country: str | None = None  # ISO3; resolved from the points by the worker when omitted
+    # Optional same-model baseline run (e.g. "historical"); the only source of a
+    # climate_change_multiplier. Baseline rows are returned separately.
+    baseline_scenario: str | None = None
+    # FACILITY (portfolio assets) or MUNICIPALITY (official representative points).
+    assessment_target: str = "FACILITY"
+    # Economic-growth step (ECA): asset values are stated in ``valuation_year`` (config
+    # default when None) and grow by ``annual_growth_pct`` per year to ``target_year``.
+    # Reported as a scalar on EAL / potential loss; rows keep the valuation-year values.
+    annual_growth_pct: float | None = None
+    valuation_year: int | None = None
+
+    @classmethod
+    def from_municipalities(
+        cls,
+        session_id: str,
+        climate_scenario: str,
+        municipality_ids: list[str],
+        *,
+        asset_values: dict[str, float] | None = None,
+        hazards: list[str] | None = None,
+        models: list[str] | None = None,
+        hazard_models: dict[str, list[str]] | None = None,
+        target_year: int | None = None,
+        country: str | None = "KOR",
+        baseline_scenario: str | None = None,
+        anchors: list[str] | None = None,
+        annual_growth_pct: float | None = None,
+        valuation_year: int | None = None,
+    ) -> PhysicalRiskModelsRequest:
+        """A municipality run: the bundled representative points as the exposure points.
+
+        ``asset_values`` maps a municipality id to a user-supplied USD value; a municipality
+        without one is screened (hazard only) — no value is ever assumed for it.
+
+        ``anchors`` (V0.3 POC) chooses the spatial anchors: ``REPRESENTATIVE_POINT`` (default,
+        V0.2) and/or ``OFFICIAL_OFFICE_POINT`` — the government-published office point, added
+        only for municipalities that have one (``official_offices.supported_ids``). The same
+        user-supplied value, or none, is placed at each anchor; the two stay separate points.
+        """
+        from climaterisk.physical_risk.municipalities import by_id
+        from climaterisk.physical_risk.official_offices import (
+            ANCHOR_OFFICIAL_OFFICE,
+            ANCHOR_REPRESENTATIVE,
+            office_facility,
+            offices_by_id,
+        )
+
+        values = asset_values or {}
+        chosen = list(anchors or [ANCHOR_REPRESENTATIVE])
+        offices = offices_by_id() if ANCHOR_OFFICIAL_OFFICE in chosen else {}
+        facilities: list[FacilitySpec] = []
+        for m in by_id(municipality_ids):
+            value = values.get(m.municipality_id)
+            if ANCHOR_REPRESENTATIVE in chosen:
+                facilities.append(FacilitySpec(**m.as_facility(value)))
+            office = offices.get(m.municipality_id)
+            if office is not None and office.available:
+                facilities.append(FacilitySpec(**office_facility(m, office, value)))
+        return cls(
+            session_id=session_id,
+            facilities=facilities,
+            climate_scenario=climate_scenario,
+            target_year=int(target_year or 2050),
+            hazards=hazards or ["RF", "CF", "TC", "HEAT"],
+            models=models or ["GLOBAL_BASELINE", "DATA_API_COUNTRY", "KOREA_LOCAL"],
+            hazard_models=hazard_models,
+            country=country,
+            baseline_scenario=baseline_scenario,
+            assessment_target="MUNICIPALITY",
+            annual_growth_pct=annual_growth_pct,
+            valuation_year=valuation_year,
+        )
+
+    @classmethod
+    def from_portfolio(
+        cls,
+        portfolio: Portfolio,
+        *,
+        hazards: list[str] | None = None,
+        models: list[str] | None = None,
+        hazard_models: dict[str, list[str]] | None = None,
+        target_year: int | None = None,
+        country: str | None = None,
+        baseline_scenario: str | None = None,
+        facility_ids: list[str] | None = None,
+        annual_growth_pct: float | None = None,
+        valuation_year: int | None = None,
+    ) -> PhysicalRiskModelsRequest:
+        """Map portfolio assets onto facilities; ``property_type`` comes from the asset
+        properties when present, else its sector label (the config maps it to a JRC sector)."""
+        wanted = set(facility_ids) if facility_ids is not None else None
+        facilities = [
+            FacilitySpec(
+                facility_id=a.id,
+                facility_name=a.name,
+                latitude=a.lat,
+                longitude=a.lon,
+                asset_value_usd=a.value if a.value > 0 else None,
+                asset_value_currency=a.currency,
+                property_type=str(a.properties.get("property_type") or a.sector.value),
+                flood_zero_damage_threshold_m=_optional_nonneg_float(
+                    a.properties.get("flood_zero_damage_threshold_m")
+                ),
+            )
+            for a in portfolio.assets
+            if wanted is None or a.id in wanted
+        ]
+        years = portfolio.scenario.anchor_years or [2050]
+        return cls(
+            session_id=portfolio.id,
+            facilities=facilities,
+            climate_scenario=portfolio.scenario.climate,
+            target_year=int(target_year or max(years)),
+            hazards=hazards or ["RF", "CF", "TC", "HEAT"],
+            models=models or ["GLOBAL_BASELINE", "DATA_API_COUNTRY", "KOREA_LOCAL"],
+            hazard_models=hazard_models,
+            country=country,
+            baseline_scenario=baseline_scenario,
+            annual_growth_pct=annual_growth_pct,
+            valuation_year=valuation_year,
+        )
+
+
+class PhysicalRiskModelsOutput(BaseModel):
+    """Worker output of a three-model run: canonical rows plus the comparison frames."""
+
+    status: str
+    climate_scenario: str = ""
+    target_year: int | None = None
+    country: str | None = None
+    baseline_scenario: str | None = None
+    rows: list[dict[str, Any]] = Field(default_factory=list)
+    baseline_rows: list[dict[str, Any]] = Field(default_factory=list)
+    climate_change_multipliers: list[dict[str, Any]] = Field(default_factory=list)
+    exposure_growth: dict[str, Any] | None = None  # the growth record, when requested
+    comparisons: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
+    readiness: dict[str, Any] = Field(default_factory=dict)
+    adapters: list[dict[str, Any]] = Field(default_factory=list)
+    impact_function_fixed: dict[str, bool] = Field(default_factory=dict)
+    detail: str | None = None

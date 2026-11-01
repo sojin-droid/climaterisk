@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import _console  # noqa: F401  (UTF-8 console; see scripts/_console.py)
 from pyam.iiasa import Connection
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
