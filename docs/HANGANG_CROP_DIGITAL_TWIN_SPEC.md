@@ -1,7 +1,8 @@
 # 한강 중류 크롭 — 디지털 트윈 설계 명세
 
-> **상태:** 설계 명세 v0.2 (2026-11-01). 구현 전. 구현 주체: 자율 에이전트(Hermes)가 Mac mini에서
-> 이 문서와 저장소만 보고 만든다.
+> **상태:** 설계 명세 v0.3 (2026-11-01). 구현 전. 구현 주체: 자율 에이전트(Hermes)가 Mac mini에서
+> 이 문서와 저장소만 보고 만든다. v0.3에서 **확정**: 크롭 bbox(§1)와 본류 수위 가정(§3.1)은 v0.2 값 그대로;
+> 선행 PR #48(합성 도시 생성기)·#50(이 문서) 머지 완료.
 >
 > **한 줄 요약:** 서울 한강 중류의 **실제 한 구역(8 × 6 km)을 크롭**한다. 지형·건물 발자국·강·도로는
 > 공개 데이터(OSM, DEM) 그대로, **구할 수 없는 수치 — 하천 침수심, 건물 가치, 문턱, 인구 — 는 상상값**으로
@@ -112,9 +113,10 @@
 
 ### 3.4 폭염 HW · 열 사망 HM
 
-- HW: 실제 `HW_*_KOR` 레이어 그대로 → `HAZARD_ONLY`. **주의:** 2026-11-01 현재 디스크 레이어는 TA(일평균)로
-  만들어진 구버전. TAMAX 재생성(`heat_korea.py register`)이 끝난 뒤의 레이어를 쓴다. 라벨이 "daily Tmax"인데
-  내용이 일평균이면 거짓이므로 구현 전 `catalog.json`의 `source`에 `TAMAX`가 있는지 확인한다.
+- HW: 실제 `HW_*_KOR` 레이어 그대로 → `HAZARD_ONLY`. **주의:** 레이어는 TAMAX(일최고)로 만들어진 것만 쓴다.
+  2026-09-23 결정(Option C) 이전에 만든 레이어는 TA(일평균)인데 라벨은 "daily Tmax"라 거짓이 된다. MacBook은
+  2026-11-01 `heat_korea.py register`로 재생성됨(광주 자산 검증 37.5478 °C 복귀). **Mac mini 레이어는 미확인** —
+  생성기가 `catalog.json`의 HW 레이어 `source`에 `TAMAX`가 없으면 실행을 거부한다(§7 기준 9).
 - HM(레거시 러너): 인구는 OSM 주거 건물 발자국 × 층수 × 1인당 30 m²(상상)로 배분, 65+ 비율은
   옥수·금호 0.26, 잠실 0.18, 압구정·청담 0.16, 성수 0.15(상상). `result_kind = mortality`, indicative 라벨 유지.
 - 열섬을 상상으로 입히지 **않는다**(실제 레이어를 쪼개는 셈). 필요하면 별도 `SYNTHETIC_LOCAL` 열 모델로
@@ -191,6 +193,9 @@ historical / rcp45 / rcp85 × 2030 / 2050 (historical은 2020) × 방어 없음 
 6. 재현성: 같은 spec·시드 → `assets.parquet` 해시 동일.
 7. HW 행 금액 null; 내수침수 셀 `NO_HAZARD_DATA`.
 8. `spec_used.json`에 source/stored/calculation 해상도 기록.
+9. 사용한 모든 `HW_*_KOR` 레이어의 `catalog.json` `source`에 `TAMAX`가 있다. 없으면 생성기는 산출물을 쓰기 전에
+   오류로 멈추고 재생성 명령(`scripts/heat_korea.py register --scenarios historical rcp45 rcp85`, 약 3시간)을
+   안내한다 — 수동 확인이 아니라 코드로 강제.
 
 ---
 
@@ -198,7 +203,7 @@ historical / rcp45 / rcp85 × 2030 / 2050 (historical은 2020) × 방어 없음 
 
 | 단계 | 산출 | 완료 조건 |
 |---|---|---|
-| 0 | PR #48 머지, 워커 env, `CLIMATERISK_DATA_ROOT`, OSM pbf·DEM 경로 확인, TAMAX 레이어 확인 | `scripts/synthetic_city.py` 실행 성공 |
+| 0 | (PR #48 머지 — 완료) 워커 env, `CLIMATERISK_DATA_ROOT`, OSM pbf·DEM 경로 확인, HW 레이어 `source`에 `TAMAX` 없으면 재생성 | `scripts/synthetic_city.py` 실행 성공, 기준 9 |
 | 1 | `hangang_crop_spec.json`; OSM 크롭·DEM 재표집·구역 마스크; `--dry-run` 평면도 PNG | 건물 수·표고 분포 기록, 평면도가 §1과 맞음 |
 | 2 | 상상 수위 RF + 방어 + 펌프장 + T → `SYNTHETIC_LOCAL`; 실제 RF 0 비교행 | 기준 1·2·3(RF 부분) |
 | 3 | TC A/B, HW, HM, EQ, 내수침수 참고치 | 커버리지 전체 |
