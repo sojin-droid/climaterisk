@@ -117,6 +117,18 @@ def excess_rate(t_s: float, spec: dict[str, Any], cn: float) -> float:
     return dq_mm / (t_grid[k + 1] - t_grid[k]) / 1000.0
 
 
+def _open_cells(
+    rows: np.ndarray, cols: np.ndarray, walls: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """Move every ``(rows, cols)`` cell that is a wall to the nearest open cell (Euclidean)."""
+    if not walls[rows, cols].any():
+        return rows, cols
+    from scipy.ndimage import distance_transform_edt
+
+    _, idx = distance_transform_edt(walls, return_indices=True)
+    return idx[0][rows, cols], idx[1][rows, cols]
+
+
 def run_pluvial(
     ground: np.ndarray,
     walls: np.ndarray,
@@ -124,6 +136,8 @@ def run_pluvial(
     spec: dict[str, Any],
     snapshot_every_s: float | None = None,
     sink_fn: Any | None = None,
+    cn: np.ndarray | None = None,
+    inflow: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None,
 ) -> dict[str, Any]:
     """Run the design storm over a site on the 2D hydraulic model.
 
@@ -136,6 +150,18 @@ def run_pluvial(
     sewer capacity; only where the water can go changes. The site edges let water out at
     Manning normal flow with slope ``edge_slope``.
 
+    With ``cn`` every open cell gets the rain excess of its own curve number $Q_i$ and the
+    excess of the rain on wall cells (roofs, ``cn_paved``) is spread over the open cells, so
+    $r_i = r(CN_i) + r(CN_{paved})\\,N_w/N_o$ (ASCII: r_i = r(CN_i) + r(CN_paved) * N_w / N_o).
+    A ``cn`` raster equal to ``cn_paved`` everywhere (or ``None``) takes the unchanged path
+    $r\\,N/N_o$, so such a run is identical to a run without ``cn``.
+
+    With ``inflow`` the cells ``(rows, cols)`` receive $Q_k = A_k\\,\\max(r - s, 0)$ (m^3/s)
+    from an upstream area $A_k$ (m^2) outside the site (:func:`runon.runon_rate`); an inflow
+    cell that is a wall is moved to the nearest open cell. $r$ is the excess rate at
+    ``cn_paved`` (m/s), $s$ the sewer capacity (m/s), $N$, $N_w$, $N_o$ the numbers of all,
+    wall and open cells.
+
     Args:
         ground: Bed elevation (m), shape ``(ny, nx)``.
         walls: Boolean raster of building cells.
@@ -144,11 +170,15 @@ def run_pluvial(
         snapshot_every_s: Optional snapshot interval (s) for animation.
         sink_fn: Optional ``(t, h, dt) -> depth raster`` removed from the flow every step
             (see :func:`hydraulics.run`), e.g. a ``BasementSink``.
+        cn: Optional curve-number raster ``(ny, nx)`` (-); ``None`` = ``cn_paved`` everywhere.
+        inflow: Optional ``(rows, cols, area_m2)`` arrays of site cells receiving run-on from
+            an upstream area outside the site.
 
     Returns:
         Dict with ``h_max``, ``h`` (m), ``rain_volume_m3``, ``sink_volume_m3``,
-        ``outflow_volume_m3``, ``sink_fn_volume_m3``, ``max_froude`` and, if requested,
-        ``snapshots``.
+        ``outflow_volume_m3``, ``sink_fn_volume_m3``, ``inflow_volume_m3``, ``max_froude``
+        and, if requested, ``snapshots``. Volume balance: rain + inflow = stored + sink +
+        outflow + sink_fn.
     """
     r = spec["rain"]
     hyd = spec["hydraulic"]
@@ -158,15 +188,43 @@ def run_pluvial(
     if n_open == 0:
         raise ValueError("no open cells: the whole site is walls")
     scale = n_cells / n_open
-    cn = float(r["cn_paved"])
+    cn_paved = float(r["cn_paved"])
     open_mask = ~walls
+    uniform = cn is None or bool(np.all(np.asarray(cn, dtype=float) == cn_paved))
 
-    def rain_fn(t_s: float) -> np.ndarray:
-        return np.where(open_mask, excess_rate(t_s, spec, cn) * scale, 0.0)
+    if uniform:
+
+        def rain_fn(t_s: float) -> np.ndarray:
+            return np.where(open_mask, excess_rate(t_s, spec, cn_paved) * scale, 0.0)
+
+    else:
+        cn_arr = np.asarray(cn, dtype=float)
+        if cn_arr.shape != walls.shape:
+            raise ValueError("cn must have the shape of the walls raster")
+        levels, which = np.unique(cn_arr[open_mask], return_inverse=True)
+        roof_share = (n_cells - n_open) / n_open
+
+        def rain_fn(t_s: float) -> np.ndarray:
+            per_level = np.array([excess_rate(t_s, spec, float(c)) for c in levels])
+            field = np.zeros(walls.shape)
+            field[open_mask] = per_level[which] + excess_rate(t_s, spec, cn_paved) * roof_share
+            return field
 
     rain_fn.breakpoints_s = hyetograph(spec)[0]  # type: ignore[attr-defined]
     drain = np.where(open_mask, float(r["sewer_capacity_mm_h"]) / 3.6e6 * scale, 0.0)
     t_end = (float(r["duration_min"]) + float(r["recession_min"])) * 60.0
+    inflow_fn: Any | None = None
+    if inflow is not None:
+        from climaterisk_worker.twin import runon
+
+        in_rows, in_cols = _open_cells(
+            np.asarray(inflow[0], dtype=int), np.asarray(inflow[1], dtype=int), walls
+        )
+        area_m2 = np.asarray(inflow[2], dtype=float)
+
+        def inflow_fn(t_s: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+            return in_rows, in_cols, np.asarray(runon.runon_rate(t_s, area_m2, spec))
+
     res = hydraulics.run(
         np.zeros(ground.shape),
         np.asarray(ground, dtype=float),
@@ -181,6 +239,7 @@ def run_pluvial(
         rain_fn=rain_fn,
         open_edges=float(r["edge_slope"]),
         sink_fn=sink_fn,
+        inflow_fn=inflow_fn,
     )
     return res
 

@@ -213,6 +213,20 @@ R. **Real neighbourhood (user, 2026-11-05: public data allowed).** Gangnam stati
    **User rule (2026-11-06): a twin replicates real space; no building attribute may be
    assumed without telling the user.** Earlier R3/R3d/R3b totals include 618 buildings
    assumed commercial and assumed basements — superseded for reporting by the rebuild (R6).
+   **R6 done — negative result** (gate `tests/test_real_rebuild.py`, protected; Sonnet +
+   review; `--real`). Real-data rebuild: OSM green (393 cells, CN 74 soil C assumed),
+   run-on by D8 on the GLO-30 ground padded 1.5 km (0.167 km2 upstream), no basements,
+   sewer calibrated on 2022 (observed gauge rain). CSI rises monotonically as the sewer
+   falls: best at the grid edge, 10 mm/h (CSI 0.40, POD 0.85, FAR 0.57, bias 1.98) — not
+   physical, not bracketed; run-on + green alone change nothing (0.294 vs 0.292). Still
+   below the naive lowest-ground rule (0.57); 2011 0.18 (naive 0.22); 2010 match failed.
+   With 10 mm/h even the 2 y storm floods 0.10 km2, max depth 2.6 m -> the R5-style
+   threshold effect shrinks to -1 / -5 / -12 / -31 % (pure, 0.05-0.60 m). Root cause found
+   in review: the 30 m GLO-30 surface model, with buildings masked and the ground
+   interpolated, has closed depressions up to 10 m deep (1,377 cells > 1 m, 12 % of the
+   site) that do not exist in the street; the solver fills them first. Terrain RANKING is
+   still informative (the naive rule works), terrain DEPTHS are not. Next: a real terrain
+   model (NGII 수치표고모델, login needed on 국토정보플랫폼) before any further calibration.
 10. **Pluvial (rain) flood.** On the step-6 model: Huff design-storm hyetograph, NRCS
     curve-number infiltration, manhole sinks at a sewer capacity. Repo-specific method —
     label it as such in outputs.

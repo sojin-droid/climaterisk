@@ -120,7 +120,8 @@ def step(
         rain: Rainfall rate [m s$^{-1}$], shape ``(ny, nx)`` or ``None``.
         infiltration: Infiltration rate [m s$^{-1}$], shape ``(ny, nx)`` or ``None``.
         inflow_cells: Tuple of (row_indices, col_indices) for point inflow cells.
-        inflow_rate: Total inflow discharge [m$^3$ s$^{-1}$], split equally over inflow_cells.
+        inflow_rate: Total inflow discharge [m$^3$ s$^{-1}$], split equally over inflow_cells; or
+            an array with one discharge per inflow cell (not split).
         theta: q-centring weight [$-$], $0 \\le \\theta \\le 1$.
         h_dry: Wet/dry threshold [m]; faces with $h_f < h_{\\text{dry}}$ get $q=0$.
         g: Gravity [m s$^{-2}$].
@@ -134,7 +135,8 @@ def step(
         stats: Optional dict; ``rain``, ``sink`` and ``outflow`` volumes (m$^3$) of this step
             are added to its keys of those names (rain actually added to open cells, water
             actually removed by ``infiltration``, water that left through the outer faces);
-            ``sink_fn`` adds the key ``sink_fn``.
+            ``sink_fn`` adds the key ``sink_fn`` and inflow actually added to open cells the
+            key ``inflow``.
         sink_fn: Optional callable ``(t, h, dt) -> depth raster (m)`` called once after the
             continuity update and the infiltration sink; its result is clipped to
             ``[0, h_new]`` per cell and removed. ``t`` is ``sink_t`` (set by :func:`run`).
@@ -230,11 +232,23 @@ def step(
         dh += rain_added
         if stats is not None:
             stats["rain"] = stats.get("rain", 0.0) + float(np.sum(rain_added) * dx * dy)
-    if inflow_cells is not None and inflow_rate != 0.0:
+    if inflow_cells is not None and np.ndim(inflow_rate) > 0:
+        # per-cell discharges (m^3/s), one entry per inflow cell, NOT split between cells
+        rows, cols = np.asarray(inflow_cells[0]), np.asarray(inflow_cells[1])
+        rates = np.asarray(inflow_rate, dtype=float)
+        if rates.shape != (len(rows),):
+            raise ValueError("array inflow_rate needs one entry per inflow cell")
+        free = np.ones(len(rows), dtype=bool) if blocked is None else ~blocked[rows, cols]
+        np.add.at(dh, (rows[free], cols[free]), dt * rates[free] / (dx * dy))
+        if stats is not None:
+            stats["inflow"] = stats.get("inflow", 0.0) + float(dt * rates[free].sum())
+    elif inflow_cells is not None and inflow_rate != 0.0:
         rows, cols = inflow_cells
         for r, c in zip(rows, cols, strict=True):
             if blocked is None or not blocked[r, c]:
                 dh[r, c] += dt * inflow_rate / (dx * dy) / len(rows)
+                if stats is not None:
+                    stats["inflow"] = stats.get("inflow", 0.0) + dt * inflow_rate / len(rows)
     h_new = h + dh
     if infiltration is not None:
         # infiltration can only take the water that is there
@@ -333,7 +347,9 @@ def run(
         t_end: Final simulation time [s].
         rain: Rainfall rate [m s$^{-1}$], shape ``(ny, nx)`` or ``None``.
         infiltration: Infiltration rate [m s$^{-1}$], shape ``(ny, nx)`` or ``None``.
-        inflow_fn: Callable ``(t, h, q_x, q_y) -> (rows, cols, rate)`` or ``None``.
+        inflow_fn: Callable ``t -> (rows, cols, rate)`` or ``None``. ``rate`` is the total
+            discharge (m$^3$ s$^{-1}$) split equally over the cells, or an array with one
+            discharge per cell (not split; used for run-on from upstream areas).
         theta: q-centring weight [$-$].
         alpha_cfl: CFL safety coefficient [$-$].
         h_dry: Wet/dry threshold [m].
@@ -366,7 +382,8 @@ def run(
         m^3; zero without it) and ``max_froude`` (largest cell Froude number over the run,
         dimensionless), ``rain_volume_m3`` (rain added to open cells), ``sink_volume_m3``
         (water removed by ``infiltration``) and ``outflow_volume_m3`` (water that left through
-        open edges) and ``sink_fn_volume_m3`` (water removed by ``sink_fn``), all m^3 and zero
+        open edges), ``sink_fn_volume_m3`` (water removed by ``sink_fn``) and ``inflow_volume_m3``
+        (water added by ``inflow_fn`` to open cells), all m^3 and zero
         when unused. With ``snapshot_every_s`` also
         ``snapshots``: a list of ``(t_s, h)`` pairs (``h`` a copy, m) with strictly increasing
         times, the last being the end time.
@@ -390,7 +407,13 @@ def run(
     max_froude = 0.0
     breaks = getattr(rain_fn, "breakpoints_s", None)
     rain_breaks = None if breaks is None else np.sort(np.asarray(breaks, dtype=float))
-    stats: dict[str, float] = {"rain": 0.0, "sink": 0.0, "outflow": 0.0, "sink_fn": 0.0}
+    stats: dict[str, float] = {
+        "rain": 0.0,
+        "sink": 0.0,
+        "outflow": 0.0,
+        "sink_fn": 0.0,
+        "inflow": 0.0,
+    }
 
     def _apply_stage(time: float) -> float:
         """Reset the boundary cells to the stage at ``time``; return the volume added (m^3)."""
@@ -482,6 +505,7 @@ def run(
         "sink_volume_m3": stats["sink"],
         "outflow_volume_m3": stats["outflow"],
         "sink_fn_volume_m3": stats["sink_fn"],
+        "inflow_volume_m3": stats["inflow"],
     }
     if snapshot_every_s is not None:
         result["snapshots"] = snapshots
