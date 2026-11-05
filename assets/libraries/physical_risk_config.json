@@ -104,5 +104,17 @@
     "valuation_year": 2026,
     "max_annual_growth_pct": 25.0,
     "definition": "Economic-growth step of the ECA decomposition (today's risk -> + economic growth -> + climate change). Asset values are stated in valuation_year and grow to target_year: value_T = value_t0 x (1 + annual_growth_pct/100)^(target_year - valuation_year). Reported as a scalar on EAL and potential loss after the CLIMADA run - exact because impact = value x MDD x PAA is linear in value and this engine sets no deductible or cover - so rows keep the valuation-year values, risk bands (EAL / assets) are unchanged, and climate_change_multiplier (future / baseline EAL at the same exposure) stays a pure climate signal."
+  },
+  "no_damage_threshold": {
+    "enabled": false,
+    "depth_m": 0.05,
+    "rule": "Damage is 0 while the flood depth is at most depth_m; above it the unchanged JRC curve at the FULL depth (not shifted). FLOPROS-style step, applied per centroid with protection.protect_with_threshold.",
+    "basis": "User's 무피해문턱_계산표 (261020): default no-damage threshold 5 cm where pumps, flood barriers and ground-floor heights are unknown (no survey data).",
+    "report_bbox": [126.0, 33.0, 129.5, 38.0],
+    "report_property_types": ["office", "residential", "industrial"],
+    "report_coastal_tile": "aqueduct_inuncoast_historical_wtsub_hist__126_33_129.5_38.npz",
+    "report_sensitivity_m": [0.05, 0.10, 0.15, 0.30, 0.50],
+    "report_sensitivity_basis": "0.05 m = the sheet's default; higher values stand for what the sheet adds per building with survey data (raised ground floor, flood barriers, pumps). Illustrative levels, not survey values.",
+    "_note": "Report-only (scripts/no_damage_threshold_report.py). The product engine does not apply it while enabled is false."
   }
 }
