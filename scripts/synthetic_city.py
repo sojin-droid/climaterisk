@@ -563,6 +563,138 @@ def _animate_site(spec: dict[str, Any], out: Path) -> int:
     return 0
 
 
+def _print_basement(spec: dict[str, Any], out: Path) -> int:
+    """Basement flooding of the --pluvial design storm through ramp weirs, with/without walls."""
+    import numpy as np
+    import pandas as pd
+    from climaterisk_worker.twin import basement, site_loss
+    from climaterisk_worker.twin.site import build_site
+
+    files = {
+        "with": out / "pluvial_snapshots.npz",
+        "without": out / "pluvial_snapshots_nowalls.npz",
+    }
+    stored = {}
+    for key, f in files.items():
+        if not f.exists():
+            print(f"error: {f} not found - run with --pluvial first to write it", file=sys.stderr)
+            return 1
+        with np.load(f) as z:
+            if "h_max" not in z.files:
+                print(
+                    f"error: {f} has no h_max - re-run with --pluvial to write it",
+                    file=sys.stderr,
+                )
+                return 1
+            stored[key] = (
+                np.asarray(z["times_s"], dtype=float),
+                np.asarray(z["depth"], dtype=float),
+                np.asarray(z["walls"], dtype=bool),
+                np.asarray(z["h_max"], dtype=float),
+            )
+    site = build_site(spec)
+    grid, b = site["grid"], site["buildings"]
+    n_lv = basement.basement_levels(b, spec)
+    area = site_loss.footprint_area_m2(b)
+    ground_value = float(site_loss.exposed_value_usd(b, spec).sum())
+    ramp_rain = (
+        float(spec["basement"]["ramp_rain_area_m2"]) * float(spec["rain"]["total_mm"]) / 1000.0
+    )
+    rain_vol = float(spec["rain"]["total_mm"]) / 1000.0 * grid.nx * grid.ny * grid.cell_m**2
+    vol, priced = {}, {}
+    for key, (times, depth_t, w, h_max) in stored.items():
+        ground = site_loss.entry_depths(grid, b, h_max, w, spec)
+        series = basement.ring_series(grid, b, depth_t, w)
+        vol[key] = basement.basement_volume_m3(series, times, spec)
+        bdepth = basement.basement_depths(vol[key], area, n_lv, spec)
+        priced[key] = basement.price_with_basements(b, ground, bdepth, spec)
+    has = n_lv > 0
+    inflow = {k: np.where(has, np.maximum(vol[k] - ramp_rain, 0.0), 0.0) for k in vol}
+    print("Basement flooding of ONE design storm through ramp weirs (Q = C B (h - T)^1.5).")
+    print("  loss of ONE design storm; basement storeys, ramps and pumps are assumptions")
+    print("  (no survey data).")
+    print(f"  {'':<40}{'with walls':>18}{'without walls':>18}")
+    value = float((priced["with"]["basement_value_usd"]).sum())
+    rows = {
+        "buildings with basements": ([int(has.sum())] * 2, "{:>18,d}"),
+        "total basement value (USD)": ([value] * 2, "{:>18,.0f}"),
+        "flooded basements (weir inflow > 0)": (
+            [int((inflow[k] > 0).sum()) for k in ("with", "without")],
+            "{:>18,d}",
+        ),
+        "weir inflow total (m3)": (
+            [float(inflow[k].sum()) for k in ("with", "without")],
+            "{:>18,.0f}",
+        ),
+        "  as % of storm rain over the site": (
+            [100.0 * float(inflow[k].sum()) / rain_vol for k in ("with", "without")],
+            "{:>18.3f}",
+        ),
+        "ground-storey loss (USD)": (
+            [float(priced[k]["ground_loss_usd"].sum()) for k in ("with", "without")],
+            "{:>18,.0f}",
+        ),
+        "basement loss (USD)": (
+            [float(priced[k]["basement_loss_usd"].sum()) for k in ("with", "without")],
+            "{:>18,.0f}",
+        ),
+        "total loss (USD)": (
+            [float(priced[k]["loss_usd"].sum()) for k in ("with", "without")],
+            "{:>18,.0f}",
+        ),
+        "total loss, % of ground + basement value": (
+            [
+                100.0 * float(priced[k]["loss_usd"].sum()) / (ground_value + value)
+                for k in ("with", "without")
+            ],
+            "{:>18.3f}",
+        ),
+    }
+    for name, (vals, f) in rows.items():
+        print(f"  {name:<40}" + "".join(f.format(v) for v in vals))
+    print(f"  storm rain over the site {rain_vol:,.0f} m3")
+    print("  one-way coupling check: water entering basements is not removed from the street flow")
+    for key, title in (("with", "with walls"), ("without", "without walls")):
+        loss = priced[key]["basement_loss_usd"]
+        print(f"  top 5 buildings by basement loss [{title}]")
+        for i in np.argsort(-loss)[:5]:
+            print(
+                f"    #{int(i):<4} {b['building'].iloc[i]!s:<12}"
+                f"height {float(b['height_m'].iloc[i]):5.1f} m  levels {int(n_lv[i])}"
+                f"  inflow {inflow[key][i]:>9,.0f} m3  loss {loss[i]:>12,.0f} USD"
+            )
+    pts = [g.representative_point() for g in b.geometry]
+    kinds = [
+        spec["loss"]["underground_property_type"] if u else site_loss.property_type(k, spec)
+        for k, u in zip(b["building"], b["underground"], strict=True)
+    ]
+    frame = pd.DataFrame(
+        {
+            "idx": np.arange(len(b)),
+            "building": b["building"].to_numpy(),
+            "property_type": kinds,
+            "is_wall": b["is_wall"].to_numpy(),
+            "height_m": b["height_m"].to_numpy(),
+            "storeys": site_loss.storeys(b, spec),
+            "basement_levels": n_lv,
+            "area_m2": area,
+            "inflow_with_m3": inflow["with"],
+            "inflow_without_m3": inflow["without"],
+            "ground_loss_with_usd": priced["with"]["ground_loss_usd"],
+            "basement_loss_with_usd": priced["with"]["basement_loss_usd"],
+            "ground_loss_without_usd": priced["without"]["ground_loss_usd"],
+            "basement_loss_without_usd": priced["without"]["basement_loss_usd"],
+            "lat": [p.y for p in pts],
+            "lon": [p.x for p in pts],
+        }
+    )
+    out.mkdir(parents=True, exist_ok=True)
+    frame.to_csv(out / "site_losses_basement.csv", index=False)
+    print(f"  {spec['site']['attribution']['osm']}; {spec['site']['attribution']['dem']}")
+    print(f"  wrote {out / 'site_losses_basement.csv'}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Generate the synthetic city and print the EAL summary."""
     from climaterisk import paths
@@ -660,6 +792,12 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="per-building loss of the --pluvial design storm (site_losses.csv)",
     )
+    ap.add_argument(
+        "--basement",
+        action="store_true",
+        help="basement flooding of the --pluvial design storm via ramp weirs "
+        "(site_losses_basement.csv)",
+    )
     args = ap.parse_args(argv)
 
     out = Path(args.out) if args.out else paths.derived_dir("synthetic_city")
@@ -670,6 +808,8 @@ def main(argv: list[str] | None = None) -> int:
         return _print_pluvial(spec, out)
     if args.site_loss:
         return _print_site_loss(spec, out)
+    if args.basement:
+        return _print_basement(spec, out)
     if args.animate_site:
         return _animate_site(spec, out)
     if args.animate:

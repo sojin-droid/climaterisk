@@ -117,6 +117,29 @@ def _cells(grid: SiteGrid, geom: Any) -> tuple[np.ndarray, np.ndarray]:
     return rows, cols
 
 
+def ring_cells(
+    grid: SiteGrid, rows: np.ndarray, cols: np.ndarray, walls: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """Ring cells of a wall building: 8-neighbours of its cells minus its cells minus all walls.
+
+    Args:
+        grid: Site grid.
+        rows: Row indices of the building's own cells.
+        cols: Column indices of the building's own cells.
+        walls: Boolean ``(ny, nx)`` wall raster.
+
+    Returns:
+        ``(rows, cols)`` index arrays of the ring cells (empty when the ring is empty).
+    """
+    r0, r1 = max(int(rows.min()) - 1, 0), min(int(rows.max()) + 2, grid.ny)
+    c0, c1 = max(int(cols.min()) - 1, 0), min(int(cols.max()) + 2, grid.nx)
+    own = np.zeros((r1 - r0, c1 - c0), dtype=bool)
+    own[rows - r0, cols - c0] = True
+    ring = binary_dilation(own, structure=_RING) & ~own & ~walls[r0:r1, c0:c1]
+    rr, cc = np.nonzero(ring)
+    return rr + r0, cc + c0
+
+
 def entry_depths(
     grid: SiteGrid,
     buildings: gpd.GeoDataFrame,
@@ -156,13 +179,9 @@ def entry_depths(
             vol = float(np.maximum(h_max[rows, cols] - thr, 0.0).sum()) * cell_area
             out[i] = min(vol / area[i], ff)
         elif is_wall[i]:
-            r0, r1 = max(int(rows.min()) - 1, 0), min(int(rows.max()) + 2, grid.ny)
-            c0, c1 = max(int(cols.min()) - 1, 0), min(int(cols.max()) + 2, grid.nx)
-            own = np.zeros((r1 - r0, c1 - c0), dtype=bool)
-            own[rows - r0, cols - c0] = True
-            ring = binary_dilation(own, structure=_RING) & ~own & ~walls[r0:r1, c0:c1]
-            if ring.any():
-                m = float(h_max[r0:r1, c0:c1][ring].max())
+            rr, cc = ring_cells(grid, rows, cols, walls)
+            if rr.size:
+                m = float(h_max[rr, cc].max())
                 out[i] = m if m > thr else 0.0
         else:
             m = float(h_max[rows, cols].max())
@@ -252,5 +271,6 @@ __all__ = [
     "footprint_area_m2",
     "price_buildings",
     "property_type",
+    "ring_cells",
     "storeys",
 ]
