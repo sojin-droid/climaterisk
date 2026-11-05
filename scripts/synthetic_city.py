@@ -384,7 +384,7 @@ def _print_pluvial(spec: dict[str, Any], out: Path) -> int:
     runs = {}
     for label, w, snap in (
         ("with buildings", walls, 300.0),
-        ("no buildings", np.zeros_like(walls), None),
+        ("no buildings", np.zeros_like(walls), 300.0),
     ):
         res = pluvial.run_pluvial(ground, w, cell_m, spec, snapshot_every_s=snap)
         runs[label] = res
@@ -409,15 +409,20 @@ def _print_pluvial(spec: dict[str, Any], out: Path) -> int:
             f"{float(h_max[east & open_cells].mean()):.3f} m"
         )
     out.mkdir(parents=True, exist_ok=True)
-    snaps = runs["with buildings"]["snapshots"]
-    np.savez_compressed(
-        out / "pluvial_snapshots.npz",
-        times_s=np.array([t for t, _ in snaps], dtype=float),
-        depth=np.stack([h for _, h in snaps]).astype("float32"),
-        bed=ground,
-        cell_m=cell_m,
-        walls=walls,
-    )
+    for name, label, w in (
+        ("pluvial_snapshots.npz", "with buildings", walls),
+        ("pluvial_snapshots_nowalls.npz", "no buildings", np.zeros_like(walls)),
+    ):
+        run_snaps = runs[label]["snapshots"]
+        np.savez_compressed(
+            out / name,
+            times_s=np.array([t for t, _ in run_snaps], dtype=float),
+            depth=np.stack([h for _, h in run_snaps]).astype("float32"),
+            bed=ground,
+            cell_m=cell_m,
+            walls=w,
+            max_froude=float(runs[label]["max_froude"]),
+        )
     cell_deg_y = grid.cell_m / 111320.0
     cell_deg_x = grid.cell_m / grid.lon_m_per_deg
     transform = from_origin(grid.west, grid.south + grid.ny * cell_deg_y, cell_deg_x, cell_deg_y)
@@ -434,7 +439,33 @@ def _print_pluvial(spec: dict[str, Any], out: Path) -> int:
     ) as ds:
         ds.write(runs["with buildings"]["h_max"][::-1].astype("float32"), 1)
     print(f"  {spec['site']['attribution']['osm']}; {spec['site']['attribution']['dem']}")
-    print(f"  wrote {out / 'pluvial_snapshots.npz'} and {out / 'pluvial_hmax.tif'}")
+    print(f"  wrote {out / 'pluvial_snapshots.npz'}, {out / 'pluvial_snapshots_nowalls.npz'}")
+    print(f"  and {out / 'pluvial_hmax.tif'}")
+    return 0
+
+
+def _animate_site(spec: dict[str, Any], out: Path) -> int:
+    """Write the real-site rain page (gangnam_rain.html) from the --pluvial snapshots."""
+    from climaterisk_worker.twin.site import build_site
+    from climaterisk_worker.twin.viewer_site import render_site_view
+
+    with_npz = out / "pluvial_snapshots.npz"
+    without_npz = out / "pluvial_snapshots_nowalls.npz"
+    for f in (with_npz, without_npz):
+        if not f.exists():
+            print(f"error: {f} not found - run with --pluvial first to write it", file=sys.stderr)
+            return 1
+    site = build_site(spec)
+    page = render_site_view(
+        with_npz,
+        without_npz,
+        site["grid"],
+        site["buildings"],
+        spec,
+        out / "gangnam_rain.html",
+        "Heavy rain on Gangnam station",
+    )
+    print(f"Wrote {page}")
     return 0
 
 
@@ -525,6 +556,11 @@ def main(argv: list[str] | None = None) -> int:
         help="design-storm rain on the real site, with and without buildings -> "
         "pluvial_snapshots.npz, pluvial_hmax.tif",
     )
+    ap.add_argument(
+        "--animate-site",
+        action="store_true",
+        help="animated 3D page (gangnam_rain.html) from the snapshots of --pluvial",
+    )
     args = ap.parse_args(argv)
 
     out = Path(args.out) if args.out else paths.derived_dir("synthetic_city")
@@ -533,6 +569,8 @@ def main(argv: list[str] | None = None) -> int:
         return _print_site(spec, out)
     if args.pluvial:
         return _print_pluvial(spec, out)
+    if args.animate_site:
+        return _animate_site(spec, out)
     if args.animate:
         return _animate(spec, out)
     if args.coastal2d:
