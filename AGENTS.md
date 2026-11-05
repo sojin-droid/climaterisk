@@ -104,11 +104,13 @@ published benchmarks and conservation laws — before its numbers are used.
 ## Check before every commit
 
 ```bash
-/Users/junsojin/Developer/climaterisk/.climada-env/bin/python -m pytest tests/test_synthetic_city.py
-uv run ruff check . && uv run ruff format --check . && uv run mypy src/
-uv run pytest
-/Users/junsojin/Developer/climaterisk/.climada-env/bin/python scripts/synthetic_city.py --out /tmp/twin_check
+git add -A && ./check.sh
 ```
+
+`check.sh` runs lint, format, type-check, both test suites and a city run, and refuses the
+commit if a **protected gate test** (listed in `.protected-tests`) changed. Gate tests are
+written by the reviewer before a step starts; make the code pass them, never edit them.
+If you think a gate test is wrong, stop and say why in your report.
 
 Report EAL % by asset kind after each step and say whether it moved in the expected
 direction (more defence → lower EAL; higher stage → higher EAL).
