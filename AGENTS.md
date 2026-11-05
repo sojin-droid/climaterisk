@@ -110,6 +110,15 @@ published benchmarks and conservation laws — before its numbers are used.
    depth reached so far, a panel showing the governing equations and live numbers.
    **Gate: `tests/test_viewer_time.py`** (protected) — API in its docstring
    (`twin/viewer_time.py`, `--animate` CLI flag reading `surge_snapshots.npz`).
+R. **Real neighbourhood (user, 2026-11-05: public data allowed).** Gangnam station area,
+   bbox ~127.022-127.034 E, 37.492-37.502 N: OpenStreetMap buildings from
+   `paths.osm_dir("south-korea-261013.osm.pbf")` (ODbL — credit "© OpenStreetMap
+   contributors") and the Copernicus GLO-30 surface model in
+   `paths.external_dir("copernicus_dem")` (credit "Copernicus DEM, ESA"). GLO-30 is a
+   surface model: building footprints are masked and the ground interpolated.
+   R1 site extraction + buildings as walls in the 2D model — **gate `tests/test_site.py`**.
+   R2 rain on the real site (this replaces step 10 on the synthetic city), time viewer with
+   real footprints, buildings-as-walls vs no-buildings comparison. R3 pricing.
 10. **Pluvial (rain) flood.** On the step-6 model: Huff design-storm hyetograph, NRCS
     curve-number infiltration, manhole sinks at a sewer capacity. Repo-specific method —
     label it as such in outputs.
