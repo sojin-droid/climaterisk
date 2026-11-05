@@ -379,5 +379,19 @@
     "thresholds_m": [0.05, 0.15, 0.30, 0.60],
     "thresholds_note": "0.05 m = the user's sheet default; 0.15 / 0.30 m = a raised entrance sill; 0.60 m = a flood board (flood_threshold_defaults BOARD_PLAN). Illustrative levels, not survey values.",
     "storms_shown": [10, 30, 100, 500]
+  },
+  "landcover": {
+    "_note": "Step R6: pervious ground from the real OpenStreetMap land use already on disk (spec site osm_file, multipolygons layer). A cell is green when its centre lies in a polygon with one of these tags; everything else keeps rain.cn_paved.",
+    "green_tags": {"leisure": ["park", "garden", "playground", "pitch"], "landuse": ["grass", "forest", "meadow", "recreation_ground", "village_green"], "natural": ["wood", "scrub", "grassland"]},
+    "cn_green": 74.0,
+    "cn_green_note": "NRCS TR-55 (USDA 1986) table 2-2a, open space in good condition (grass cover > 75 %), hydrologic soil group C. The soil group is an assumption: no soil map of the site is on disk."
+  },
+  "runon": {
+    "_note": "Step R6: run-on from the catchment outside the site box. D8 flow routing on the same Copernicus GLO-30 ground model over the site box padded by pad_m (the DEM tile on disk covers it); every outside cell that drains into the site adds its upstream area to the receiving edge cell, which then gets area x max(rain excess at cn_paved - sewer capacity, 0). No travel-time lag (an assumption: the upstream area is at most pad_m away).",
+    "pad_m": 1500.0
+  },
+  "calibration": {
+    "_note": "Step R6: the one free parameter of the rebuilt twin, the uniform sewer capacity (no pipe data exist on disk), is chosen on the 2022-08-08 event (observed Seoul gauge rain, validation section) as the value with the highest CSI against the flood traces over the wall buildings; 2010/2011 stay as independent spatial checks. One event: the calibrated value can over-fit.",
+    "sewer_mm_h": [10, 20, 30, 40, 50, 60, 75, 95, 120]
   }
 }

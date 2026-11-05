@@ -15,3 +15,4 @@ tests/test_basement_coupled.py
 tests/test_rain_eal.py
 tests/test_validate_traces.py
 tests/test_threshold_compare.py
+tests/test_real_rebuild.py
