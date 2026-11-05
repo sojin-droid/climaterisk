@@ -202,6 +202,17 @@ R. **Real neighbourhood (user, 2026-11-05: public data allowed).** Gangnam stati
    2010/2011 area-matched (no gauge rain): CSI 0.05 / 0.20. The R3b EAL is therefore NOT
    validated. Next: enlarge the domain to the catchment (or add run-on), then calibrate
    the sewer capacity on 2022 and re-score; consider SWMM (1D) coupling if sewer data exist.
+   **R5 done** (gate `tests/test_threshold_compare.py`, protected; Sonnet + review;
+   `--threshold-compare`). No-damage threshold vs none on the 243 buildings with a KNOWN
+   OSM use (116 residential, 125 commercial, 2 industrial; 'yes' etc. left out, never
+   assumed), ground storey only. Annual change vs no threshold, all known use: pure JRC
+   table T 0.05/0.15/0.30/0.60 m = -16 / -54 / -76 / -96 %; CLIMADA curve = 0 / -28 / -59 /
+   -93 % (its 0.05 m point already is a 5 cm threshold). Effect shrinks with storm size
+   (pure, T 0.15: -91 % at 10 y, -19 % at 500 y). 77 % of the buildings see 0-5 cm at the
+   10 y storm. Inherits R4: depths not validated, basement sinks and sewer assumed.
+   **User rule (2026-11-06): a twin replicates real space; no building attribute may be
+   assumed without telling the user.** Earlier R3/R3d/R3b totals include 618 buildings
+   assumed commercial and assumed basements — superseded for reporting by the rebuild (R6).
 10. **Pluvial (rain) flood.** On the step-6 model: Huff design-storm hyetograph, NRCS
     curve-number infiltration, manhole sinks at a sewer capacity. Repo-specific method —
     label it as such in outputs.

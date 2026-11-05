@@ -57,6 +57,7 @@ def price_ladder(
     value_usd: np.ndarray,
     rps: Any,
     spec: dict[str, Any],
+    facility_extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Price a ladder of storms through the engine as ONE hazard with ``K`` events.
 
@@ -66,6 +67,8 @@ def price_ladder(
         value_usd: Exposed value (USD) per building, length ``n``.
         rps: Ascending return periods (years), length ``K``.
         spec: City spec with a ``loss`` section.
+        facility_extra: Optional extra engine facility keys applied to every building (for
+            example ``{"flood_zero_damage_threshold_m": 0.15}``).
 
     Returns:
         ``rows`` (engine ``ResultRow`` per building), ``eal_usd`` ``(n,)``, ``event_loss_usd``
@@ -94,6 +97,7 @@ def price_ladder(
             "longitude": float(lon[i]),
             "asset_value_usd": float(value[i]),
             "property_type": kinds[i],
+            **(facility_extra or {}),
         }
         for i in range(len(buildings))
     ]

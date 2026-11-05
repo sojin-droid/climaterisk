@@ -1252,6 +1252,225 @@ def _print_rain_eal(spec: dict[str, Any], out: Path) -> int:
     return 0
 
 
+def _print_threshold_compare(spec: dict[str, Any], out: Path) -> int:
+    """Effect of the no-damage threshold on the REAL buildings of known use (step R5).
+
+    Runs the R3b central rain ladder through the coupled model with walls, takes the ground
+    entry depths of the buildings whose use is known from OSM, and prices them with and
+    without each threshold on the published JRC table (``pure``) and on CLIMADA's curve.
+
+    Algorithm:
+        $$\\Delta_c(T) = 100\\,\\frac{\\mathrm{EAL}_c(T) - \\mathrm{EAL}_c(\\mathrm{none})}
+        {\\mathrm{EAL}_c(\\mathrm{none})}$$
+        ASCII: delta_c(T) = 100 * (EAL_c(T) - EAL_c(none)) / EAL_c(none), per use and curve.
+
+        $c$ curve (pure JRC table or CLIMADA), $T$ threshold (m), EAL in USD per year.
+    """
+    import copy
+    import json
+
+    import numpy as np
+    import pandas as pd
+    from climaterisk_worker.twin import rain_eal, rain_frequency, site_loss, threshold_compare
+    from climaterisk_worker.twin.site import build_site
+
+    tc = spec["threshold_compare"]
+    rf = spec["rain_frequency"]
+    dist = str(rf["distribution"])
+    rps = [float(t) for t in rf["return_periods"]]
+    rain, _ = _read_asos_rain(str(rf["station"]))
+    am = rain_frequency.annual_maxima(rain, int(rf["window_h"]))
+    x = am.to_numpy()
+    params = rain_frequency.fit_gev(x) if dist == "gev" else rain_frequency.fit_gumbel(x)
+    central = rain_frequency.quantile(dist, params, np.array(rps))
+
+    site = build_site(spec)
+    b, walls_site = site["buildings"], site["mask"]
+    uses = threshold_compare.known_use(b, spec)
+    sel = np.array([i for i, u in enumerate(uses) if u is not None], dtype=int)
+    use_sel = np.array([uses[i] for i in sel])
+    spec_raw = copy.deepcopy(spec)
+    spec_raw["loss"]["entry_threshold_m"] = 0.0  # raw ring maximum: the threshold is the variable
+
+    depth_rows = []
+    for t, mm in zip(rps, central, strict=True):
+        st = _coupled_storm(site, rain_eal.spec_for_rain(spec, float(mm)), walls_site, None)
+        raw = site_loss.entry_depths(site["grid"], b, st["run"]["h_max"], walls_site, spec_raw)
+        depth_rows.append(raw)
+        print(
+            f"  [central with walls] T={t:g} y  {mm:6.1f} mm  {st['seconds']:.1f} s",
+            file=sys.stderr,
+        )
+    depth_all = np.stack(depth_rows)  # (K, n_all)
+    b_sel = b.iloc[sel].reset_index(drop=True)
+    depth = depth_all[:, sel]
+    value = site_loss.exposed_value_usd(b, spec)[sel]
+    thresholds: list[float | None] = [None, *[float(t) for t in tc["thresholds_m"]]]
+    shown = [float(t) for t in tc["storms_shown"]]
+    shown_idx = [rps.index(t) for t in shown]
+    priced = {
+        c: threshold_compare.price_thresholds(b_sel, depth, value, rps, thresholds, spec, c)
+        for c in ("pure", "climada")
+    }
+
+    def pct(new: float, base: float) -> float | None:
+        return None if base <= 0 else 100.0 * (new - base) / base
+
+    groups = [
+        ("residential", use_sel == "residential"),
+        ("commercial", use_sel == "commercial"),
+        ("industrial", use_sel == "industrial"),
+        ("all known use", np.ones(len(sel), bool)),
+    ]
+    result: dict[str, Any] = {}
+    for gname, mask in groups:
+        g: dict[str, Any] = {"n_buildings": int(mask.sum()), "value_usd": float(value[mask].sum())}
+        for c in ("pure", "climada"):
+            base = priced[c][None]
+            g[c] = {
+                "n_with_loss": int((base["eal_usd"][mask] > 0).sum()),
+                "eal_none_usd": float(base["eal_usd"][mask].sum()),
+                "by_threshold": {},
+            }
+            for t in thresholds[1:]:
+                r = priced[c][t]
+                ent: dict[str, Any] = {
+                    "eal_usd": float(r["eal_usd"][mask].sum()),
+                    "eal_pct_change": pct(
+                        float(r["eal_usd"][mask].sum()), float(base["eal_usd"][mask].sum())
+                    ),
+                    "storm_pct_change": {},
+                }
+                for k, rp in zip(shown_idx, shown, strict=True):
+                    ent["storm_pct_change"][f"{rp:g}"] = pct(
+                        float(r["event_loss_usd"][k][mask].sum()),
+                        float(base["event_loss_usd"][k][mask].sum()),
+                    )
+                g[c]["by_threshold"][f"{t:g}"] = ent
+            g[c]["storm_loss_none_usd"] = {
+                f"{rp:g}": float(base["event_loss_usd"][k][mask].sum())
+                for k, rp in zip(shown_idx, shown, strict=True)
+            }
+        result[gname] = g
+
+    edges = [0.0, 0.05, 0.15, 0.30, 0.60]
+    labels = ["0-5", "5-15", "15-30", "30-60", ">60"]
+    dist_rows: dict[str, Any] = {}
+    for k, rp in zip(shown_idx, shown, strict=True):
+        d = depth[k]
+        shares = {"dry (0)": float((d <= 0).mean() * 100)}
+        for j, lab in enumerate(labels):
+            hi = edges[j + 1] if j + 1 < len(edges) else np.inf
+            shares[lab] = float(((d > edges[j]) & (d <= hi)).mean() * 100)
+        dist_rows[f"{rp:g}"] = {"rain_mm": float(central[k]), "share_pct_by_depth_cm": shares}
+
+    pts = [g.representative_point() for g in b_sel.geometry]
+    frame = pd.DataFrame(
+        {
+            "idx": sel,
+            "use": use_sel,
+            "lat": [p.y for p in pts],
+            "lon": [p.x for p in pts],
+        }
+    )
+    for c in ("pure", "climada"):
+        for t in thresholds:
+            col = f"eal_{c}_{'none' if t is None else f'T{t:g}'}_usd"
+            frame[col] = priced[c][t]["eal_usd"]
+    out.mkdir(parents=True, exist_ok=True)
+    frame.to_csv(out / "threshold_compare_buildings.csv", index=False)
+    (out / "threshold_compare.json").write_text(
+        json.dumps(
+            {
+                "return_periods_years": rps,
+                "rain_mm_central": central.tolist(),
+                "thresholds_m": tc["thresholds_m"],
+                "storms_shown": shown,
+                "n_buildings_total": len(b),
+                "n_known_use": len(sel),
+                "groups": result,
+                "entry_depth_distribution": dist_rows,
+                "note": "Ground storey only, buildings of OSM-known use only; money is "
+                "indicative (assumed cost per m2), the percentages are the result.",
+            },
+            indent=2,
+        )
+    )
+
+    print("Effect of the no-damage threshold T on the loss of the real Gangnam buildings")
+    print(
+        f"  {len(sel)} of {len(b)} OSM buildings have a known use "
+        "(apartments/house/dormitory..., office/retail/hotel..., industrial/warehouse); "
+        "'yes', schools, churches etc. are left out, not guessed."
+    )
+    print(
+        "  Rain: central ladder, KMA ASOS 108; with walls; ground storey only (no basements); "
+        f"ladder {rps[0]:g}-{rps[-1]:g} y, {central[0]:.0f}-{central[-1]:.0f} mm / 2 h."
+    )
+    print("  'pure' = published JRC table, linear from 0 m (no zero-damage point): the baseline")
+    print("  of the user's sheet. The CLIMADA curve already has zero damage up to 0.05 m, so on it")
+    print("  T = 0.05 m changes nothing.")
+    print("  Entry depth = highest street depth around the building (no sill, raw, so that the")
+    print("  threshold is the only cut-off).")
+    t_cols = "".join(f"{'T=' + format(t, 'g') + ' m':>10}" for t in thresholds[1:])
+    for gname, _ in groups:
+        g = result[gname]
+        print(
+            f"\n  == {gname}: {g['n_buildings']} buildings, ground-storey value "
+            f"{g['value_usd'] / 1e6:,.1f} M USD (indicative)"
+        )
+        for c in ("pure", "climada"):
+            e = g[c]
+            print(
+                f"   curve {c}: {e['n_with_loss']} buildings with any loss, EAL no threshold "
+                f"{e['eal_none_usd']:,.0f} USD/yr (indicative)"
+            )
+            print(f"     {'EAL change vs none':<28}{t_cols}")
+
+            def cell(v: float | None) -> str:
+                return f"{'n/a':>10}" if v is None else f"{v:>+9.1f}%"
+
+            bt = e["by_threshold"]
+            row = "".join(cell(bt[f"{t:g}"]["eal_pct_change"]) for t in thresholds[1:])
+            print(f"     {'annual':<28}{row}")
+            for rp in shown:
+                row = "".join(
+                    cell(bt[f"{t:g}"]["storm_pct_change"][f"{rp:g}"]) for t in thresholds[1:]
+                )
+                loss_m = e["storm_loss_none_usd"][f"{rp:g}"] / 1e6
+                label = f"storm {rp:g} y (loss {loss_m:.2f} M)"
+                print(f"     {label:<28}{row}")
+    print("\n  Ground entry depth of the known-use buildings (share of buildings, %):")
+    print(f"   {'storm':<14}{'mm':>6}" + "".join(f"{k + ' cm':>11}" for k in ["dry", *labels]))
+    for rp in shown:
+        r = dist_rows[f"{rp:g}"]
+        sh = r["share_pct_by_depth_cm"]
+        print(
+            f"   {format(rp, 'g') + ' y':<14}{r['rain_mm']:>6.0f}"
+            + "".join(f"{sh[k]:>11.1f}" for k in ["dry (0)", *labels])
+        )
+    print("\n  ASSUMPTIONS (everything that is not real):")
+    for line in [
+        "rain ladder from ONE station (ASOS 108), ~7 km from the site, GEV on annual maxima",
+        "sewer capacity (spec rain/sewer) is assumed, uniform over the site",
+        "basement sinks (spec basement) take water out of the streets and shape street depths",
+        "threshold levels are illustrative (0.05 = sheet default; 0.15/0.30 raised sill; "
+        "0.60 flood board), not surveyed",
+        "cost per m2 only scales money; it does not change a percentage within a use",
+        "flood depths are NOT validated: R4 against the Seoul flood traces showed the model "
+        "under-floods (0.027 vs 0.252 km2), so the real share of shallow depths is uncertain",
+        "ground entry depth = highest street cell touching the building (no per-building sill)",
+    ]:
+        print(f"   - {line}")
+    print(
+        "  REAL: building footprints and use (OSM) of the selected buildings; terrain "
+        "(Copernicus GLO-30)."
+    )
+    print(f"  {spec['site']['attribution']['osm']}; {spec['site']['attribution']['dem']}")
+    print(f"  wrote {out / 'threshold_compare.json'}, {out / 'threshold_compare_buildings.csv'}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Generate the synthetic city and print the EAL summary."""
     from climaterisk import paths
@@ -1362,6 +1581,12 @@ def main(argv: list[str] | None = None) -> int:
         "(rain_frequency.json, rain_eal_buildings.csv, rain_eal_summary.json)",
     )
     ap.add_argument(
+        "--threshold-compare",
+        action="store_true",
+        help="effect of the no-damage threshold on the real buildings of known use "
+        "(threshold_compare.json, threshold_compare_buildings.csv)",
+    )
+    ap.add_argument(
         "--validate",
         action="store_true",
         help="building-level validation against the Seoul flood-trace maps "
@@ -1383,6 +1608,8 @@ def main(argv: list[str] | None = None) -> int:
         return _print_validate(spec, out)
     if args.rain_eal:
         return _print_rain_eal(spec, out)
+    if args.threshold_compare:
+        return _print_threshold_compare(spec, out)
     if args.animate_site:
         return _animate_site(spec, out)
     if args.animate:
