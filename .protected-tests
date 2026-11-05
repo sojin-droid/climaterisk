@@ -5,3 +5,4 @@ tests/test_typhoon.py
 tests/test_heat.py
 tests/test_coastal.py
 tests/test_surge2d.py
+tests/test_viewer_time.py

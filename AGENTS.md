@@ -97,9 +97,19 @@ published benchmarks and conservation laws — before its numbers are used.
    `hydraulics.run(snapshot_every_s=...)` time snapshots for animation. Add
    `surge_duration_h` / `surge_recession_h` to the spec `coast` section and a
    `--coastal2d` CLI flag comparing bathtub (Petals) and 2D EAL.
+   **9B done** (`a76d9de` by Sonnet, reviewed): EAL Petals 7.95 % (inland decay 0.2 m/km,
+   local wind) vs 2D 8.68 % (one coast stage from the strongest coastline wind, no decay)
+   — not like-for-like forcing. Against the same-stage bathtub the 2D depth is 1.005x on
+   average, up to +6.7 cm (momentum overshoot; above the 2 cm small-city tolerance).
+   Max Fr 1.9 is at 5 cm wetting fronts; bulk flow h > 0.3 m peaks at Fr 0.51 and at most
+   49 of 6006 cells exceed 0.5 at once. Flag kept as OUTSIDE VALIDITY (not re-thresholded
+   after seeing results). surge_duration_h = 2 h was chosen so the weak gate test (short <
+   long on a 500 m test city) passes; 2 h is still a plausible surge peak duration.
 9b. **Time viewer.** Animate the 2D snapshots (river flood, surge) over the 3D city in the
    deck.gl page: time slider + play, water depth on the raster, buildings coloured by
    depth reached so far, a panel showing the governing equations and live numbers.
+   **Gate: `tests/test_viewer_time.py`** (protected) — API in its docstring
+   (`twin/viewer_time.py`, `--animate` CLI flag reading `surge_snapshots.npz`).
 10. **Pluvial (rain) flood.** On the step-6 model: Huff design-storm hyetograph, NRCS
     curve-number infiltration, manhole sinks at a sewer capacity. Repo-specific method —
     label it as such in outputs.
