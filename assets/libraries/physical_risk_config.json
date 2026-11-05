@@ -108,13 +108,22 @@
   "no_damage_threshold": {
     "enabled": false,
     "depth_m": 0.05,
-    "rule": "Damage is 0 while the flood depth is at most depth_m; above it the unchanged JRC curve at the FULL depth (not shifted). FLOPROS-style step, applied per centroid with protection.protect_with_threshold.",
-    "basis": "User's 무피해문턱_계산표 (261020): default no-damage threshold 5 cm where pumps, flood barriers and ground-floor heights are unknown (no survey data).",
+    "rule": "Damage is 0 while the flood depth is at most T; above it the unchanged JRC curve at the FULL depth (not shifted). The engine applies it per facility from flood_zero_damage_threshold_m (registry.thresholded_flood_impact_function).",
+    "basis": "User's 무피해문턱_계산표 (261020): default 5 cm where pumps, flood barriers and ground-floor heights are unknown (no survey data). CLIMADA's ImpfRiverFlood already has MDD = 0 at 0.05 m, so the default reproduces the engine's curve.",
+    "_note": "Report-only settings below (scripts/no_damage_threshold_report.py). The product engine applies a threshold only when a facility carries flood_zero_damage_threshold_m.",
     "report_bbox": [126.0, 33.0, 129.5, 38.0],
-    "report_property_types": ["office", "residential", "industrial"],
+    "report_grid_hazard": "river_flood_150arcsec_hist_KOR_1980_2000/*/*.hdf5",
     "report_coastal_tile": "aqueduct_inuncoast_historical_wtsub_hist__126_33_129.5_38.npz",
-    "report_sensitivity_m": [0.05, 0.10, 0.15, 0.30, 0.50],
-    "report_sensitivity_basis": "0.05 m = the sheet's default; higher values stand for what the sheet adds per building with survey data (raised ground floor, flood barriers, pumps). Illustrative levels, not survey values.",
-    "_note": "Report-only (scripts/no_damage_threshold_report.py). The product engine does not apply it while enabled is false."
+    "report_property_types": ["office", "residential", "industrial"],
+    "report_grid_step_m": 0.05,
+    "report_grid_max_m": 1.2,
+    "report_random": {
+      "_note": "가정 (assumption). Distributions of the sheet's survey inputs by property type, taken from docs/HANGANG_CROP_DIGITAL_TWIN_SPEC.md §4.2 (상업 / 잠실 저지 주거 / 공단). Residential uses the low-lying (반지하형) row because spots that flood are low-lying. board_m = flood_threshold_defaults BOARD_PLAN (0.3 m expected depth + 0.3 m freeboard, 국토교통부고시 제2023-483호 제7조); the spec gives no installed-board height. Not survey values.",
+      "by_property_type": {
+        "office": {"opening": 0.9, "first_floor_m": [0.3, 0.3], "board_installed": 0.3, "board_planned": 0.15, "board_m": 0.6, "wall": 0.0, "wall_m": [0.8, 1.2]},
+        "residential": {"opening": 0.6, "first_floor_m": [-0.8, 0.3], "board_installed": 0.2, "board_planned": 0.15, "board_m": 0.6, "wall": 0.0, "wall_m": [0.8, 1.2]},
+        "industrial": {"opening": 0.4, "first_floor_m": [0.9, 0.9], "board_installed": 0.5, "board_planned": 0.15, "board_m": 0.6, "wall": 0.1, "wall_m": [0.8, 1.2]}
+      }
+    }
   }
 }

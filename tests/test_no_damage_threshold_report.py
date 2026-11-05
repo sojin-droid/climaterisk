@@ -1,9 +1,9 @@
-"""No-damage threshold report: the threshold mechanics and its identity with the JRC curve.
+"""No-damage threshold report: the two baseline curves and the drawn thresholds.
 
 The engine's flood curve (CLIMADA ``ImpfRiverFlood``, JRC Huizinga 2017) already has
-``MDD = 0`` at 0 m and 0.05 m, so the user's 5 cm no-damage rule (0 at or below T, the
-unshifted curve above) must reproduce the existing impact exactly; a higher T removes only
-the events at or below it.
+``MDD = 0`` at 0 m and 0.05 m, so the sheet's 5 cm default reproduces it exactly. The
+report's ``pure`` baseline drops that point (the published JRC table, linear from 0 m to
+0.5 m); against it the 5 cm step removes exactly the damage below 5 cm.
 """
 
 from __future__ import annotations
@@ -34,57 +34,61 @@ def _report():
     return mod
 
 
-def _hazard(depths: np.ndarray):
-    from climada.hazard import Centroids, Hazard
-    from scipy import sparse
-
-    n_ev = depths.size
-    return Hazard(
-        haz_type="RF",
-        units="m",
-        centroids=Centroids(lat=np.array([37.5]), lon=np.array([127.0])),
-        event_id=np.arange(1, n_ev + 1),
-        event_name=[f"e{k}" for k in range(n_ev)],
-        date=np.arange(1, n_ev + 1),
-        frequency=np.full(n_ev, 0.1),
-        intensity=sparse.csr_matrix(depths.reshape(n_ev, 1)),
-        fraction=sparse.csr_matrix(np.ones((n_ev, 1))),
-    )
-
-
-def _eal(hazard) -> float:
-    from climada.engine import ImpactCalc
-    from climada.entity import Exposures, ImpactFuncSet
+def _curve():
     from climaterisk_worker.physical_risk import registry
 
-    f = registry.flood_impact_function("Asia", "commercial")
-    exp = Exposures({"latitude": [37.5], "longitude": [127.0], "value": [1.0e6], "impf_RF": [f.id]})
-    exp.assign_centroids(hazard)
-    return float(ImpactCalc(exp, ImpactFuncSet([f]), hazard).impact().aai_agg)
+    return registry.flood_impact_function("Asia", "commercial")
 
 
 def test_config_has_the_threshold_block() -> None:
-    cfg = _report().threshold_config()
+    rep = _report()
+    cfg = rep.threshold_config()
     assert cfg["depth_m"] == pytest.approx(0.05)
     assert cfg["enabled"] is False
-    assert cfg["depth_m"] in cfg["report_sensitivity_m"]
+    grid = rep.t_grid(cfg)
+    assert grid[0] == pytest.approx(cfg["depth_m"])
+    assert grid[-1] == pytest.approx(cfg["report_grid_max_m"])
+    assert set(cfg["report_random"]["by_property_type"]) == set(cfg["report_property_types"])
 
 
-def test_threshold_zeroes_at_or_below_and_keeps_full_depth_above() -> None:
-    rep = _report()
-    depths = np.array([0.0001, 0.05, 0.08, 0.3, 2.0])
-    out = rep.apply_threshold(_hazard(depths), 0.10)
-    np.testing.assert_allclose(out.intensity.toarray().ravel(), [0, 0, 0, 0.3, 2.0])
-    np.testing.assert_allclose(out.fraction.toarray().ravel(), [0, 0, 0, 1, 1])
+def test_pure_jrc_drops_only_the_inserted_zero_point() -> None:
+    f = _curve()
+    p = _report().pure_jrc(f)
+    assert 0.05 in list(f.intensity) and 0.05 not in list(p.intensity)
+    assert p.intensity.size == f.intensity.size - 1
+    # linear from (0, 0) to the first JRC damage at 0.5 m
+    mdr_05 = float(f.calc_mdr(np.array([0.5]))[0])
+    np.testing.assert_allclose(p.calc_mdr(np.array([0.03])), [mdr_05 * 0.03 / 0.5], rtol=1e-9)
+    deep = np.array([0.5, 1.0, 3.0, 6.0, 12.0])
+    np.testing.assert_allclose(p.calc_mdr(deep), f.calc_mdr(deep), rtol=1e-12)
 
 
-def test_five_cm_rule_equals_the_existing_jrc_curve() -> None:
+def test_five_cm_step_is_the_climada_curve_and_cuts_the_pure_one() -> None:
     from climaterisk_worker.physical_risk import registry
 
-    f = registry.flood_impact_function("Asia", "commercial")
-    assert f.calc_mdr(np.array([0.0, 0.05]))[1] == 0.0  # the identity rests on this point
+    f = _curve()
+    p = _report().pure_jrc(f)
+    d = np.array([0.01, 0.03, 0.05, 0.08, 0.3, 1.5])
+    # the engine's own step at T = 0.05 returns the CLIMADA curve untouched
+    assert registry.thresholded_flood_impact_function(f, 0.05) is f
+    # on the pure table the step zeroes d <= 0.05 and leaves the rest
+    step = registry.thresholded_flood_impact_function(p, 0.05)
+    want = np.where(d > 0.05, p.calc_mdr(d), 0.0)
+    np.testing.assert_allclose(step.calc_mdr(d), want, atol=1e-6)
+    # at or below 5 cm the stepped pure table and the CLIMADA curve are both zero
+    np.testing.assert_allclose(step.calc_mdr(d[d <= 0.05]), f.calc_mdr(d[d <= 0.05]), atol=0)
+
+
+def test_drawn_thresholds_follow_the_sheet_rule() -> None:
     rep = _report()
-    haz = _hazard(np.array([0.0001, 0.03, 0.05, 0.2, 1.5]))
-    np.testing.assert_allclose(_eal(rep.apply_threshold(haz, 0.05)), _eal(haz), rtol=1e-12)
-    expect = 1.0e6 * 0.1 * float(f.calc_mdr(np.array([1.5]))[0])  # only the 1.5 m event
-    np.testing.assert_allclose(_eal(rep.apply_threshold(haz, 0.5)), expect, rtol=1e-12)
+    cfg = rep.threshold_config()
+    dist = cfg["report_random"]["by_property_type"]
+    rng = np.random.default_rng(7)
+    t = {k: np.array([rep.draw_threshold(k, dist, rng) for _ in range(4000)]) for k in dist}
+    for k, v in t.items():
+        assert np.all(v >= cfg["depth_m"]), k  # never below the sheet's default
+    # industrial: a board installed with probability 0.5 lifts T to at least board_m
+    ind = dist["industrial"]
+    assert np.mean(t["industrial"] >= ind["board_m"]) >= ind["board_installed"] - 0.03
+    # office: no wall; T is the default, the board, or the first floor when no opening
+    assert set(np.round(t["office"], 6)) <= {0.05, 0.3, 0.6}
