@@ -17,6 +17,7 @@ from typing import Any
 from climaterisk_worker.twin.city import build_city
 from climaterisk_worker.twin.climate import build_future_hazard, future_scenarios
 from climaterisk_worker.twin.hazard import build_hazard
+from climaterisk_worker.twin.inundation import hydraulic_depths
 from climaterisk_worker.twin.network import network_failure
 from climaterisk_worker.twin.plot import plot_city
 from climaterisk_worker.twin.pricing import (
@@ -29,7 +30,7 @@ from climaterisk_worker.twin.spec import MODEL_ID  # noqa: F401  (re-exported fo
 from climaterisk_worker.twin.viewer import render_map
 from climaterisk_worker.twin.viewer3d import render_3d
 
-__all__ = ["compare_climate", "compare_defences", "run"]
+__all__ = ["compare_climate", "compare_defences", "compare_hazard_models", "run"]
 
 #: The five defence scenarios shared by the present-day and climate-change comparisons:
 #: no defence, a uniform design return period, and the local bank levee.
@@ -445,3 +446,80 @@ def compare_climate(spec: dict[str, Any], out_dir: Path) -> list[dict[str, Any]]
         encoding="utf-8",
     )
     return results
+
+
+def compare_hazard_models(
+    spec: dict[str, Any], out_dir: Path, durations_h: list[float] | None = None
+) -> dict[str, Any]:
+    """Bathtub stage law vs the 2D hydraulic model, priced through the same engine.
+
+    For each flood-wave duration the 2D model (:func:`hydraulic_depths`) gives a peak
+    depth per asset and return period; that matrix becomes a CLIMADA ``RF`` hazard and
+    every defence scenario is priced exactly as for the stage law (per-asset engine rows,
+    cross-checked against the portfolio ``aai_agg`` at rtol 1e-9). The stage law is the
+    long-wave limit of the 2D model (water has time to reach every connected cell), so a
+    shorter wave should give equal or lower EAL.
+
+    Algorithm:
+        $$r = \frac{\mathrm{EAL}^{2D}}{\mathrm{EAL}^{stage}},\qquad
+          \mathrm{EAL} = \sum_i f_i\,v\,\mathrm{MDR}(d_i)$$
+        ASCII: r = EAL_2D / EAL_stage_law, same defence scenario and engine.
+
+    Args:
+        spec: City specification (uses the ``flood`` and ``hydraulic`` sections).
+        out_dir: Output directory; writes ``hazard_models.csv`` and ``hazard_models.json``.
+        durations_h: Flood-wave durations (h) to run; default the spec's
+            ``flood_duration_h`` and a 6-hour flashy wave.
+
+    Returns:
+        ``{"rows": [...], "diagnostics": {...}}`` with one row per (model, defence) and, per
+        2D run, the per-event Froude number and volume balance, the run's ``max_froude`` and
+        ``within_validity`` (``max_froude < hydraulic.max_valid_froude``). A run outside
+        validity breaks the local-inertial assumption; do not use its numbers.
+    """
+    import copy
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    graph, assets = build_city(spec)
+    total = float(sum(a["asset_value_usd"] for a in assets))
+    if durations_h is None:
+        durations_h = [float(spec["hydraulic"]["flood_duration_h"]), 6.0]
+    models: list[tuple[str, Any]] = [("stage_law", build_hazard(assets, spec))]
+    diagnostics: dict[str, Any] = {}
+    for dur in durations_h:
+        s = copy.deepcopy(spec)
+        s["hydraulic"]["flood_duration_h"] = float(dur)
+        depth, diag = hydraulic_depths(graph, assets, s)
+        name = f"2d_{dur:g}h"
+        models.append((name, build_hazard(assets, spec, depth=depth)))
+        max_fr = max(d["max_froude"] for d in diag)
+        diagnostics[name] = {
+            "events": diag,
+            "max_froude": max_fr,
+            "within_validity": max_fr < float(spec["hydraulic"]["max_valid_froude"]),
+        }
+    rows: list[dict[str, Any]] = []
+    base: dict[str, float] = {}
+    for model, hazard in models:
+        for name, rp, lev in _DEFENCE_SCENARIOS:
+            _, _, impact = _scenario_rows(assets, hazard, spec, rp, lev)
+            eal = float(impact.aai_agg)
+            if model == "stage_law":
+                base[name] = eal
+            rows.append(
+                {
+                    "model": model,
+                    "defence": name,
+                    "eal_pct": 100.0 * eal / total,
+                    "ratio_to_stage_law": eal / base[name] if base[name] else None,
+                }
+            )
+    with (out_dir / "hazard_models.csv").open("w", newline="", encoding="utf-8") as fh:
+        w = csv.DictWriter(fh, fieldnames=["model", "defence", "eal_pct", "ratio_to_stage_law"])
+        w.writeheader()
+        w.writerows(rows)
+    result = {"seed": spec["seed"], "rows": rows, "diagnostics": diagnostics}
+    (out_dir / "hazard_models.json").write_text(
+        json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    return result

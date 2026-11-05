@@ -49,8 +49,14 @@ published benchmarks and conservation laws — before its numbers are used.
    lake at rest exact. Errors are flat under refinement and grow with Froude (Thacker
    1 / 4 / 9 % at Fr 0.07 / 0.14 / 0.28): that is the dropped advection term, a model limit.
    Keep city runs at Fr < 0.5 and report the max Froude number of every run.
-   **Part B (next):** city raster from the spec terrain, river inflow hydrograph per RP,
-   peak depth -> RF hazard -> engine; compare EAL with the stage law.
+   **Part B done** (`twin/inundation.py`, `tests/test_inundation.py`, `--hydraulic`):
+   25 m raster, river row on a raised-cosine stage wave peaking at h(T), Manning 0.05.
+   EAL 2D / stage law = 0.997 (24 h wave), volume closure 1e-11, max Fr 0.42. The city is
+   2 km deep and fills in minutes, so the bathtub is a good approximation *here*; the 2D
+   model differs in enclosed hollows (tested) and will matter for big floodplains, levee
+   breaches and rain (step 10). A 6 h wave reaches Fr 0.93: outside validity, flagged.
+   The stage law stays the default hazard (2D costs ~40 s per wave duration).
+   Levees are still applied after the run (`protection.protect`), not as walls in 2D.
 7. **Typhoon.** Synthetic tracks → CLIMADA `TropCyclone` wind field (Holland profile),
    priced with the repo's TC regional impact function.
 8. **Heatwave.** Hazard-only in money terms (no published damage curve). Street-level

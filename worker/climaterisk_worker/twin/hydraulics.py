@@ -212,10 +212,11 @@ def _limit_outflow(
     out_x = (np.maximum(q_x[:, 1:], 0.0) + np.maximum(-q_x[:, :-1], 0.0)) / dx
     out_y = (np.maximum(q_y[1:, :], 0.0) + np.maximum(-q_y[:-1, :], 0.0)) / dy
     v_out = dt * (out_x + out_y)
-    with np.errstate(divide="ignore", invalid="ignore"):
-        r = np.where(v_out > h, h / v_out, 1.0)
-    if np.all(r == 1.0):
+    drained = v_out > h
+    if not drained.any():
         return
+    r = np.ones_like(h)
+    r[drained] = h[drained] / v_out[drained]
     # x faces: positive flux leaves the left cell, negative leaves the right cell
     fx = q_x[:, 1:-1]
     q_x[:, 1:-1] = np.where(fx > 0, fx * r[:, :-1], fx * r[:, 1:])
@@ -238,6 +239,8 @@ def run(
     h_dry: float = 1e-4,
     g: float = 9.81,
     recorder: Any | None = None,
+    stage_fn: Any | None = None,
+    froude_min_depth: float = 0.05,
 ) -> dict[str, Any]:
     """Run the local-inertial solver from $t=0$ to $t_{\\text{end}}$.
 
@@ -259,9 +262,22 @@ def run(
         h_dry: Wet/dry threshold [m].
         g: Gravity [m s$^{-2}$].
         recorder: Optional object with ``record(t, h, q_x, q_y)`` method.
+        stage_fn: Callable ``t -> (rows, cols, eta)`` giving a water-surface boundary: after
+            every step the depth in those cells is reset to ``max(0, eta - z)`` (m). The
+            water this adds or removes is counted in ``boundary_volume_m3``.
+        froude_min_depth: Cells shallower than this (m) are left out of ``max_froude``; the
+            thin film at a wet/dry front has meaningless velocities.
 
     Returns:
-        Dict with ``h``, ``q_x``, ``q_y``, ``t``, ``n_steps``.
+        Dict with ``h``, ``q_x``, ``q_y``, ``t``, ``n_steps``, ``h_max`` (peak depth per
+        cell over the run, m), ``boundary_volume_m3`` (net water added by ``stage_fn``,
+        m^3; zero without it) and ``max_froude`` (largest cell Froude number over the run,
+        dimensionless).
+
+    Algorithm:
+        Cell Froude number from the face discharges averaged to the cell centre:
+        $$\mathrm{Fr} = \frac{\sqrt{\bar q_x^2 + \bar q_y^2}}{h\,\sqrt{g h}}$$
+        ASCII: Fr = sqrt(qx_mean^2 + qy_mean^2) / (h * sqrt(g h)), for h > froude_min_depth.
     """
     ny, nx = h0.shape
     q_x = np.zeros((ny, nx + 1), dtype=h0.dtype)
@@ -270,6 +286,20 @@ def run(
     t = 0.0
     n_steps = 0
     rate = 0.0
+    boundary_volume = 0.0
+    max_froude = 0.0
+
+    def _apply_stage(time: float) -> float:
+        """Reset the boundary cells to the stage at ``time``; return the volume added (m^3)."""
+        rows_b, cols_b, eta_b = stage_fn(time)  # type: ignore[misc]
+        target = np.maximum(float(eta_b) - bed_z[rows_b, cols_b], 0.0)
+        added = float((target - h[rows_b, cols_b]).sum() * dx * dy)
+        h[rows_b, cols_b] = target
+        return added
+
+    if stage_fn is not None:
+        boundary_volume += _apply_stage(0.0)
+    h_max = h.copy()
 
     while t < t_end:
         dt = adaptive_dt(h, dx, dy, manning_n, alpha_cfl, g, h_dry)
@@ -299,10 +329,29 @@ def run(
         )
         t += dt
         n_steps += 1
+        if stage_fn is not None:
+            boundary_volume += _apply_stage(t)
+        np.maximum(h_max, h, out=h_max)
+        deep = h > froude_min_depth
+        if deep.any():
+            qx_c = 0.5 * (q_x[:, 1:] + q_x[:, :-1])
+            qy_c = 0.5 * (q_y[1:, :] + q_y[:-1, :])
+            hd = h[deep]
+            fr = np.hypot(qx_c[deep], qy_c[deep]) / (hd * np.sqrt(g * hd))
+            max_froude = max(max_froude, float(fr.max()))
         if recorder is not None:
             recorder.record(t, h, q_x, q_y)
 
-    return {"h": h, "q_x": q_x, "q_y": q_y, "t": t, "n_steps": n_steps}
+    return {
+        "h": h,
+        "q_x": q_x,
+        "q_y": q_y,
+        "t": t,
+        "n_steps": n_steps,
+        "h_max": h_max,
+        "boundary_volume_m3": boundary_volume,
+        "max_froude": max_froude,
+    }
 
 
 __all__ = ["adaptive_dt", "run", "step"]

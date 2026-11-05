@@ -57,6 +57,7 @@ for extra in (REPO / "worker", REPO / "src"):
 from climaterisk_worker.twin.pipeline import (  # noqa: E402
     compare_climate,
     compare_defences,
+    compare_hazard_models,
     run,
 )
 from climaterisk_worker.twin.spec import SPEC_PATH, load_spec  # noqa: E402
@@ -93,6 +94,29 @@ def _print_climate(spec: dict[str, Any], out: Path) -> int:
                 f"{t['future_cut_off_value_usd_per_year']:>18,.0f}"
             )
         print(f"  outputs -> {out}")
+    return 0
+
+
+def _print_hazard_models(spec: dict[str, Any], out: Path) -> int:
+    """Print the stage-law vs 2D-model EAL table and the 2D run diagnostics."""
+    result = compare_hazard_models(spec, out)
+    print(f"Hazard models (seed {spec['seed']}) - EAL as % of total asset value:")
+    print(f"  {'model':<12}{'defence':<18}{'EAL %':>8}{'vs stage law':>14}")
+    for r in result["rows"]:
+        ratio = r["ratio_to_stage_law"]
+        shown = f"{ratio:.3f}" if ratio is not None else "-"
+        print(f"  {r['model']:<12}{r['defence']:<18}{r['eal_pct']:>8.3f}{shown:>14}")
+    for name, diag in result["diagnostics"].items():
+        err = max(
+            abs(d["stored_volume_m3"] - d["boundary_volume_m3"]) / max(d["boundary_volume_m3"], 1.0)
+            for d in diag["events"]
+        )
+        flag = "ok" if diag["within_validity"] else "OUTSIDE VALIDITY - do not use"
+        print(
+            f"  {name}: max Froude {diag['max_froude']:.2f} ({flag}), "
+            f"worst volume imbalance {err:.1e}"
+        )
+    print(f"  outputs -> {out}")
     return 0
 
 
@@ -140,12 +164,19 @@ def main(argv: list[str] | None = None) -> int:
         help="present vs future river stage for each defence scenario "
         "(climate_scenarios.csv); defences keep their present height",
     )
+    ap.add_argument(
+        "--hydraulic",
+        action="store_true",
+        help="compare the bathtub stage law with the 2D hydraulic model (hazard_models.csv)",
+    )
     args = ap.parse_args(argv)
 
     out = Path(args.out) if args.out else paths.derived_dir("synthetic_city")
     spec = load_spec(args.spec)
     if args.climate:
         return _print_climate(spec, out)
+    if args.hydraulic:
+        return _print_hazard_models(spec, out)
     if args.compare:
         table = compare_defences(spec, out)
         kinds = sorted(table[0]["by_kind"])

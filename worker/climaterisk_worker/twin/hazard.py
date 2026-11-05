@@ -12,7 +12,9 @@ from typing import Any
 from climaterisk_worker.twin.flood import flood_depths, layered_frequencies
 
 
-def build_hazard(assets: list[dict[str, Any]], spec: dict[str, Any]) -> Any:
+def build_hazard(
+    assets: list[dict[str, Any]], spec: dict[str, Any], depth: Any | None = None
+) -> Any:
     """A CLIMADA river-flood ``Hazard`` (``RF``, metres) with one centroid per asset.
 
     The per-asset ground elevation comes from the asset dicts; the stage-to-depth law and
@@ -29,6 +31,10 @@ def build_hazard(assets: list[dict[str, Any]], spec: dict[str, Any]) -> Any:
         assets: Asset dicts from :func:`climaterisk_worker.twin.build_city` (need ``latitude``,
             ``longitude``, ``ground_m``).
         spec: City specification (uses the ``flood`` section).
+        depth: Optional depth matrix (m), shape ``(n_events, n_assets)`` in ascending
+            return-period order — e.g. peak depths from the 2D model
+            (:func:`climaterisk_worker.twin.inundation.hydraulic_depths`). Default: the
+            bathtub stage law.
 
     Returns:
         A :class:`climada.hazard.Hazard` with ``haz_type="RF"``, ``units="m"``.
@@ -38,7 +44,8 @@ def build_hazard(assets: list[dict[str, Any]], spec: dict[str, Any]) -> Any:
     from scipy import sparse
 
     rps = sorted(spec["flood"]["return_periods"])
-    depth = flood_depths([a["ground_m"] for a in assets], spec)
+    if depth is None:
+        depth = flood_depths([a["ground_m"] for a in assets], spec)
     return Hazard(
         haz_type="RF",
         units="m",
