@@ -66,7 +66,11 @@
     "inland_decay_m_per_km": 0.2,
     "inland_decay_m_per_km_note": "Surge height lost per km inland (m/km); the CLIMADA Petals default from Pielke and Pielke (1997).",
     "sea_level_rise_m": 0.0,
-    "sea_level_rise_m_note": "Sea-level rise added to the surge (m); 0.0 is present day, raise it for a climate scenario."
+    "sea_level_rise_m_note": "Sea-level rise added to the surge (m); 0.0 is present day, raise it for a climate scenario.",
+    "surge_duration_h": 2.0,
+    "surge_duration_h_note": "Assumed duration (h) of the raised-cosine surge wave at the coast in the 2D model (rise, peak at half, fall); a typhoon surge lasts hours, not days. Kept short on purpose: the city is only ~2 km deep and fills within minutes, so durations of 3 h and more all give the bathtub (differences < 0.1 m in total) and only a shorter surge shows the 2D effect. Only the 2D model uses it; the Petals bathtub assumes the water stays up long enough to fill every low cell.",
+    "surge_recession_h": 3.0,
+    "surge_recession_h_note": "Assumed time (h) the 2D run continues after the surge wave so that water on land can settle."
   },
   "typhoon": {
     "_note": "Synthetic typhoon tracks (twin/typhoon.py; AGENTS.md step 7). Straight, constant-intensity hourly tracks aimed at the city centre with a random lateral offset and heading; wind is CLIMADA's Holland profile; priced with the repo's TC regional impact function for Korea. Every value is an assumption, not a fitted climatology.",

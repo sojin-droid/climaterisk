@@ -100,6 +100,60 @@ def peak_stages(spec: dict[str, Any]) -> Any:
     return float(fl["stage_2y_m"]) + float(fl["stage_slope_m"]) * np.log(t / 2.0)
 
 
+def _wave_run(
+    bed: Any,
+    cell: float,
+    spec: dict[str, Any],
+    base_m: float,
+    peak_m: float,
+    duration_s: float,
+    t_end_s: float,
+    snapshot_every_s: float | None = None,
+) -> tuple[Any, dict[str, float]]:
+    """One 2D run with row 0 of ``bed`` driven by a raised-cosine stage wave.
+
+    Row 0 starts at ``max(base - z, 0)`` and follows :func:`stage_hydrograph` to
+    ``peak_m`` and back over ``duration_s``; the run lasts ``t_end_s``. Manning ``n`` and the
+    CFL coefficient come from ``spec["hydraulic"]``.
+
+    Returns:
+        ``(result, diagnostics)``: the :func:`hydraulics.run` result dict and the
+        ``peak_stage_m``, ``max_froude``, ``boundary_volume_m3``, ``stored_volume_m3``
+        (change since $t=0$, m^3) and ``n_steps``.
+    """
+    import numpy as np
+
+    hyd = spec["hydraulic"]
+    cols = np.arange(bed.shape[1])
+    rows = np.zeros_like(cols)
+    h0 = np.zeros_like(bed)
+    h0[0, :] = np.maximum(base_m - bed[0, :], 0.0)
+    initial_volume = float(h0.sum() * cell * cell)
+
+    def stage(t: float) -> tuple[Any, Any, float]:
+        return rows, cols, stage_hydrograph(t, peak_m, base_m, duration_s)
+
+    res = run_hydraulics(
+        h0,
+        bed,
+        cell,
+        cell,
+        float(hyd["manning_n"]),
+        t_end_s,
+        alpha_cfl=float(hyd["alpha_cfl"]),
+        stage_fn=stage,
+        snapshot_every_s=snapshot_every_s,
+    )
+    stored = float(res["h"].sum() * cell * cell)
+    return res, {
+        "peak_stage_m": float(peak_m),
+        "max_froude": res["max_froude"],
+        "boundary_volume_m3": res["boundary_volume_m3"],
+        "stored_volume_m3": stored - initial_volume,
+        "n_steps": float(res["n_steps"]),
+    }
+
+
 def hydraulic_depths(
     graph: Any, assets: list[dict[str, Any]], spec: dict[str, Any]
 ) -> tuple[Any, list[dict[str, float]]]:
@@ -120,41 +174,13 @@ def hydraulic_depths(
     hyd = spec["hydraulic"]
     bed, cell, k = city_raster(graph, spec)
     rows_a, cols_a = asset_cells(assets, k)
-    river_cols = np.arange(bed.shape[1])
-    river_rows = np.zeros_like(river_cols)
     base = float(hyd["base_stage_m"])
     duration = float(hyd["flood_duration_h"]) * 3600.0
     t_end = duration + float(hyd["recession_h"]) * 3600.0
-    h0 = np.zeros_like(bed)
-    h0[0, :] = np.maximum(base - bed[0, :], 0.0)
-    initial_volume = float(h0.sum() * cell * cell)
 
     depths, diags = [], []
     for peak in peak_stages(spec):
-        p = float(peak)
-
-        def stage(t: float, p: float = p) -> tuple[Any, Any, float]:
-            return river_rows, river_cols, stage_hydrograph(t, p, base, duration)
-
-        res = run_hydraulics(
-            h0,
-            bed,
-            cell,
-            cell,
-            float(hyd["manning_n"]),
-            t_end,
-            alpha_cfl=float(hyd["alpha_cfl"]),
-            stage_fn=stage,
-        )
+        res, diag = _wave_run(bed, cell, spec, base, float(peak), duration, t_end)
         depths.append(res["h_max"][rows_a, cols_a])
-        stored = float(res["h"].sum() * cell * cell)
-        diags.append(
-            {
-                "peak_stage_m": p,
-                "max_froude": res["max_froude"],
-                "boundary_volume_m3": res["boundary_volume_m3"],
-                "stored_volume_m3": stored - initial_volume,
-                "n_steps": float(res["n_steps"]),
-            }
-        )
+        diags.append(diag)
     return np.vstack(depths), diags

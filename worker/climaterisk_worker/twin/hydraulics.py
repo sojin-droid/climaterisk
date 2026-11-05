@@ -241,6 +241,7 @@ def run(
     recorder: Any | None = None,
     stage_fn: Any | None = None,
     froude_min_depth: float = 0.05,
+    snapshot_every_s: float | None = None,
 ) -> dict[str, Any]:
     """Run the local-inertial solver from $t=0$ to $t_{\\text{end}}$.
 
@@ -267,12 +268,16 @@ def run(
             water this adds or removes is counted in ``boundary_volume_m3``.
         froude_min_depth: Cells shallower than this (m) are left out of ``max_froude``; the
             thin film at a wet/dry front has meaningless velocities.
+        snapshot_every_s: If set (s), store the depth raster at $t=0$, at the first step
+            reaching each further multiple of this interval, and at the end time.
 
     Returns:
         Dict with ``h``, ``q_x``, ``q_y``, ``t``, ``n_steps``, ``h_max`` (peak depth per
         cell over the run, m), ``boundary_volume_m3`` (net water added by ``stage_fn``,
         m^3; zero without it) and ``max_froude`` (largest cell Froude number over the run,
-        dimensionless).
+        dimensionless). With ``snapshot_every_s`` also ``snapshots``: a list of
+        ``(t_s, h)`` pairs (``h`` a copy, m) with strictly increasing times, the last being
+        the end time.
 
     Algorithm:
         Cell Froude number from the face discharges averaged to the cell centre:
@@ -300,6 +305,11 @@ def run(
     if stage_fn is not None:
         boundary_volume += _apply_stage(0.0)
     h_max = h.copy()
+    snapshots: list[tuple[float, np.ndarray]] = []
+    next_snapshot = 0.0
+    if snapshot_every_s is not None:
+        snapshots.append((0.0, h.copy()))
+        next_snapshot = float(snapshot_every_s)
 
     while t < t_end:
         dt = adaptive_dt(h, dx, dy, manning_n, alpha_cfl, g, h_dry)
@@ -339,10 +349,15 @@ def run(
             hd = h[deep]
             fr = np.hypot(qx_c[deep], qy_c[deep]) / (hd * np.sqrt(g * hd))
             max_froude = max(max_froude, float(fr.max()))
+        if snapshot_every_s is not None and (t >= next_snapshot or t >= t_end):
+            if t > snapshots[-1][0]:
+                snapshots.append((t, h.copy()))
+            while next_snapshot <= t:
+                next_snapshot += float(snapshot_every_s)
         if recorder is not None:
             recorder.record(t, h, q_x, q_y)
 
-    return {
+    result: dict[str, Any] = {
         "h": h,
         "q_x": q_x,
         "q_y": q_y,
@@ -352,6 +367,9 @@ def run(
         "boundary_volume_m3": boundary_volume,
         "max_froude": max_froude,
     }
+    if snapshot_every_s is not None:
+        result["snapshots"] = snapshots
+    return result
 
 
 __all__ = ["adaptive_dt", "run", "step"]

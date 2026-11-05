@@ -194,6 +194,73 @@ def _print_coastal(spec: dict[str, Any], out: Path) -> int:
     return 0
 
 
+def _print_coastal2d(spec: dict[str, Any], out: Path) -> int:
+    """Price Petals' surge bathtub and the 2D surge model side by side; save snapshots."""
+    import numpy as np
+    from climaterisk_worker.twin.city import build_city
+    from climaterisk_worker.twin.coastal import price_surge, surge_hazard, write_dem
+    from climaterisk_worker.twin.inundation import city_raster
+    from climaterisk_worker.twin.surge2d import surge_depths_2d, surge_hazard_2d
+
+    graph, assets = build_city(spec)
+    out.mkdir(parents=True, exist_ok=True)
+    dem = write_dem(graph, spec, out / "coast_dem.tif")
+    total_value = sum(a["asset_value_usd"] for a in assets)
+
+    def by_kind(eal: list[float]) -> dict[str, list[float]]:
+        out_k: dict[str, list[float]] = {}
+        for a, e in zip(assets, eal, strict=True):
+            v = out_k.setdefault(a["kind"], [0.0, 0.0])
+            v[0] += e
+            v[1] += a["asset_value_usd"]
+        return out_k
+
+    eal_bath = [
+        r.eal_usd or 0.0 for r in price_surge(assets, surge_hazard(assets, graph, spec, dem))
+    ]
+    eal_2d = [r.eal_usd or 0.0 for r in price_surge(assets, surge_hazard_2d(graph, assets, spec))]
+    co = spec["coast"]
+    print(
+        f"Coastal surge, bathtub vs 2D (seed {spec['seed']}) - surge {co['surge_duration_h']} h "
+        f"+ {co['surge_recession_h']} h recession, sea level rise {co['sea_level_rise_m']} m"
+    )
+    for label, eal in (("bathtub (Petals)", eal_bath), ("2D hydraulic", eal_2d)):
+        print(f"  {label}: total EAL {sum(eal):,.0f} USD/yr ({100 * sum(eal) / total_value:.3f} %)")
+        for k, (e, val) in sorted(by_kind(eal).items()):
+            print(f"    {k:<12} EAL {e:>12,.0f} USD/yr ({100 * e / val:.3f} %)")
+    ratio = sum(eal_2d) / sum(eal_bath) if sum(eal_bath) else float("nan")
+    print(f"  EAL 2D / bathtub = {ratio:.3f}")
+
+    depth, diags = surge_depths_2d(graph, assets, spec, snapshot_every_s=600.0)
+    fr = max(d["max_froude"] for d in diags)
+    limit = float(spec["hydraulic"]["max_valid_froude"])
+    flag = "  OUTSIDE VALIDITY" if fr >= limit else ""
+    print(f"  max Froude number of the 2D runs {fr:.2f} (valid below {limit}){flag}")
+    imbalance = max(
+        abs(d["stored_volume_m3"] - d["boundary_volume_m3"])
+        / max(abs(d["boundary_volume_m3"]), 1.0)
+        for d in diags
+    )
+    print(f"  worst volume imbalance {imbalance:.2e} (relative to boundary volume)")
+    worst = diags[int(np.argmax(depth.sum(axis=1)))]
+    bed, cell, _ = city_raster(graph, spec)
+    bed = bed.copy()
+    bed[0, :] = float(co["sea_bed_m"])
+    snaps = worst["snapshots"]
+    path = out / "surge_snapshots.npz"
+    np.savez_compressed(
+        path,
+        times_s=np.array([t for t, _ in snaps]),
+        depth=np.stack([h for _, h in snaps]),
+        bed=bed,
+        cell_m=cell,
+    )
+    print(
+        f"  worst event peak stage {worst['peak_stage_m']:.2f} m; {len(snaps)} snapshots -> {path}"
+    )
+    return 0
+
+
 def _print_heat(spec: dict[str, Any], out: Path) -> int:
     """Price street-level UTCI (canyon MRT approximation) and print productivity loss."""
     import numpy as np
@@ -292,6 +359,12 @@ def main(argv: list[str] | None = None) -> int:
         help="synthetic coast: typhoon storm surge (Petals bathtub) -> engine CF pricing",
     )
     ap.add_argument(
+        "--coastal2d",
+        action="store_true",
+        help="storm surge on the 2D hydraulic model vs the Petals bathtub; saves "
+        "surge_snapshots.npz",
+    )
+    ap.add_argument(
         "--heat",
         action="store_true",
         help="street-level UTCI (canyon MRT approximation) -> productivity loss",
@@ -300,6 +373,8 @@ def main(argv: list[str] | None = None) -> int:
 
     out = Path(args.out) if args.out else paths.derived_dir("synthetic_city")
     spec = load_spec(args.spec)
+    if args.coastal2d:
+        return _print_coastal2d(spec, out)
     if args.coastal:
         return _print_coastal(spec, out)
     if args.heat:
