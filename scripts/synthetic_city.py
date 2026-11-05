@@ -261,6 +261,21 @@ def _print_coastal2d(spec: dict[str, Any], out: Path) -> int:
     return 0
 
 
+def _animate(spec: dict[str, Any], out: Path) -> int:
+    """Write the animated flood page (flood_time.html) from the surge snapshots."""
+    from climaterisk_worker.twin.viewer_time import render_time_view
+
+    snap = out / "surge_snapshots.npz"
+    if not snap.exists():
+        print(f"error: {snap} not found - run with --coastal2d first to write it", file=sys.stderr)
+        return 1
+    page = render_time_view(
+        snap, spec, out / "flood_time.html", "Sea surge over the synthetic city"
+    )
+    print(f"Wrote {page}")
+    return 0
+
+
 def _print_heat(spec: dict[str, Any], out: Path) -> int:
     """Price street-level UTCI (canyon MRT approximation) and print productivity loss."""
     import numpy as np
@@ -365,6 +380,11 @@ def main(argv: list[str] | None = None) -> int:
         "surge_snapshots.npz",
     )
     ap.add_argument(
+        "--animate",
+        action="store_true",
+        help="animated 3D page (flood_time.html) from the surge_snapshots.npz of --coastal2d",
+    )
+    ap.add_argument(
         "--heat",
         action="store_true",
         help="street-level UTCI (canyon MRT approximation) -> productivity loss",
@@ -373,6 +393,8 @@ def main(argv: list[str] | None = None) -> int:
 
     out = Path(args.out) if args.out else paths.derived_dir("synthetic_city")
     spec = load_spec(args.spec)
+    if args.animate:
+        return _animate(spec, out)
     if args.coastal2d:
         return _print_coastal2d(spec, out)
     if args.coastal:
