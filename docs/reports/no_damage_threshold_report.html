@@ -1,0 +1,152 @@
+<title>무피해문턱 민감도</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column, a findings strip, one chart, then tables and method. */
+:root {
+  --bg: #f6f8fa; --surface: #ffffff; --fg: #17202b; --muted: #5b6878; --rule: #d9e0e8;
+  --sea: #1f6fb2; --sea-soft: #9cc3e6; --river: #8a6d3b; --warn: #b4532a;
+  --sans: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f141a; --surface: #161d25; --fg: #e4e9ef; --muted: #93a0b0; --rule: #2a3440;
+  --sea: #6aaee8; --sea-soft: #2f5d86; --river: #c9a66b; --warn: #e3875f; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0f141a; --surface: #161d25; --fg: #e4e9ef; --muted: #93a0b0; --rule: #2a3440;
+  --sea: #6aaee8; --sea-soft: #2f5d86; --river: #c9a66b; --warn: #e3875f; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 15.5px; line-height: 1.7; }
+main { max-width: 860px; margin: 0 auto; padding-block: 40px 64px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 36px; }
+header { display: grid; gap: 10px; }
+.eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+h1 { font-size: clamp(26px, 4vw, 36px); line-height: 1.25; margin: 0; text-wrap: balance; font-weight: 700; }
+h2 { font-size: 20px; margin: 0 0 10px; text-wrap: balance; }
+p { margin: 0; max-width: 68ch; }
+.lede { font-size: 17px; color: var(--fg); }
+.muted { color: var(--muted); }
+.findings { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+.finding { background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 16px 18px; display: grid; gap: 6px; align-content: start; }
+.finding .num { font-family: var(--mono); font-size: 28px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.finding .num.sea { color: var(--sea); } .finding .num.river { color: var(--river); } .finding .num.warn { color: var(--warn); }
+.finding .lbl { font-size: 14px; color: var(--muted); }
+section { display: grid; gap: 12px; min-width: 0; }
+.chart { background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 12px; overflow-x: auto; }
+.chart svg { display: block; width: 100%; min-width: 520px; height: auto; }
+.chart text { font-family: var(--mono); font-size: 11px; fill: var(--muted); }
+.chart .lab { font-family: var(--sans); font-size: 12.5px; font-weight: 500; }
+.tbl { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; font-size: 14px; }
+th, td { padding: 7px 10px; border-bottom: 1px solid var(--rule); text-align: right; white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+thead th { font-size: 12px; color: var(--muted); font-weight: 500; letter-spacing: .03em; }
+td.zero { color: var(--muted); }
+code, .mono { font-family: var(--mono); font-size: .92em; }
+ul { margin: 0; padding-left: 1.2em; display: grid; gap: 6px; max-width: 70ch; }
+.eq { font-family: var(--mono); background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 10px 14px; overflow-x: auto; white-space: pre; font-size: 13.5px; }
+footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--rule); padding-top: 16px; display: grid; gap: 4px; }
+</style>
+
+<main>
+  <header>
+    <div class="eyebrow">climaterisk · 물리적 리스크 엔진 비교 · 2026-11-05</div>
+    <h1>무피해문턱을 넣으면 기존 모델의 홍수 위험값은 얼마나 달라지나</h1>
+    <p class="lede">사용자 무피해문턱 계산표(261020)의 규칙을 기존 엔진(main, 추천 모델)에 그대로 얹어, 한국 내 무작위 지점 200곳에서 연간 기대손실(EAL)을 비교했습니다. 규칙은 침수심 T 이하에서 피해 0, T 초과에서는 JRC 곡선을 이동 없이 전체 깊이로 읽는 것입니다.</p>
+  </header>
+
+  <div class="findings">
+    <div class="finding"><div class="num">0.00 %</div><div class="lbl">기본값 T = 5 cm의 차이. 모든 지점, 모든 시나리오에서 정확히 같습니다.</div></div>
+    <div class="finding"><div class="num river">0.00 %</div><div class="lbl">하천 홍수는 T = 50 cm까지 올려도 변화 없음 (EAL &gt; 0 지점 24~33곳).</div></div>
+    <div class="finding"><div class="num sea">−2.0 %</div><div class="lbl">해안 홍수, T = 50 cm, 방어시설 적용 시 포트폴리오 합계 변화.</div></div>
+    <div class="finding"><div class="num warn">12 / 99</div><div class="lbl">해안 지점 중 T = 50 cm에서 손실이 0이 되는 곳. 합계는 작게 변해도 개별 자산은 크게 달라집니다.</div></div>
+  </div>
+
+  <section>
+    <h2>왜 5 cm에서는 차이가 0인가</h2>
+    <p>엔진이 쓰는 CLIMADA <span class="mono">ImpfRiverFlood</span> (JRC Huizinga 2017, Asia)는 곡선 점이 0 m와 0.05 m에서 모두 피해율 0입니다. 그래서 "5 cm 이하 0, 초과 시 원 곡선" 규칙은 기존 곡선과 수학적으로 같은 함수가 됩니다. 이 동일성은 해석해 테스트로 고정해 두었습니다.</p>
+    <div class="eq">JRC Asia 상업용:  깊이 0.00  0.05  0.50  1.00  2.00  6.00 m
+                  피해율 0.000 0.000 0.377 0.538 0.763 1.000</div>
+    <p class="muted">해안 홍수도 같은 곡선을 씁니다(haz_type만 CF). 따라서 계산표의 기본값 5 cm는 기존 결과를 바꾸지 않으며, 의미 있는 차이는 실사로 문턱이 올라갈 때(1층 바닥고, 차수판, 펌프)부터 생깁니다.</p>
+  </section>
+
+  <section>
+    <h2>문턱을 올리면: 포트폴리오 EAL 변화</h2>
+    <div class="chart" role="img" aria-label="문턱 T에 따른 포트폴리오 EAL 변화율. 하천 홍수는 0%로 평평하고, 해안 홍수는 T=0.5m에서 방어시설 적용 시 -2.0%, 미적용 시 -3.6%.">
+      <svg viewBox="0 0 680 300" xmlns="http://www.w3.org/2000/svg">
+        <g stroke="var(--rule)" stroke-width="1">
+          <line x1="60" y1="30" x2="620" y2="30"/><line x1="60" y1="85" x2="620" y2="85"/>
+          <line x1="60" y1="140" x2="620" y2="140"/><line x1="60" y1="195" x2="620" y2="195"/>
+          <line x1="60" y1="250" x2="620" y2="250"/>
+        </g>
+        <g text-anchor="end">
+          <text x="52" y="34">0 %</text><text x="52" y="89">−1 %</text><text x="52" y="144">−2 %</text>
+          <text x="52" y="199">−3 %</text><text x="52" y="254">−4 %</text>
+        </g>
+        <g text-anchor="middle">
+          <text x="115" y="272">0.05</text><text x="170" y="272">0.10</text><text x="225" y="272">0.15</text>
+          <text x="390" y="272">0.30</text><text x="610" y="272">0.50</text>
+          <text x="340" y="292">무피해문턱 T (m)</text>
+        </g>
+        <polyline fill="none" stroke="var(--river)" stroke-width="2.5" points="115,30 170,30 225,30 390,30 610,30"/>
+        <polyline fill="none" stroke="var(--sea-soft)" stroke-width="2.5" points="115,30 170,31.1 225,36.05 390,85 610,225.25"/>
+        <polyline fill="none" stroke="var(--sea)" stroke-width="2.5" points="115,30 170,31.65 225,37.15 390,80.05 610,141.65"/>
+        <g fill="var(--river)"><circle cx="115" cy="30" r="3.5"/><circle cx="170" cy="30" r="3.5"/><circle cx="225" cy="30" r="3.5"/><circle cx="390" cy="30" r="3.5"/><circle cx="610" cy="30" r="3.5"/></g>
+        <g fill="var(--sea-soft)"><circle cx="390" cy="85" r="3.5"/><circle cx="610" cy="225.25" r="4.5"/></g>
+        <g fill="var(--sea)"><circle cx="390" cy="80.05" r="3.5"/><circle cx="610" cy="141.65" r="4.5"/></g>
+        <text class="lab" x="604" y="20" text-anchor="end" style="fill: var(--river)">하천 홍수 (과거·RCP8.5 2050) 0 %</text>
+        <text class="lab" x="600" y="137" text-anchor="end" style="fill: var(--sea)">해안 홍수, 방어시설 적용 −2.03 %</text>
+        <text class="lab" x="600" y="221" text-anchor="end" style="fill: var(--sea)">해안 홍수, 방어시설 미적용 −3.55 %</text>
+      </svg>
+    </div>
+    <p class="muted">포트폴리오 = 지점마다 자산가치 100만 USD를 둔 합계. 방어시설은 기존 설정(하천·해안 50년 설계빈도, 배수펌프장 2 km 이내 하천 100년)입니다.</p>
+  </section>
+
+  <section>
+    <h2>지점별 결과</h2>
+    <div class="tbl">
+      <table>
+        <thead><tr><th>표본 · 재해 · 시나리오</th><th>EAL &gt; 0</th><th>T = 0.05</th><th>0.10</th><th>0.15</th><th>0.30</th><th>0.50 m</th></tr></thead>
+        <tbody>
+          <tr><td>전국 격자 · 하천 · 과거 1980–2000</td><td>24 / 100</td><td class="zero">0.00 %</td><td class="zero">0.00 %</td><td class="zero">0.00 %</td><td class="zero">0.00 %</td><td class="zero">0.00 %</td></tr>
+          <tr><td>전국 격자 · 하천 · RCP8.5 2030–2050</td><td>33 / 100</td><td class="zero">0.00 %</td><td class="zero">0.00 %</td><td class="zero">0.00 %</td><td class="zero">0.00 %</td><td class="zero">0.00 %</td></tr>
+          <tr><td>전국 격자 · 해안 · 과거</td><td>0 / 100</td><td class="zero">–</td><td class="zero">–</td><td class="zero">–</td><td class="zero">–</td><td class="zero">–</td></tr>
+          <tr><td>해안 침수 셀 · 해안 · 과거 (방어 적용)</td><td>99 / 100</td><td class="zero">0.00 %</td><td>−0.03 %</td><td>−0.13 %</td><td>−0.91 %</td><td>−2.03 %</td></tr>
+          <tr><td>　손실이 0이 된 지점</td><td></td><td class="zero">0</td><td>2</td><td>3</td><td>6</td><td>12</td></tr>
+          <tr><td>　위험등급이 바뀐 지점</td><td></td><td class="zero">0</td><td class="zero">0</td><td class="zero">0</td><td>5</td><td>6</td></tr>
+          <tr><td>해안 침수 셀 · 해안 · 과거 (방어 미적용)</td><td>99 / 100</td><td class="zero">0.00 %</td><td>−0.02 %</td><td>−0.11 %</td><td>−1.00 %</td><td>−3.55 %</td></tr>
+          <tr><td>　위험등급이 바뀐 지점</td><td></td><td class="zero">0</td><td>1</td><td>2</td><td>5</td><td>9</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="muted">T = 0.5 m에서 등급이 바뀐 해안 지점(방어 적용) 6곳은 모두 Medium → Low입니다. 예: 서산·당진 해안(36.80°N 126.84°E), 제주 서부(33.21°N 126.31°E).</p>
+  </section>
+
+  <section>
+    <h2>해석</h2>
+    <ul>
+      <li><strong>하천 홍수는 격자가 거칠어 얕은 물이 없습니다.</strong> ISIMIP 150″ 격자(약 4.6 km)는 셀의 침수 비율과 그 부분의 수심으로 표현되고, 수심은 대개 1 m를 넘습니다(0이 아닌 값의 5 %만 1 m 이하). 게다가 방어시설 규칙이 50년 미만 사건을 이미 지우므로, 50 cm 이하 문턱이 걸러낼 사건이 남지 않습니다.</li>
+      <li><strong>해안 홍수(Aqueduct, 약 1 km)는 얕은 침수가 있습니다.</strong> 0이 아닌 수심의 13.6 %가 5–50 cm 사이입니다. 그래서 문턱이 올라가면 개별 자산은 손실이 0이 되거나 등급이 내려가지만, 깊은 침수 지점이 합계를 지배해 포트폴리오 변화는 몇 %에 그칩니다.</li>
+      <li><strong>문턱의 효과는 건물 단위 해상도에서 드러납니다.</strong> 강남역 트윈(10 m 격자)에서는 얕은 도로 침수가 대부분이라 문턱과 건물 형태가 손실을 크게 바꿉니다. 기존 격자 모델에 문턱을 넣는 것만으로는 그 효과를 재현할 수 없습니다.</li>
+      <li><strong>제품 반영:</strong> 기본값 5 cm는 결과를 바꾸지 않으므로 지금 엔진에 켤 이유가 없습니다. 실사로 건물별 문턱이 확보되는 자산(해안 산업단지 등)에 한해 자산별 T를 받는 방식이 맞습니다. 설정에는 <span class="mono">enabled: false</span>로만 기록했습니다.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>방법</h2>
+    <div class="eq">EAL_T = Σ_e f_e · V · MDR(d_e) · 1[d_e &gt; T]        Δ = (EAL_T − EAL) / EAL
+f_e 사건 빈도 (1/년) · V 자산가치 (USD) · d_e 최근접 격자 수심 (m) · MDR JRC 피해율</div>
+    <ul>
+      <li>엔진: <span class="mono">runner.compute_physical_risk_models</span>, 추천 모델 (하천 = DATA_API_COUNTRY ISIMIP, 해안 = GLOBAL_BASELINE Aqueduct). 손상곡선과 엔진 코드는 바꾸지 않고, 홍수 재해에만 문턱을 적용했습니다.</li>
+      <li>표본 1 (전국 격자): 하천 홍수 KOR 격자 셀 중 무작위 100곳, 셀 안에서 위치를 흔듦. 표본 2 (해안): Aqueduct 해안 침수 셀 중 무작위 100곳. 시드 20261105, 범위 126–129.5°E, 33–38°N (울릉·독도 제외).</li>
+      <li>용도: 사무·주거·산업 무작위 배정, 자산가치 지점당 100만 USD. EAL 비율은 가치와 무관합니다.</li>
+      <li>재현: <span class="mono">scripts/no_damage_threshold_report.py</span>, 테스트 <span class="mono">tests/test_no_damage_threshold_report.py</span> (브랜치 feat/no-damage-threshold-report, 커밋 136638a).</li>
+    </ul>
+  </section>
+
+  <footer>
+    <div>문턱 값 0.10–0.50 m는 민감도 확인용 예시 수준이며 실사 값이 아닙니다. 고객 실사 자료는 사용하지 않았습니다.</div>
+    <div>재해 자료: CLIMADA Data API river_flood (ISIMIP), WRI Aqueduct Floods. 손상곡선: Huizinga et al. 2017 (JRC).</div>
+  </footer>
+</main>
