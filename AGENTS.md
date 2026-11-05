@@ -162,6 +162,16 @@ R. **Real neighbourhood (user, 2026-11-05: public data allowed).** Gangnam stati
    reads both pluvial npz files, prints ground vs basement loss with and without walls,
    the total basement inflow vs the rain volume (one-way coupling check), writes
    `site_losses_basement.csv`.
+   **R3c done but its numbers are INVALID** (Sonnet, commit 53ccf5e): one-way coupling let
+   basements take 39-45x the storm rain (7.3 M m3 vs 0.19 M m3), so basement loss 635 M USD
+   is meaningless. Trap: never read a sink off a depth field without removing the water.
+   R3d couples both ways. **Gate R3d: `tests/test_basement_coupled.py`** (protected):
+   `hydraulics.run(sink_fn=...)` (clipped, volume-balanced), `run_pluvial(sink_fn=...)`,
+   `basement.entrance_cells` (lowest ring cell), `basement.BasementSink` (weir flow above
+   the sill only, shared cells scaled, capped at basement capacity = levels x area x ff).
+   CLI `--basement` re-runs the storm with and without walls, both with basement sinks, and
+   prices ground + basement storeys from the coupled depths and volumes; it reports
+   basement volume as a share of the rain (must be < 100 %).
 10. **Pluvial (rain) flood.** On the step-6 model: Huff design-storm hyetograph, NRCS
     curve-number infiltration, manhole sinks at a sewer capacity. Repo-specific method —
     label it as such in outputs.

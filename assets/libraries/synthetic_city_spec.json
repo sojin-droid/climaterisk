@@ -204,7 +204,7 @@
   "basement": {
     "_note": "Basement storeys of above-ground buildings on the real site (twin/basement.py; AGENTS.md step R3c), following the user's sheets 층별_침수피해율_비교(261020) (storey-weighted value, default basement storeys by use) and 지하침수_시험계산 (ramp entrance as a broad-crested weir). OSM has no basement data: every number here is an assumption or a sheet default, not a survey value. Street water entering a basement is NOT removed from the 2D street flow (one-way coupling).",
     "levels": {
-      "_note": "Default basement storeys by OSM building value, from the storey sheet's defaults when the location is unknown (office 4, retail/hotel 3, residential 2, logistics 1); unlisted values use _default.",
+      "_note": "Default basement storeys by OSM building value, from the storey sheet's defaults when the location is unknown (office 4, retail/hotel 3, residential 2, logistics 1); unlisted values use _default. school, church, public, university (1) and hospital (2) are reviewer assumptions added in R3d: the sheet covers commercial assets only.",
       "_default": 3,
       "office": 4,
       "commercial": 3,
@@ -216,7 +216,12 @@
       "detached": 0,
       "industrial": 1,
       "warehouse": 1,
-      "garage": 0
+      "garage": 0,
+      "school": 1,
+      "church": 1,
+      "public": 1,
+      "university": 1,
+      "hospital": 2
     },
     "min_storeys": 4,
     "min_storeys_note": "assumption: only buildings with at least this many above-ground storeys get basements; small low-rise buildings in OSM are not assumed to have basement car parks.",
