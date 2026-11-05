@@ -58,7 +58,11 @@ published benchmarks and conservation laws — before its numbers are used.
    The stage law stays the default hazard (2D costs ~40 s per wave duration).
    Levees are still applied after the run (`protection.protect`), not as walls in 2D.
 7. **Typhoon.** Synthetic tracks → CLIMADA `TropCyclone` wind field (Holland profile),
-   priced with the repo's TC regional impact function.
+   priced with the repo's TC regional impact function. **Gate: `tests/test_typhoon.py`**
+   (protected) — its docstring is the API to implement in `twin/typhoon.py`. Add a
+   `typhoon` section to the spec (seeded tracks passing near the city; every value with a
+   `_note`) and a `--typhoon` CLI flag printing EAL % by asset kind. Wind needs no download:
+   pass `ignore_distance_to_coast=True` to `TropCyclone.from_tracks`.
 8. **Heatwave.** Hazard-only in money terms (no published damage curve). Street-level
    mean radiant temperature / UTCI and the repo's labour-productivity and heat-mortality
    modules on a synthetic population. EnergyPlus for building cooling load is optional and

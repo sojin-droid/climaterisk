@@ -1,3 +1,4 @@
 tests/test_synthetic_city.py
 tests/test_hydraulics.py
 tests/test_inundation.py
+tests/test_typhoon.py
