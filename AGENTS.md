@@ -117,6 +117,12 @@ R. **Real neighbourhood (user, 2026-11-05: public data allowed).** Gangnam stati
    `paths.external_dir("copernicus_dem")` (credit "Copernicus DEM, ESA"). GLO-30 is a
    surface model: building footprints are masked and the ground interpolated.
    R1 site extraction + buildings as walls in the 2D model — **gate `tests/test_site.py`**.
+   **R1 done** (`f876274` by Sonnet + review): 105 x 111 cells of 10 m, 880 buildings
+   (height tag 30 %, levels 12 %, typology 58 %), ground 7-72 m (Seocho basin west of the
+   station, Yeoksam hill east). Review fix: OSM marks the Gangnam Station Underground
+   Shopping Center as a building — underground features (`layer` < 0, `location=underground`,
+   `tunnel=yes`) and canopies (`building=roof`) are not walls; keep the underground mall as
+   an exposure for R3 (water enters it).
    R2 rain on the real site (this replaces step 10 on the synthetic city), time viewer with
    real footprints, buildings-as-walls vs no-buildings comparison. R3 pricing.
 10. **Pluvial (rain) flood.** On the step-6 model: Huff design-storm hyetograph, NRCS

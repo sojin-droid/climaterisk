@@ -21,6 +21,9 @@ walls. Module under test: ``worker/climaterisk_worker/twin/site.py``, plus one a
   else ``building:levels`` x ``spec["site"]["floor_to_floor_m"]``; else
   ``spec["site"]["default_levels"][building]`` (falling back to ``["yes"]``) x
   ``floor_to_floor_m``; ``height_source`` is ``"height"``, ``"levels"`` or ``"typology"``.
+  Added in review (the Gangnam underground mall was walling off the station crossing):
+  ``underground`` (``layer`` < 0, ``location=underground`` or ``tunnel=yes``) and ``is_wall``
+  (false for underground features and open structures such as ``building=roof``).
 - ``building_mask(grid, buildings)`` -> boolean ``(ny, nx)``: cell centre inside a footprint.
 - ``bare_earth(dsm_path, grid, mask)`` -> float ``(ny, nx)`` ground elevation (m): the surface
   model sampled at the cell centres (bilinear), then every masked cell replaced by
@@ -66,6 +69,8 @@ def _osm_xml(path: Path) -> Path:
         (square(50, 50), {"building": "office", "height": "45 m"}),
         (square(150, 50), {"building": "apartments", "building:levels": "12"}),
         (square(250, 150), {"building": "commercial"}),
+        (square(50, 200), {"building": "yes", "layer": "-1", "location": "underground"}),
+        (square(150, 200), {"building": "roof", "layer": "1"}),
     ]
     lines = ['<?xml version="1.0" encoding="UTF-8"?>', '<osm version="0.6" generator="test">']
     nid, ways = 1, []
@@ -102,7 +107,12 @@ def test_building_heights_follow_the_tag_rules(tmp_path: Path) -> None:
     spec = load_spec()
     ff = spec["site"]["floor_to_floor_m"]
     b = site.read_buildings(_osm_xml(tmp_path / "t.osm"), BBOX, spec)
-    assert b.crs.to_epsg() == 4326 and len(b) == 3
+    assert b.crs.to_epsg() == 4326 and len(b) == 5
+    under = b[b["underground"]]
+    assert len(under) == 1 and not under["is_wall"].any()
+    assert not b[b["building"] == "roof"]["is_wall"].any()
+    b = b[~b["underground"] & (b["building"] != "roof")]
+    assert b["is_wall"].all()
     by = {r.building: r for r in b.itertuples()}
     assert by["office"].height_m == pytest.approx(45.0)
     assert by["office"].height_source == "height"
@@ -118,6 +128,7 @@ def test_building_heights_follow_the_tag_rules(tmp_path: Path) -> None:
 def test_building_mask_marks_cells_inside_footprints(tmp_path: Path) -> None:
     grid = site.site_grid(BBOX, 10.0)
     b = site.read_buildings(_osm_xml(tmp_path / "t.osm"), BBOX, load_spec())
+    b = b[b["is_wall"]]
     mask = site.building_mask(grid, b)
     assert mask.shape == (grid.ny, grid.nx) and mask.dtype == bool
     assert mask.sum() == 3 * 16  # 40 m squares on 10 m cells, edges on cell boundaries

@@ -106,6 +106,18 @@ def _levels_from_tag(value: str | None) -> float | None:
     return levels if math.isfinite(levels) and levels > 0 else None
 
 
+def _layer(value: str | None) -> float:
+    """The OSM ``layer`` tag as a number; 0 when missing or unparseable."""
+    try:
+        return float(value) if value is not None else 0.0
+    except ValueError:
+        return 0.0
+
+
+#: OSM ``building`` values that are open structures: water passes beneath them.
+NOT_WALLS: frozenset[str] = frozenset({"roof", "carport", "canopy", "bridge"})
+
+
 def read_buildings(
     osm_path: Path | str, bbox: tuple[float, float, float, float], spec: dict[str, Any]
 ) -> gpd.GeoDataFrame:
@@ -113,7 +125,10 @@ def read_buildings(
 
     Heights follow ``height`` (m) -> ``building:levels`` x floor-to-floor -> typology default
     levels x floor-to-floor (``spec["site"]``); ``height_source`` is ``height``, ``levels``
-    or ``typology``.
+    or ``typology``. ``underground`` is true for ``layer`` < 0, ``location=underground`` or
+    ``tunnel=yes`` (e.g. Gangnam Station Underground Shopping Center); ``is_wall`` is false for
+    those and for open structures (``building`` in ``NOT_WALLS``, e.g. a roof canopy) — water
+    passes over or under them, so they must not block the 2D flow.
 
     Args:
         osm_path: ``.osm`` XML or ``.osm.pbf`` file (read with the GDAL OSM driver).
@@ -121,7 +136,8 @@ def read_buildings(
         spec: City spec containing a ``site`` section.
 
     Returns:
-        GeoDataFrame in EPSG:4326 with ``building``, ``height_m``, ``height_source``, geometry.
+        GeoDataFrame in EPSG:4326 with ``building``, ``height_m``, ``height_source``,
+        ``underground``, ``is_wall`` and geometry.
     """
     import pyogrio
 
@@ -135,8 +151,17 @@ def read_buildings(
     kinds: list[str] = []
     heights: list[float] = []
     sources: list[str] = []
+    underground: list[bool] = []
+    walls: list[bool] = []
     for kind, other in zip(raw["building"], raw["other_tags"], strict=True):
         tags = _parse_tags(other)
+        below = (
+            _layer(tags.get("layer")) < 0
+            or tags.get("location") == "underground"
+            or tags.get("tunnel") == "yes"
+        )
+        underground.append(bool(below))
+        walls.append(not below and str(kind) not in NOT_WALLS)
         height = _height_from_tag(tags.get("height"))
         levels = _levels_from_tag(tags.get("building:levels"))
         if height is not None:
@@ -150,7 +175,13 @@ def read_buildings(
         heights.append(float(height))
         sources.append(source)
     out = gpd.GeoDataFrame(
-        {"building": kinds, "height_m": heights, "height_source": sources},
+        {
+            "building": kinds,
+            "height_m": heights,
+            "height_source": sources,
+            "underground": underground,
+            "is_wall": walls,
+        },
         geometry=raw.geometry.values,
         crs="EPSG:4326",
     )
@@ -227,8 +258,9 @@ def build_site(spec: dict[str, Any]) -> dict[str, Any]:
     """Build the real site named in ``spec["site"]`` from the files on disk.
 
     Returns:
-        Dict with ``grid`` (SiteGrid), ``buildings`` (GeoDataFrame), ``mask`` (bool raster)
-        and ``ground`` (bare-earth elevation raster, m).
+        Dict with ``grid`` (SiteGrid), ``buildings`` (GeoDataFrame), ``mask`` (walls: bool
+        raster for ``hydraulics.run(blocked=...)``), ``dsm_mask`` (every above-ground footprint,
+        removed from the surface model) and ``ground`` (bare-earth elevation raster, m).
     """
     from climaterisk import paths
 
@@ -236,10 +268,18 @@ def build_site(spec: dict[str, Any]) -> dict[str, Any]:
     bbox = tuple(float(v) for v in cfg["bbox"])
     grid = site_grid(bbox, float(cfg["cell_m"]))  # type: ignore[arg-type]
     buildings = read_buildings(paths.osm_dir(cfg["osm_file"]), bbox, spec)  # type: ignore[arg-type]
-    mask = building_mask(grid, buildings)
+    # walls block the flow; anything above ground (walls and canopies) is in the surface model
+    mask = building_mask(grid, buildings[buildings["is_wall"]])
+    dsm_mask = building_mask(grid, buildings[~buildings["underground"]])
     dem = paths.external_dir("copernicus_dem", cfg["dem_file"])
-    ground = bare_earth(dem, grid, mask)
-    return {"grid": grid, "buildings": buildings, "mask": mask, "ground": ground}
+    ground = bare_earth(dem, grid, dsm_mask)
+    return {
+        "grid": grid,
+        "buildings": buildings,
+        "mask": mask,
+        "dsm_mask": dsm_mask,
+        "ground": ground,
+    }
 
 
 __all__ = [
