@@ -63,6 +63,8 @@ published benchmarks and conservation laws — before its numbers are used.
    `typhoon` section to the spec (seeded tracks passing near the city; every value with a
    `_note`) and a `--typhoon` CLI flag printing EAL % by asset kind. Wind needs no download:
    pass `ignore_distance_to_coast=True` to `TropCyclone.from_tracks`.
+   **Done** (`d649a43` by Sonnet, fixed in review): EAL 0.045 % of value, uniform across
+   asset kinds (the city is ~2 km, storms ~100 km wide, one WP4 curve for all types).
 8. **Heatwave.** Hazard-only in money terms (no published damage curve). Street-level
    mean radiant temperature / UTCI and the repo's labour-productivity and heat-mortality
    modules on a synthetic population. EnergyPlus for building cooling load is optional and
@@ -86,6 +88,9 @@ published benchmarks and conservation laws — before its numbers are used.
 - **Tolerances come before results.** Pick a test tolerance from the method's known error
   and say why; never widen it to whatever the code produced (step 6A first shipped a
   2 m dam break with a 1.6 m tolerance and a wrong Ritter formula).
+- **CLIMADA TC wind comes from central pressure**, not `max_sustained_wind`. Solve the
+  pressure for the wanted wind (`typhoon.pressure_for_vmax`); a fixed pressure-wind formula
+  mislabelled storms by 10-24 % and cut EAL by ~2.8x.
 - **Never add ruff per-file ignores** to silence long lines; wrap them.
 - **Tooling versions.** Use `uv sync --locked --all-extras`; CI pins ruff 0.15.18. A newer
   ruff reformats Markdown code blocks — never commit changes to files outside your step.

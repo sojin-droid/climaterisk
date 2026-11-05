@@ -9,8 +9,6 @@
     "annual_rate_per_year_note": "Assumed total rate (1/yr) of typhoons passing near the city, split equally over the tracks; a placeholder of the order of Korean landfall counts, not a measurement.",
     "vmax_ms": [25.0, 55.0],
     "vmax_ms_note": "Assumed range of maximum sustained wind (m/s), drawn uniformly per track.",
-    "pressure_wind_coeff": 6.3,
-    "pressure_wind_coeff_note": "Assumed Holland-type coefficient c (m/s per sqrt(hPa)) in vmax = c * sqrt(1010 - pmin). CLIMADA's wind field is driven by the central pressure, not by max_sustained_wind, so the pressure is set from vmax with this relation; c was read off CLIMADA 6.1 runs (peak 47.5 m/s at 950 hPa, 66 m/s at 900 hPa).",
     "rmax_km": [20.0, 60.0],
     "rmax_km_note": "Assumed radius of maximum wind range (km), drawn uniformly per track.",
     "speed_kmh": [15.0, 40.0],

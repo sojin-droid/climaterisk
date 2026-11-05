@@ -135,3 +135,26 @@ def test_stronger_storms_cost_more() -> None:
     base = _hand_eal(assets, typhoon.build_tc_hazard(assets, spec)).sum()
     more = _hand_eal(assets, typhoon.build_tc_hazard(assets, strong)).sum()
     assert more > base > 0.0
+
+
+@pytest.mark.parametrize("vmax", [25.0, 40.0, 55.0])
+@pytest.mark.parametrize("rmax_km", [20.0, 60.0])
+def test_storm_reaches_its_stated_wind(vmax: float, rmax_km: float) -> None:
+    """Added in review: CLIMADA drives wind from pressure, so the spec's vmax must be what
+    a (near-stationary) storm really produces — within 3 %."""
+    p = typhoon.pressure_for_vmax(vmax, rmax_km, 37.0)
+    track = typhoon.make_track(
+        37.0,
+        127.0,
+        heading_deg=0.0,
+        speed_kmh=0.1,
+        vmax_ms=vmax,
+        pmin_hpa=p,
+        rmax_km=rmax_km,
+        hours=6,
+        name="v",
+    )
+    off = np.linspace(0.1 * rmax_km, 3.0 * rmax_km, 120)
+    lon = 127.0 + off / (KM_PER_DEG * math.cos(math.radians(37.0)))
+    w = typhoon.wind_hazard(np.full(off.size, 37.0), lon, TCTracks(data=[track]), np.ones(1))
+    np.testing.assert_allclose(w.intensity.toarray().max(), vmax, rtol=0.03)

@@ -106,21 +106,71 @@ def _city_centre(spec: dict[str, Any]) -> tuple[float, float]:
     return lat, lon
 
 
+def pressure_for_vmax(vmax_ms: float, rmax_km: float, lat_deg: float) -> float:
+    """Central pressure (hPa) at which CLIMADA's stationary wind field peaks at ``vmax_ms``.
+
+    CLIMADA's Holland (2008) profile computes wind from the pressure deficit, so a fixed
+    pressure-wind formula mislabels storms (a power law with c = 6.3 gave only 76-90 % of
+    the nominal vmax). Instead the peak wind $W(p)$ is evaluated by CLIMADA itself for a
+    ladder of pressures in one call and inverted by linear interpolation (W is monotone).
+
+    Algorithm:
+        $$W(p) = \\max_r v_{H08}(r;\\, p, r_{max}, \\varphi),\\qquad
+          p_{min} = W^{-1}(v_{max})$$
+        ASCII: W(p) = peak CLIMADA wind of a near-stationary storm; pmin = interp(vmax, W, p)
+
+    $p$ central pressure (hPa), $r_{max}$ radius of maximum wind (km), $\\varphi$ latitude
+    (deg), $v_{max}$ target peak 1-min sustained wind (m/s).
+
+    Raises:
+        ValueError: when ``vmax_ms`` is outside the winds reachable on the ladder.
+    """
+    from climada.hazard import TCTracks
+
+    ladder = np.linspace(1008.0, 860.0, 75)
+    tracks = [
+        make_track(
+            lat_deg,
+            0.0,
+            heading_deg=0.0,
+            speed_kmh=0.1,
+            vmax_ms=0.0,
+            pmin_hpa=float(p),
+            rmax_km=rmax_km,
+            hours=6,
+            name=f"P{i:03d}",
+        )
+        for i, p in enumerate(ladder)
+    ]
+    for i, t in enumerate(tracks):
+        t.attrs["id_no"] = i + 1
+    off_km = np.linspace(0.25 * rmax_km, 2.5 * rmax_km, 60)
+    lon = off_km / (KM_PER_DEG_LAT * math.cos(math.radians(lat_deg)))
+    wind = wind_hazard(
+        np.full(off_km.size, lat_deg), lon, TCTracks(data=tracks), np.ones(len(tracks))
+    )
+    peak = wind.intensity.toarray().max(axis=1)
+    if not peak[0] <= vmax_ms <= peak[-1]:
+        raise ValueError(f"vmax {vmax_ms} m/s outside reachable {peak[0]:.1f}-{peak[-1]:.1f}")
+    return float(np.interp(vmax_ms, peak, ladder))
+
+
 def synthetic_tracks(spec: dict[str, Any]) -> tuple[Any, np.ndarray]:
     """Seeded synthetic tracks passing near the city, with equal annual frequencies.
 
     Algorithm:
         $$f_k = \\Lambda / N,\\quad x_k \\sim U(-M, M),\\quad
-        p_{min} = p_{env} - (v_{max}/c)^2$$
+        p_{min} = W^{-1}(v_{max})$$
 
-        ASCII: f_k = rate/n_tracks ; x_k ~ Uniform(-miss, +miss) ; pmin = 1010 - (vmax/c)^2
+        ASCII: f_k = rate/n_tracks ; x_k ~ Uniform(-miss, +miss) ; pmin = inverse of W at vmax
 
     $\\Lambda$ is ``annual_rate_per_year`` (1/yr), $N$ the track count, $M$ ``miss_distance_km``
-    (km), $c$ ``pressure_wind_coeff`` (m/s per sqrt(hPa)), $p_{env}$ 1010 hPa. Each track aims
-    at the city centre displaced $x_k$ east and starts ``start_distance_km`` back along its
-    heading. Central pressure is set from $v_{max}$ by the Holland-type relation above,
-    because CLIMADA's wind field is driven by the central pressure, not by the track's
-    ``max_sustained_wind``.
+    (km), $W(p)$ the peak wind (m/s) CLIMADA produces for a stationary storm of central
+    pressure $p$ (hPa) — see :func:`pressure_for_vmax`. Each track aims at the city centre
+    displaced $x_k$ east and starts ``start_distance_km`` back along its heading. CLIMADA's
+    wind field is driven by the central pressure, not by the track's
+    ``max_sustained_wind``, so the pressure is solved so that the storm really reaches
+    $v_{max}$ (before the forward-motion asymmetry).
 
     Args:
         spec: City spec with a ``typhoon`` section and the ``seed``.
@@ -135,7 +185,6 @@ def synthetic_tracks(spec: dict[str, Any]) -> tuple[Any, np.ndarray]:
     lat_c, lon_c = _city_centre(spec)
     n = int(ty["n_tracks"])
     v_lo, v_hi = ty["vmax_ms"]
-    coeff = float(ty["pressure_wind_coeff"])
     data = []
     for k in range(n):
         vmax = float(rng.uniform(v_lo, v_hi))
@@ -143,7 +192,7 @@ def synthetic_tracks(spec: dict[str, Any]) -> tuple[Any, np.ndarray]:
         speed = float(rng.uniform(*ty["speed_kmh"]))
         heading = float(rng.uniform(*ty["heading_deg"]))
         offset_km = float(rng.uniform(-ty["miss_distance_km"], ty["miss_distance_km"]))
-        pmin = ENV_PRESSURE_HPA - (vmax / coeff) ** 2
+        pmin = pressure_for_vmax(vmax, rmax, lat_c)
         theta = math.radians(heading)
         d = float(ty["start_distance_km"])
         north_km = -d * math.cos(theta)
