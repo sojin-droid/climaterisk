@@ -3,3 +3,4 @@ tests/test_hydraulics.py
 tests/test_inundation.py
 tests/test_typhoon.py
 tests/test_heat.py
+tests/test_coastal.py

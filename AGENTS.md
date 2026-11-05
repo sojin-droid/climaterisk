@@ -80,6 +80,12 @@ published benchmarks and conservation laws — before its numbers are used.
    The heat-mortality module is calibrated on European reference cities; leave it out.
 9. **Coastal flood / surge.** Add a coastline to the spec; bathtub first (CLIMADA Petals
    `TCSurgeBathtub`), then the step-6 model with a coastal boundary stage.
+   **Gate 9A: `tests/test_coastal.py`** (protected) — its docstring is the API for
+   `twin/coastal.py`. The coast is synthetic: CLIMADA's distance-to-coast comes from a NASA
+   download (blocked, and meaningless for an imaginary city), so pass centroids whose
+   `get_dist_coast` is overridden and re-attach them to the wind hazard before calling
+   `TCSurgeBathtub.from_tc_winds` (TropCyclone replaces its centroids). DEM = city terrain
+   written as a GeoTIFF. Add a `coast` section to the spec and a `--coastal` CLI flag.
 10. **Pluvial (rain) flood.** On the step-6 model: Huff design-storm hyetograph, NRCS
     curve-number infiltration, manhole sinks at a sewer capacity. Repo-specific method —
     label it as such in outputs.
