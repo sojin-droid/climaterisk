@@ -75,6 +75,47 @@ rather than a guess.
 Region is `Asia` for Korean assets. The six continents are available; the engine does not
 interpolate between them.
 
+### Zero-damage threshold from a site survey (RF and CF)
+
+The curve stays as published. A facility may carry `flood_zero_damage_threshold_m` — the
+*outside* flood depth `T` up to which the building takes no damage, from a site survey. The
+engine then prices with
+
+$$\mathrm{MDR}_T(d) = \mathrm{MDR}(d)\,\mathbb{1}[d > T]$$
+
+(`registry.thresholded_flood_impact_function`): zero up to `T`, the JRC curve unchanged
+above it — water that tops the barrier floods with its full depth, the same overtopping rule
+the flood defences apply (`protection.py`). The function keeps its id and sector;
+`impact_function_source` records the step; the row records `T`. No `T`, or `T` ≤ 0.05 m
+(the curve's own zero point), reproduces the published curve exactly — the function object is
+returned untouched.
+
+`T` comes from the staged 무피해 문턱 rule in
+`src/climaterisk/physical_risk/flood_threshold.py` (`zero_damage_threshold`):
+
+| stage | survey input | counts when |
+|---|---|---|
+| default | — | no measurement: 0.05 m = the curve unchanged |
+| ① sill | lowest opening sill height | always |
+| ② flood board | board state · height | **installed** only — a planned / recommended board gives the separate *if installed* value (0.6 m when no height is given) |
+| ③ flood wall | wall state · height | a height is given and the state is not 없음 |
+| ④ first floor | first-floor height · opening to the basement | only when **no** opening leads below it |
+
+Each stage raises `T` only above the stage before; blanks are "not measured", never 0.
+Defaults and coefficients, each with a cited source, are in
+`assets/libraries/flood_threshold_defaults.json`. Drainage pumps are **not** counted for
+river or coastal flood (the water backflows through the drains); the pump head
+$\Delta H = (Q / (C\,B\,3600))^{2/3}$ gives a street-flood threshold `T + ΔH` for
+reference only — the engine prices no pluvial hazard.
+
+Inputs: `flood_zero_damage_threshold_m` on the API facility, the portfolio asset property
+of the same name, or the batch CSV column (`flood_zero_damage_threshold_m` /
+`flood_threshold_m` / `무피해문턱_m`). Applies to RF and CF; a TC row never carries it.
+
+Limitation: on the ~4.6 km ISIMIP river-flood grid the events left after defences mostly
+exceed 2 m, so a `T` up to about 1 m changes EAL little. The rule takes full effect once
+finer depth data is connected.
+
 ## 6. Tropical-cyclone methodology
 
 The regional function is chosen by **CLIMADA's own country table**, not by reading a region

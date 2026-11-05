@@ -57,6 +57,11 @@ _ALIASES = {
     "property_type": ("property_type", "type", "sector"),
     "asset_value_currency": ("asset_value_currency", "currency"),
     "province_name": ("province_name", "province", "시도명"),
+    "flood_zero_damage_threshold_m": (
+        "flood_zero_damage_threshold_m",
+        "flood_threshold_m",
+        "무피해문턱_m",
+    ),
 }
 _REQUIRED = ("facility_id", "latitude", "longitude", "asset_value_usd")
 
@@ -97,6 +102,10 @@ def read_facilities(path: str | Path) -> list[dict[str, Any]]:
                 }
                 if row.get("province_name"):  # 시도 — gives the loss curve its province lines
                     fac["province_name"] = row["province_name"]
+                if row.get("flood_zero_damage_threshold_m"):  # site survey T (m), optional
+                    fac["flood_zero_damage_threshold_m"] = float(
+                        row["flood_zero_damage_threshold_m"]
+                    )
             except ValueError as exc:
                 raise ValueError(f"line {i}: {exc}") from exc
             if not fac["facility_id"]:
@@ -109,6 +118,11 @@ def read_facilities(path: str | Path) -> list[dict[str, Any]]:
             if fac["asset_value_usd"] is not None and fac["asset_value_usd"] < 0:
                 raise ValueError(
                     f"line {i}: asset_value_usd is negative ({fac['asset_value_usd']})"
+                )
+            if fac.get("flood_zero_damage_threshold_m", 0.0) < 0:
+                raise ValueError(
+                    f"line {i}: flood_zero_damage_threshold_m is negative "
+                    f"({fac['flood_zero_damage_threshold_m']})"
                 )
             out.append(fac)
     dupes = sorted(

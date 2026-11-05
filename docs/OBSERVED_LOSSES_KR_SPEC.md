@@ -1,16 +1,21 @@
 # 국내 실측 손실 적재 명세 — 재해연보 → ObservedSeries → 보정 → 검증
 
-작성 2026-09-07 · 갱신 2026-09-07(구현 반영). 이 문서는 로더 **구현 전에** 계약을 확정하기 위한 것이며,
-지금은 데이터 게이트 **이전 단계(F2·F4·F5)가 구현된** 상태다. 현재 저장소에 재해연보 데이터는 **없고**,
-이 명세는 어떤 임의 데이터도 만들지 않는다.
+작성 2026-09-07 · 갱신 **2026-09-11(F1 구현·실데이터 적재)**. 이 문서는 로더 구현 전에 계약을 확정하려고
+쓴 것이고, 그 계약대로 F1이 구현됐다. 인증키가 들어오면서 데이터 게이트가 풀렸고, **실제 응답 1건이
+남아 있던 스키마 의문 2건(§4 `seq`, §12)을 종결**시켰다.
+
+저장소에는 여전히 재해연보 **값을 커밋하지 않는다** — 로더가 실행 시점에 API에서 받고, 테스트는
+합성 픽스처만 쓴다. 이 명세는 어떤 임의 데이터도 만들지 않는다.
+
+**보정은 데이터가 들어온 뒤에도 계속 차단 상태다.** 막고 있는 것이 데이터 부재가 아니기 때문이다(§6-1, §8).
 
 | 단계 | 상태 |
 |---|---|
-| **F1** `observed_kr.py` (재해연보 로더) | 🔴 **BLOCKED** — 만들지 않았다. 스키마(§4)·**단위 백만원**(§5-A)·가격기준(§5-A) 확인 완료. 남은 차단: **data.go.kr 인증키 없음**, **`seq` 의미 미확정**(위험은 축소 — §5-A), 그리고 원천 자체의 결함 3건(§5-B)을 로더가 처리해야 함 |
+| **F1** `observed_kr.py` (재해연보 로더) | ✅ **IMPLEMENTED** (2026-09-11) — 실 API에서 **2016–2023 전국 태풍 피해 8년 계열**(비영 7년, 백만원, `national:KOR`, nominal)을 만든다. 원천 결함 4건(`tot`·`typhoon_heavy_rain`·중복 `seq`·×1000 연도)을 모두 방어한다. 값은 커밋하지 않는다 |
 | **F2** `validation.py` 확장 | ✅ **IMPLEMENTED** — 단위/통화 파싱·검사, 서브페릴 커버리지, 공간범위, 연도기준, `comparability_report` |
 | **F3** `calibration.py` | 🟡 **부분** — 소스 선택 + 게이트 + 기록 메타데이터만(전체 리팩터는 F1 이후) |
 | **F4** `CalibrationRequest.observed_source` | ✅ **IMPLEMENTED** (기본 `emdat`, 후방호환) |
-| **F5** `tests/test_observed_kr.py` | ✅ **IMPLEMENTED** — 픽스처 + 파서 계약 + 게이트 테스트 24건(CLIMADA 불요) |
+| **F5** `tests/test_observed_kr.py` | ✅ **IMPLEMENTED** — 픽스처 + 파서 계약 + 로더 + 게이트 테스트 **43건**(CLIMADA 불요) |
 | **F6** API 전달 | ✅ **IMPLEMENTED** — `POST …/calibration?observed_source=` |
 | **F7** 문서 정합 | ✅ 이 문서 · `CLIMADA_METHODS.md` §8 · `RISK_REGISTER.md` C2/C5 |
 | **F8** UI 표시 갭 | ✅ **IMPLEMENTED** — 워커의 비-`ok` 출력을 카드로 표시(이유 + `blockers` + `comparison_status`), opt-in `not_comparable` 적합은 값 옆에 경고. `frontend/…/lib/calibration.ts` |
@@ -184,6 +189,163 @@ API 설명이 지목하는 원천은 「행정안전 통계연보」다. 그 표
   않으므로 KRW와 USD를 섞으면 조용히 틀린 값이 나온다. **규칙**: 보정·검증 실행 시 자산 통화를 KRW로
   두거나, 적재 단계에서 연도별 환율로 환산하고 `unit`에 명시한다. 코드에 **단위 불일치 assert 추가**(§9 F2/F5).
 
+## 5-C. Regional API 15107316 — 조사 결과 (2026-09-11)
+
+전국 API(15107318)를 지역 scope로 쪼갤 수 있는지 조사했다. **로더는 만들지 않았고**, 실제 요청은
+최소 1건만 보냈다. 엔드포인트를 추측하지 않고 공식 페이지의 embedded Swagger에서 확인했다.
+
+### Operation — 확정
+
+```
+GET https://apis.data.go.kr/1741000/RegionalNaturalDisasterDamage/getRegionalNaturalDisasterDamage
+```
+
+출처: 데이터셋 페이지(`https://www.data.go.kr/data/15107316/openapi.do`)에 embed된 `swaggerJson`
+(`host: apis.data.go.kr/1741000/RegionalNaturalDisasterDamage`, `paths: /getRegionalNaturalDisasterDamage`).
+**Swagger는 요청 파라미터를 고지하지 않는다**(`parameters: null`) — 전국 API와 같은
+`ServiceKey`·`pageNo`·`numOfRows`에 `type=xml`을 붙여 호출했다.
+
+### API access — ✅ 확보 (2026-09-11, 활용신청 승인 후)
+
+조사 착수 시점에는 차단돼 있었다. 3-way 대조로 "엔드포인트가 틀림"과 "권한 없음"을 분리해
+오퍼레이션 이름이 맞음을 먼저 확정했다 — 같은 키, 같은 순간:
+
+| 호출 | 결과 |
+|---|---|
+| 15107318 (활용신청 완료) | `INFO-0` + 데이터 |
+| 15107316 (신청 전) | HTTP 403 `SERVICE_KEY_IS_NOT_REGISTERED_ERROR` (**code 30**) |
+| 존재하지 않는 이름(대조군) | HTTP 400 `NO_OPENAPI_SERVICE_ERROR` (**code 12**) |
+
+code 30 ≠ code 12이므로 이름은 맞고 막는 것은 활용신청뿐이었다. 신청(자동승인) 후 동일 키로
+**정상 응답**을 받았다. 이용허락범위 제한 없음, 무료.
+
+**`type=xml`은 지역 API에서도 필수다.** 빼면 전국 API와 똑같이 HTTP 200 본문에 `HTTP_ERROR`
+봉투가 온다. Swagger는 요청 파라미터를 아예 고지하지 않는다(`parameters: null`).
+
+> 참고문서(컬럼정의서)는 **없다** — 페이지에 첨부 블록이 0건이다. 스키마의 1차 출처는 Swagger
+> definitions이고, 아래 값은 전부 실응답으로 확인했다.
+
+### Response schema — Swagger `definitions.row` (25 필드), 실응답 확인
+
+봉투는 전국 API와 동일(`head{totalCount,numOfRows,pageNo,RESULT,type}` + `row`).
+
+| 필드 | 설명(원문) | 실응답에서 확인한 것 |
+|---|---|---|
+| `wrttimeid` | 기준년도 | **2016–2023, 8개 연도** (전국과 동일 범위) |
+| `seq` | 분류 일련번호 | **지역 순번. 의미가 연도마다 바뀐다 — 아래 참조** |
+| `region` | 지역 | **시도 이름 문자열.** 지역코드 필드는 없다 |
+| `prop_tot` / `life_tot` | 합계_재산 / 합계_인명 | 재산은 소수 1자리, 인명은 정수 |
+| `<원인>_property_damage` | 원인별 재산피해 | 10종 |
+| `<원인>_life_damage` | 원인별 인명피해 | 10종 |
+
+원인 10종: `typhoon`, `heavy_rain`, `heavy_snow`, `strong_wind`, `wind_wave_strong_wind`,
+`typhoon_heavy_rain`, `lightning`, `cold_wave`, `earthquake`, `heatwave`.
+`totalCount = 143`.
+
+**전국 API와 다른 점 3가지.**
+1. **재산·인명이 분리돼 있다.** 전국은 재산피해 단일 측정값(`tot`, `typhoon`, …)인데 지역은 원인마다
+   `_property_damage`/`_life_damage` 쌍이다. 즉 **열 이름이 이미 금액과 인명을 가르므로**
+   §4의 `seq` 위험이 지역 API에서는 발생하지 않는다.
+2. **지진 철자가 다르다**: 전국 `earthquak`(원천 오타) vs 지역 `earthquake`.
+   **두 API 사이에 열 이름을 복사하면 안 된다.**
+3. **값에 소수 1자리가 있다** (`288862.5`). 전국 API는 정수로 반올림해 준다(`288862`).
+   지역 로더는 **정수 파싱을 쓰면 안 된다**. 두 API의 미세한 차이는 불일치가 아니라 반올림이다.
+
+### ⚠️ `seq`는 지역 키가 아니다 — 로더는 `region` 이름으로 읽어야 한다
+
+실응답이 드러낸 가장 중요한 함정이다.
+
+| 연도 | 행 수 | `seq=1` | `seq=2` | `seq=18` |
+|---|---|---|---|---|
+| 2016–2022 | **18** | **`합계`** | 서울 | 제주 |
+| **2023** | **17** | **`서울`** | 부산 | (없음) |
+
+2016–2022에는 **전국 합계 행이 `seq=1`로 섞여 있고**, 2023에는 **그 행이 없다**. 따라서
+`seq`로 지역을 식별하면 어떤 해에는 합계를, 어떤 해에는 서울을 집는다.
+
+**규칙 2가지 (구현 시 강제):**
+1. 지역은 **`region` 문자열로만** 식별한다. `seq`를 지역 키로 쓰지 않는다.
+2. `region == "합계"` 행은 **반드시 제외**한다. 포함하면 전국이 두 번 세어진다.
+
+전국 API에서 세운 "연도당 1행, `seq=1`" 규칙은 **지역 API로 전이되지 않는다.**
+
+### 지역 구성 — 시도 17개, 8년 내내 동일
+
+서울·부산·대구·인천·광주·대전·울산·세종·경기·강원·충북·충남·전북·전남·경북·경남·제주.
+세종을 포함해 **연도별 지역 집합이 완전히 동일**하다(집합 차이 0). **시군구·읍면동은 없다.**
+
+### 단위·가격기준 — 원천 표에서 확정
+
+응답에는 단위 요소가 없으므로 원천 표(행정안전 통계연보 **7-3-2-1 지역별 자연재난 피해**,
+2026판 `FILE_00148682JeSsbgy` p368 부근)를 직접 확인했다. 재산·인명 쌍 구조가 API 스키마와
+일치해 이 표가 원천임이 확인된다.
+
+* **단위(verbatim)**: `(단위: 백만원, 명) (Unit: KRW million, Person)` → 재산 **백만원**, 인명 **명**.
+* **가격기준(verbatim)**: `주1) 본 피해액은 당해 연도 가격 기준임` → **nominal**, 전국과 동일.
+
+전국 표에서 복사한 것이 아니라 **지역 표 자체에서** 확인했다(§5 결론 1의 원칙).
+
+### 전국 cross-check — ✅ 8년 전부 일치
+
+**A. 합계 행 vs 17개 지역 합** (합계 행이 있는 7개 연도): 차이 **≤ 1.0 백만원**(반올림).
+미분류 지역은 없다.
+
+**B. 지역 태풍 합 vs 전국 API `typhoon`** — 8년 전부:
+
+| 연도 | Σ17지역 태풍 | 전국 API 태풍 | ratio |
+|---|---:|---:|---:|
+| 2016 | 214,965.0 | 214,965 | 1.0000 |
+| 2017 | 0.0 | 0 | — |
+| 2018 | 64,199.7 | 64,200 | 1.0000 |
+| 2019 | 212,778.3 | 212,778 | 1.0000 |
+| 2020 | 222,541.4 | 222,541 | 1.0000 |
+| 2021 | 21,086.0 | 21,086 | 1.0000 |
+| 2022 | 244,046.0 | 244,046 | 1.0000 |
+| 2023 | 55,777.0 | 55,777 | 1.0000 |
+
+→ 지역 API는 전국 API와 **같은 계열을 지역으로 분해한 것**이며, 임의 보정 없이 합산하면 전국이
+된다. 잔차 ≤0.4는 전국 API의 정수 반올림이다.
+
+**C. `prop_tot` ≠ Σ(원인열)** — 전국 API와 같은 결함이 지역에도 있다: 2021년 +18.0(0.03 %),
+**2023년 +112,663(11.76 %)**. API가 원천 표 13종 중 10종만 주기 때문이다(우박·폭풍해일·냉해동해
+누락, §4). → **합계를 원인열로 재구성하지 않는다. 이름으로 지정한 열만 읽는다.**
+
+### ×1000 결함 — 현재 응답에는 없다
+
+연도별 Σ지역 `prop_tot`의 중앙값 대비 배수는 0.23–4.56으로 정상 범위다. 2026판 통계연보가
+2024 행을 천원으로 싣는 결함(§5-B-1)은 **지역 표에도 동일하게 존재**하지만(2024 지역 17개 합
+910,713,075 = 재해연보 910,713 백만원의 정확히 1000배), API는 아직 2024를 게시하지 않았다.
+→ 전국과 **동일한 anomaly guard가 필요**하며, 보정값을 자동 적용해서는 안 된다.
+
+### TC peril semantics — 전국과 동일
+
+지역에도 바람/해일/호우 분해 열은 **없다**. `typhoon_property_damage`는 태풍 사건에 귀속된
+재산피해 총액이다. §6-1의 판정을 그대로 유지한다:
+
+```
+observed coverage = wind + surge + rain
+model coverage    = wind
+```
+
+**지역 API는 이 물리적 coverage 격차를 해결하는 데이터가 아니다.**
+
+### 판정
+
+| 항목 | 판정 | 근거 |
+|---|---|---|
+| Regional `ObservedSeries` | 🟢 **READY** (구현만 남음) | 스키마·8년 계열·단위·가격기준·커버리지 전부 확정. `losses={year: typhoon_property_damage}`, `unit="KRW million"`, `price_basis="nominal"`, `covers_subperils=("wind","surge","rain")` |
+| Scope 호환성 | 🟡 **PARTIAL** | 시도 = **admin1**로 쓸 수 있으나 API가 **이름만** 준다. 행정표준코드 시도 2자리(11 서울 … 50 제주) 매핑 표가 필요하고 저장소에 없다. 계약이 예시하는 `admin2:28710`(시군구)은 **이 API로 불가능**하다 |
+| Calibration | 🔴 **BLOCKED** | 변경 없음 |
+
+지역 API가 해소하는 것은 **scope mismatch 하나뿐**이다. `observed = aggregate TC` vs
+`model = wind-only`는 그대로 남으므로 **지역 데이터 확보를 `calibration = READY`로 읽어서는
+안 된다.**
+
+```
+NEXT: regional validation / no calibration
+```
+
+
 ## 6. 재해유형 → 플랫폼 재해 매핑, 그리고 함정
 
 | 재해연보 유형 | 플랫폼 재해 | 비고 |
@@ -257,7 +419,7 @@ API 설명이 지목하는 원천은 「행정안전 통계연보」다. 그 표
 
 | # | 파일 | 변경 | 성격 |
 |---|---|---|---|
-| F1 | `worker/climaterisk_worker/observed_kr.py` **(신규)** | 재해연보 XML → `ObservedSeries`. 인증키 env(`CLIMATERISK_DATAGOKR_KEY`), 응답 원문 캐시, 단위·물가기준 `notes` 기입, 디플레이트 옵션 | 신규 |
+| F1 ✅ | `worker/climaterisk_worker/observed_kr.py` **(신규)** | **구현됨** 2026-09-11: 재해연보 XML → `ObservedSeries`. 인증키 env(`CLIMATERISK_DATAGOKR_KEY`, Decoding 형식), `type=xml` 필수(§4-A), 이름 기반 원인열 판독, 단위·가격기준·범위·커버리지 선언, 결함 방어 4건. **디플레이트는 미구현**(계열이 nominal이고 아직 환산 요구가 없음) | 신규 |
 | F2 ✅ | `worker/climaterisk_worker/validation.py` | **구현됨**: `parse_unit`/`check_units`(통화+배수, 미인식은 unknown=차단), `check_peril_coverage`, `check_scope`, `check_annual_basis`, `comparability_report`; `ObservedSeries`에 `currency`·`covers_subperils`·`scope`·`price_basis` 후방호환 추가; `annual_comparison`에 `years_compared`·단위·커버리지·`comparison_status` 메타데이터(기존 지표 무변경) | 확장 |
 | F3 🟡 | `worker/climaterisk_worker/calibration.py` | **부분 구현**: 소스 선택(`disaster_yearbook`→데이터게이트 오류), `calibration_gate`(=`comparability_report` 재사용)로 적합 **전** 차단, `portfolio_currency`, 기록에 §10 메타데이터. **목표 계산 자체는 무변경**(EM-DAT total/span) — `ObservedSeries` 경유 통일은 F1 이후 | 리팩터(잔여) |
 | F4 ✅ | `src/climaterisk/engines/base.py` | **구현됨**: `OBSERVED_SOURCES=("emdat","disaster_yearbook")`, `CalibrationRequest.observed_source="emdat"`, `from_portfolio(portfolio, observed_source="emdat")` | 스키마 |
@@ -266,8 +428,12 @@ API 설명이 지목하는 원천은 「행정안전 통계연보」다. 그 표
 | F7 ✅ | `docs/RISK_REGISTER.md` · `docs/CLIMADA_METHODS.md` | **갱신됨**: C2(게이트·소스선택), C5(비교 프레임워크 존재·관측 계열 없음), §8(게이트·메타데이터·기본동작 변경·UI 갭) | 문서 |
 | **F8** ✅ | `frontend/climaterisk/src/lib/calibration.ts` **(신규)** · `views/VulnerabilityView.tsx` · `types.ts` | **구현됨**: `calibrationOutcome()`이 출력 상태를 `ok`/`blocked`/`error`로 분류(블로커 有 또는 `comparison_status` 有 → `blocked`), `detail` 부재 시 일반 문구로 대체(빈 카드 금지). 성공 카드는 무변경이며, opt-in `not_comparable` 적합에는 경고 박스 추가. **게이트 차단은 "결과 없음"이 아니라 보고된 결과** | 소 |
 
-**착수 조건(데이터 게이트)**: F1은 실제 인증키와 컬럼정의서 확보 후 착수한다. 그 전에는 F2·F4의 계약과
-F5의 픽스처 골격까지만 진행 가능하다. **픽스처는 형식 검증용 소형 XML이며 분석·인용에 쓰지 않는다.**
+**착수 조건(데이터 게이트)** — **해소됨 2026-09-11.** 인증키가 확보돼 F1을 착수·완료했다. 픽스처 원칙은
+그대로다: **픽스처는 형식 검증용 소형 XML이며 분석·인용에 쓰지 않고, 실 응답 값을 저장소에 넣지 않는다.**
+
+**F1의 경계** — F1은 관측 데이터의 공급 계층이다. `v_half` 적합, `ImpactCalc`, 보정 최적화, 검증,
+포착률(capture ratio)은 F1의 책임이 **아니며** 하류 계층에 둔다. 특히 **TC capture diagnostic은
+별도의 하류 분석**이고 이 명세나 로더 문서에 그 수치를 싣지 않는다.
 
 ## 10. 금지 사항
 
@@ -313,11 +479,26 @@ F5의 픽스처 골격까지만 진행 가능하다. **픽스처는 형식 검�
 - ✅ **가격기준 = 당해연도(nominal)** — 판본 주석 모순을 값 대조로 판정(§5-A 확정 3).
 - ✅ **`seq`가 금액·인명을 섞을 위험** — 원천 표가 재산피해 단일 측정값임을 확인해 **배제**.
 
-**여전히 미해결(추측 금지 유지)**
-1. **`seq`가 세는 대상** — 행 순번인지 판본 구분인지. 응답 1건이면 확정된다.
-2. **API가 어느 판본을 담는지** — 2026판(2024행 포함, 단위 오류 있음)인지 그 이전인지. `wrttimeid`
-   최댓값과 값 크기로 판별 가능하나 **응답이 필요**하다.
-3. **인증키** — 유일한 하드 블로커.
+**해소된 것 (2026-09-11, 실 응답 1건)** — §12-A 참조. 위 3건 모두 종결됐다.
+
+### 12-A. 실 응답으로 종결된 항목 (2026-09-11)
+
+인증키를 확보해 **API를 실제로 호출**했다. 응답 1건이 남은 의문을 전부 닫았다.
+
+| 이전 상태 | 실 응답이 보여준 것 | 결론 |
+|---|---|---|
+| **인증키 없음** (하드 블로커) | `.env`의 `CLIMATERISK_DATAGOKR_KEY`(Decoding 형식, 64자) | 해소 |
+| **`seq`가 세는 대상 미확정** | `totalCount=8`, 연도 8개, **모든 행 `seq=1`**, 연도당 정확히 1행 | 이 데이터셋에서 `seq`는 금액/인명을 가르지 않는다(원천 표가 재산피해 단일 측정값). 로더는 **연도당 2행 이상이면 거부**하고 어느 행이 금액인지 추측하지 않는다 |
+| **어느 판본을 담는지 미확정** | `wrttimeid` 최댓값 **2023**, 2020 = `1,318,177` | 2024행을 포함한 2026판이 **아니다**. §5-B-1의 ×1000 결함은 현재 응답에 **없다**. 그래도 로더는 매번 검사한다(판본이 갱신될 수 있으므로) |
+
+**명세에 없던 사실 — `type=xml`이 필수다.** Swagger가 고지하는 요청 파라미터는 `ServiceKey`·`pageNo`·
+`numOfRows` 3개뿐인데, 이대로 호출하면 게이트웨이가 **HTTP 200 본문에 `HTTP_ERROR`(returnReasonCode 04)
+봉투**를 돌려준다. 데이터가 아니라 오류 봉투이므로 **빈 응답으로 오인하기 쉽다** — 로더는 봉투 루트 태그를
+검사해 거부하고, 테스트로 고정했다(`test_loader_rejects_a_gateway_error_envelope`).
+
+**단위 재확인.** §5-A가 원천 표에서 확정한 백만원이 실 응답과 일치한다: 2020 `tot` = 1,318,177 =
+1조 3,182억 원(공표치). 2023년 `tot`(958,221)과 API 원인열 합(845,558)의 차이 112,663도 §4가 기록한
+누락 3종 합계와 정확히 일치한다 — 단위와 열 누락 구조가 동시에 확인됐다.
 
 ---
 

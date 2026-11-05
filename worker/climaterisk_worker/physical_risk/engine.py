@@ -78,6 +78,13 @@ def _facility_exposure(facility: dict[str, Any], impf_col: str, impf_id: int) ->
     return Exposures(frame, value_unit=str(facility.get("asset_value_currency") or "USD"))
 
 
+def _optional_float(value: Any) -> float | None:
+    """``value`` as a float, or None when absent / blank — never a silent 0."""
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    return float(value)
+
+
 def _hazard_intensity_at(hazard: Any, lat: float, lon: float) -> float | None:
     """Peak intensity the hazard set reaches at the nearest centroid to a point."""
     import numpy as np
@@ -255,6 +262,22 @@ def calculate(
             f"(region={flood_region!r}, sector={sector!r}) — Huizinga et al. 2017 JRC"
             + (" — same curve, haz_type CF" if hazard_type == "CF" else "")
         )
+        # Site survey: zero damage up to the facility's threshold, the curve unchanged above.
+        # Recorded on the row whenever supplied — even a T at the curve's own zero, which
+        # changes nothing — so the export says what each flood row was priced with.
+        row.flood_zero_damage_threshold_m = _optional_float(
+            facility.get("flood_zero_damage_threshold_m")
+        )
+        if row.flood_zero_damage_threshold_m is not None:
+            thresholded = registry.thresholded_flood_impact_function(
+                func, row.flood_zero_damage_threshold_m
+            )
+            if thresholded is not func:
+                func = thresholded
+                row.impact_function_source += (
+                    f" — zero damage up to {row.flood_zero_damage_threshold_m:.2f} m "
+                    "(site survey threshold)"
+                )
     else:
         assigned = registry.tc_region_for_country(iso3) if iso3 else None
         if assigned is None:

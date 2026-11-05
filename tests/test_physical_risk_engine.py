@@ -320,3 +320,79 @@ def test_legacy_and_direct_climada_flood_curves_differ_and_the_reason_is_the_cur
     assert out["direct"] > 0 and out["legacy"] > 0
     # Same hazard, same exposure, same frequencies — any difference is the curve alone.
     assert np.asarray(direct.intensity).size != depths.size
+
+
+# --------------------------------------------------------------------------- #
+# Flood — site-survey zero-damage threshold                                    #
+# --------------------------------------------------------------------------- #
+_RF_DEPTHS, _RF_FREQ = [0.5, 1.0, 2.0, 4.0], [0.5, 0.2, 0.05, 0.01]
+
+
+def _jrc_mdr(x: float, sector: str = "commercial") -> float:
+    f = registry.flood_impact_function("Asia", sector)
+    return float(np.interp(x, f.intensity, f.mdd * f.paa))
+
+
+def test_engine_prices_a_surveyed_facility_with_the_stepped_curve_and_records_t() -> None:
+    hazard = synth("RF", "m", _RF_DEPTHS, _RF_FREQ)
+    plain = calculate(FACILITY, hazard, "RF", model_id=GLOBAL, iso3="KOR")
+    row = calculate(
+        {**FACILITY, "flood_zero_damage_threshold_m": 0.6},
+        hazard,
+        "RF",
+        model_id=GLOBAL,
+        iso3="KOR",
+    )
+    # analytic: the 0.5 m event is below T and contributes nothing; the rest are unchanged
+    want = 1e8 * sum(
+        fr * _jrc_mdr(x) for x, fr in zip(_RF_DEPTHS, _RF_FREQ, strict=True) if x > 0.6
+    )
+    assert row.calculation_status == CalculationStatus.FULL.value
+    assert row.eal_usd == pytest.approx(want, rel=1e-9)
+    assert row.eal_usd < plain.eal_usd
+    assert row.impact_function_id == plain.impact_function_id == 22  # same id, same sector
+    assert row.flood_zero_damage_threshold_m == 0.6
+    assert plain.flood_zero_damage_threshold_m is None
+    assert "zero damage up to 0.60 m (site survey threshold)" in row.impact_function_source
+    assert "zero damage" not in plain.impact_function_source
+    # the 100-year loss is the 4 m event under both — the step is below it
+    assert row.potential_loss_usd == pytest.approx(plain.potential_loss_usd)
+
+
+def test_a_threshold_at_the_curve_zero_reproduces_the_published_curve_exactly() -> None:
+    hazard = synth("RF", "m", _RF_DEPTHS, _RF_FREQ)
+    plain = calculate(FACILITY, hazard, "RF", model_id=GLOBAL, iso3="KOR")
+    row = calculate(
+        {**FACILITY, "flood_zero_damage_threshold_m": 0.05},
+        hazard,
+        "RF",
+        model_id=GLOBAL,
+        iso3="KOR",
+    )
+    assert row.eal_usd == pytest.approx(plain.eal_usd)
+    assert row.impact_function_source == plain.impact_function_source  # no suffix: no step
+    assert row.flood_zero_damage_threshold_m == 0.05  # still recorded: the survey said so
+
+
+def test_a_blank_threshold_is_not_a_threshold() -> None:
+    hazard = synth("RF", "m", _RF_DEPTHS, _RF_FREQ)
+    plain = calculate(FACILITY, hazard, "RF", model_id=GLOBAL, iso3="KOR")
+    row = calculate(
+        {**FACILITY, "flood_zero_damage_threshold_m": ""}, hazard, "RF", model_id=GLOBAL, iso3="KOR"
+    )
+    assert row.flood_zero_damage_threshold_m is None and row.eal_usd == pytest.approx(plain.eal_usd)
+
+
+def test_the_threshold_never_touches_tropical_cyclone() -> None:
+    hazard = synth("TC", "m/s", [30.0, 45.0, 60.0], [0.2, 0.05, 0.01])
+    plain = calculate(FACILITY, hazard, "TC", model_id=GLOBAL, iso3="KOR")
+    row = calculate(
+        {**FACILITY, "flood_zero_damage_threshold_m": 0.6},
+        hazard,
+        "TC",
+        model_id=GLOBAL,
+        iso3="KOR",
+    )
+    assert row.eal_usd == pytest.approx(plain.eal_usd)
+    assert row.flood_zero_damage_threshold_m is None  # a flood field; TC rows never carry it
+    assert row.impact_function_source == plain.impact_function_source

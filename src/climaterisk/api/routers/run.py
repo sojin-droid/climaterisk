@@ -315,6 +315,32 @@ def export_physical_risk_models_xlsx(session_id: str, run_id: str, manager: Mana
     )
 
 
+@router.get("/{session_id}/run/{run_id}/simple-summary")
+def get_simple_summary(session_id: str, run_id: str, manager: ManagerDep) -> dict[str, Any]:
+    """The simple-mode summary of a finished physical-risk run (one-screen view).
+
+    Headline figures, per-시도 present-vs-future table, return periods, largest assets and
+    coverage notes — sums and lookups over the run's own rows and curves
+    (:func:`climaterisk.physical_risk.simple_summary.build_simple_summary`).
+    """
+    from climaterisk.config import get_settings
+    from climaterisk.physical_risk.display_copy import recommended_models
+    from climaterisk.physical_risk.simple_summary import build_simple_summary
+
+    run = manager.poll(run_id)
+    if run is None or run.session_id != session_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="run not found")
+    if run.status != "done" or not run.output or "rows" not in run.output:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail="run is not a finished physical-risk-models run"
+        )
+    return build_simple_summary(
+        run.output,
+        krw_per_usd=get_settings().krw_per_usd,
+        preferred_models=recommended_models(),
+    )
+
+
 @router.get("/{session_id}/run/{run_id}/physical-risk-table")
 def get_physical_risk_table(
     session_id: str,

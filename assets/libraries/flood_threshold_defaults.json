@@ -1,0 +1,25 @@
+{
+  "description": "Zero-damage threshold T on the JRC flood curve: depth d <= T gives no damage, d > T gives JRC(d). Defaults apply only when the site survey has no measured value. Every value cites a source id in 'sources'.",
+  "values": {
+    "SILL_DEF": {"value": 0.05, "unit": "m", "blocks_outside_depth": "5 cm — the JRC curve's own zero point, i.e. the existing curve unchanged",
+                 "sources": ["R1", "R2", "F1"], "basis": "No Korean general value for the sill height of a basement opening was found (F1), so no extra protection is assumed without a measurement."},
+    "RAMP_W": {"value": 6.0, "unit": "m", "blocks_outside_depth": "none — only sets the pump head ΔH (wider ramp, smaller ΔH)",
+               "sources": ["L1"], "basis": "주차장법 시행규칙 제6조제1항제5호: ramp lane width 2-lane straight 6 m or more."},
+    "WEIR": {"value": 1.705, "unit": "m^0.5/s", "blocks_outside_depth": "none",
+             "sources": ["H1"], "basis": "Broad-crested weir Q = C·B·H^1.5, C = sqrt(g)·(2/3)^1.5 (critical-depth theory, losses ignored — upper bound of inflow)."},
+    "BOARD_PLAN": {"value": 0.6, "unit": "m", "blocks_outside_depth": "60 cm — used only in the 'if installed' value",
+                   "sources": ["S1", "S2", "K1"], "basis": "Assumption: expected depth 0.3 m + freeboard 0.3 m (S2 제7조). The expected depth is an assumption; S1 제4조 sets it from flood traces / maps."}
+  },
+  "sources": {
+    "R1": "Huizinga, J., de Moel, H., Szewczyk, W. (2017). Global flood depth-damage functions. JRC Technical Report EUR 28552 EN. doi:10.2760/16510",
+    "R2": "CLIMADA-petals 6.2.0 ImpfRiverFlood.from_jrc_region_sector; Aznar-Siguan, G., Bresch, D.N. (2019). CLIMADA v1. Geosci. Model Dev. 12, 3085-3097",
+    "R3": "Scussolini, P. et al. (2016). FLOPROS: an evolving global database of flood protection standards. Nat. Hazards Earth Syst. Sci. 16, 1049-1061 — overtopping above the standard floods with the full depth",
+    "H1": "Henderson, F.M. (1966). Open Channel Flow. Macmillan; Chow, V.T. (1959). Open-Channel Hydraulics. McGraw-Hill — broad-crested weir",
+    "L1": "주차장법 시행규칙 제6조제1항제5호 (경사로 차로 너비). Confirmed via 국토교통부 질의회신; current text on law.go.kr to be checked (2024-09 amendment)",
+    "S1": "행정안전부고시 제2024-88호 「지하공간 침수 방지를 위한 수방기준」",
+    "S2": "국토교통부고시 제2023-483호 「물막이설비 설치 기술기준」 제7조 (여유고 0.3 m)",
+    "K1": "김종천, 김지호 (2023). 한국산학기술학회논문지 24(11), 527-. doi:10.5762/KAIS.2023.24.11.527",
+    "K2": "조재웅, 최우정 (2011). 지하공간 내수침수피해 원인 — river / coastal water backflows, so pumps are not counted for RF / CF",
+    "F1": "Not found: a Korean general or standard value for the sill height of a basement opening (searched S1, S2, 주차장법, web)"
+  }
+}

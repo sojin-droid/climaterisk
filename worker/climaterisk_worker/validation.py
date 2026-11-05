@@ -185,6 +185,29 @@ class ObservedSeries:
     def years(self) -> list[int]:
         return sorted(self.losses)
 
+    @property
+    def n_years(self) -> int:
+        """Years the series carries — including years whose loss is zero."""
+        return len(self.losses)
+
+    @property
+    def n_nonzero_years(self) -> int:
+        """Years with a loss above zero. A zero year is data, not a gap."""
+        return sum(1 for value in self.losses.values() if value > 0.0)
+
+    @property
+    def observed_period(self) -> tuple[int, int] | None:
+        """``(first, last)`` year kept, or None for an empty series.
+
+        Derived from ``losses`` rather than stored, so it always describes what the series
+        actually contains: a loader that drops a year (a source defect, say) reports the
+        narrower period here and the reason in ``notes``.
+        """
+        if not self.losses:
+            return None
+        years = self.years()
+        return years[0], years[-1]
+
     def unit_spec(self) -> UnitSpec:
         """Parsed ``unit``; an explicit ``currency`` overrides what the parse inferred."""
         spec = parse_unit(self.unit)

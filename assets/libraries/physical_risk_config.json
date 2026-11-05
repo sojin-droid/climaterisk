@@ -1,8 +1,8 @@
 {
   "_meta": {
     "purpose": "Physical-risk engine configuration. Thresholds and mappings live here, not buried in code, so they can be changed without touching the calculation (docs/physical-risk-methodology.md).",
-    "version": "1.4.0",
-    "updated": "2026-10-14"
+    "version": "1.5.0",
+    "updated": "2026-10-16"
   },
   "risk_levels": {
     "metric": "eal_as_pct_of_assets",
@@ -31,6 +31,18 @@
   "potential_loss": {
     "return_period_years": 100,
     "note": "The representative PML return period. Reported only when the event set can resolve it; CLIMADA's calc_freq_curve saturates at the largest event instead of returning NaN, so an unresolvable request is recorded as null with calculation_status RETURN_PERIOD_NOT_RESOLVABLE."
+  },
+  "simple_summary": {
+    "_note": "Simple-mode summary (src/climaterisk/physical_risk/simple_summary.py): what the one-screen view flags. Display choices, not model parameters.",
+    "top_assets": 5,
+    "concentration_top_k": 10,
+    "concentration_flag_share": 0.25,
+    "increase_flag_pct": 50,
+    "decrease_flag_pct": -10,
+    "zero_usd": 0.005,
+    "display_unit_krw": 100000000,
+    "display_unit_label": "억 원",
+    "expected_hazards": ["RF", "CF", "TC"]
   },
   "portfolio_loss_curve": {
     "return_periods_years": [10, 25, 50, 100, 250],
