@@ -14,14 +14,17 @@ Per-building loss of one design storm on the real site, priced by the repo engin
   ``area * min(storeys, max_exposed_storeys) * cost_usd_per_m2[property type]``;
   underground features count one storey with the underground property type.
 - ``entry_depths(grid, buildings, h_max, walls, spec)`` -> float array (m), the depth that
-  goes into the depth-damage curve, one per building row, with ``s = entry_threshold_m``:
+  goes into the depth-damage curve, one per building row, with ``T = entry_threshold_m``.
+  No-damage threshold rule of the user's sheet (무피해문턱_계산표 261020, FLOPROS-style):
+  damage is 0 while the outside depth is at most T and, once over T, the unchanged JRC
+  curve at the FULL outside depth (the curve is NOT shifted by T):
   * a wall (``is_wall``): its cells are those whose centre lies inside the footprint (the
     cell containing ``representative_point()`` when none does); the ring is the
     8-neighbourhood of those cells minus the cells themselves minus every wall cell;
-    depth = ``max(max(h_max over ring) - s, 0)`` (0 when the ring is empty);
-  * above ground but not a wall (roof, canopy): ``max(max(h_max over its cells) - s, 0)``;
+    ``m = max(h_max over ring)`` (0 when the ring is empty), depth = ``m if m > T else 0``;
+  * above ground but not a wall (roof, canopy): the same with ``m`` = max over its cells;
   * underground: water standing above the threshold over the footprint drains into it,
-    ``V = sum over its cells of max(h_max - s, 0) * cell_m^2`` and
+    ``V = sum over its cells of max(h_max - T, 0) * cell_m^2`` and
     depth = ``min(V / area, floor_to_floor_m)``.
 - ``price_buildings(buildings, depth_m, value_usd, spec)`` -> dict with ``rows`` (one engine
   ``ResultRow`` per building, from ``engine.calculate(..., "RF", model_id=MODEL_ID,
@@ -117,6 +120,7 @@ def test_entry_depths_ring_tiny_canopy_and_underground() -> None:
     spec = load_spec()
     s = spec["loss"]["entry_threshold_m"]
     ff = spec["site"]["floor_to_floor_m"]
+    assert 0.0 < s < 0.2
     grid, b, walls = _toy()
     h = np.full((grid.ny, grid.nx), 0.2)
     h[walls] = 9.9  # wall cells never count
@@ -129,12 +133,12 @@ def test_entry_depths_ring_tiny_canopy_and_underground() -> None:
     h[15:18, 0:3] = 0.3 + s  # over the underground footprint
     h[0:2, 10:12] = 0.4
     d = site_loss.entry_depths(grid, b, h, walls, spec)
-    np.testing.assert_allclose(d[0], 0.7 - s, atol=1e-12)
+    np.testing.assert_allclose(d[0], 0.7, atol=1e-12)  # full depth, not 0.7 - T
     assert d[1] == 0.0
-    np.testing.assert_allclose(d[2], 0.55 - s, atol=1e-12)
+    np.testing.assert_allclose(d[2], 0.55, atol=1e-12)
     area_u = site_loss.footprint_area_m2(b)[3]
     np.testing.assert_allclose(d[3], min(9 * 0.3 * 100.0 / area_u, ff), rtol=1e-9)
-    np.testing.assert_allclose(d[4], 0.4 - s, atol=1e-12)
+    np.testing.assert_allclose(d[4], 0.4, atol=1e-12)
 
 
 def test_losses_go_through_the_engine_and_add_up() -> None:
@@ -182,5 +186,5 @@ def test_real_site_buildings_all_get_a_value(monkeypatch: pytest.MonkeyPatch) ->
     h = np.where(walls, 0.0, 0.3 + spec["loss"]["entry_threshold_m"])
     d = site_loss.entry_depths(grid, b, h, walls, spec)
     wall_rows = b["is_wall"].to_numpy()
-    np.testing.assert_allclose(d[wall_rows], 0.3, atol=1e-9)
+    np.testing.assert_allclose(d[wall_rows], 0.3 + spec["loss"]["entry_threshold_m"], atol=1e-9)
     assert np.all(d[b["underground"].to_numpy()] > 0)

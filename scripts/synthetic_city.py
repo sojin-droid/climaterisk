@@ -422,6 +422,7 @@ def _print_pluvial(spec: dict[str, Any], out: Path) -> int:
             cell_m=cell_m,
             walls=w,
             max_froude=float(runs[label]["max_froude"]),
+            h_max=runs[label]["h_max"].astype("float32"),
         )
     cell_deg_y = grid.cell_m / 111320.0
     cell_deg_x = grid.cell_m / grid.lon_m_per_deg
@@ -441,6 +442,99 @@ def _print_pluvial(spec: dict[str, Any], out: Path) -> int:
     print(f"  {spec['site']['attribution']['osm']}; {spec['site']['attribution']['dem']}")
     print(f"  wrote {out / 'pluvial_snapshots.npz'}, {out / 'pluvial_snapshots_nowalls.npz'}")
     print(f"  and {out / 'pluvial_hmax.tif'}")
+    return 0
+
+
+def _print_site_loss(spec: dict[str, Any], out: Path) -> int:
+    """Per-building loss of the --pluvial design storm, with and without walls."""
+    import numpy as np
+    import pandas as pd
+    from climaterisk_worker.twin import site_loss
+    from climaterisk_worker.twin.site import build_site
+
+    files = {
+        "with": out / "pluvial_snapshots.npz",
+        "without": out / "pluvial_snapshots_nowalls.npz",
+    }
+    stored = {}
+    for key, f in files.items():
+        if not f.exists():
+            print(f"error: {f} not found - run with --pluvial first to write it", file=sys.stderr)
+            return 1
+        with np.load(f) as z:
+            if "h_max" not in z.files:
+                print(
+                    f"error: {f} has no h_max - re-run with --pluvial to write it",
+                    file=sys.stderr,
+                )
+                return 1
+            stored[key] = (np.asarray(z["h_max"], dtype=float), np.asarray(z["walls"], dtype=bool))
+    site = build_site(spec)
+    grid, b = site["grid"], site["buildings"]
+    value = site_loss.exposed_value_usd(b, spec)
+    depth, loss = {}, {}
+    for key, (h_max, w) in stored.items():
+        depth[key] = site_loss.entry_depths(grid, b, h_max, w, spec)
+        loss[key] = site_loss.price_buildings(b, depth[key], value, spec)["loss_usd"]
+    under = b["underground"].to_numpy(dtype=bool)
+    print("Loss of ONE design storm (not an expected annual loss); building values are")
+    print("  assumptions (footprint x cost/m2), not client data.")
+    print(f"  {'':<34}{'with buildings':>18}{'no buildings':>18}")
+    total_value = float(value.sum())
+    print(f"  {'total exposed value (USD)':<34}{total_value:>18,.0f}{total_value:>18,.0f}")
+    row = {
+        "buildings with loss > 0": [int((loss[k] > 0).sum()) for k in ("with", "without")],
+        "total loss (USD)": [float(loss[k].sum()) for k in ("with", "without")],
+        "loss, % of exposed value": [
+            100.0 * float(loss[k].sum()) / total_value for k in ("with", "without")
+        ],
+        "underground mall loss (USD)": [float(loss[k][under].sum()) for k in ("with", "without")],
+    }
+    fmt = {
+        "buildings with loss > 0": "{:>18,d}",
+        "total loss (USD)": "{:>18,.0f}",
+        "loss, % of exposed value": "{:>18.3f}",
+        "underground mall loss (USD)": "{:>18,.0f}",
+    }
+    for name, vals in row.items():
+        print(f"  {name:<34}" + "".join(fmt[name].format(v) for v in vals))
+    for key, title in (("with", "with buildings"), ("without", "no buildings")):
+        print(f"  top 5 buildings by loss [{title}]")
+        for i in np.argsort(-loss[key])[:5]:
+            print(
+                f"    #{int(i):<4} {b['building'].iloc[i]!s:<12}"
+                f"{'(underground) ' if under[i] else ''}"
+                f"height {float(b['height_m'].iloc[i]):5.1f} m"
+                f"  depth {depth[key][i]:.2f} m  loss {loss[key][i]:>12,.0f} USD"
+            )
+    pts = [g.representative_point() for g in b.geometry]
+    kinds = [
+        spec["loss"]["underground_property_type"] if u else site_loss.property_type(k, spec)
+        for k, u in zip(b["building"], under, strict=True)
+    ]
+    frame = pd.DataFrame(
+        {
+            "idx": np.arange(len(b)),
+            "building": b["building"].to_numpy(),
+            "property_type": kinds,
+            "underground": under,
+            "is_wall": b["is_wall"].to_numpy(),
+            "height_m": b["height_m"].to_numpy(),
+            "storeys": site_loss.storeys(b, spec),
+            "area_m2": site_loss.footprint_area_m2(b),
+            "exposed_value_usd": value,
+            "depth_with_m": depth["with"],
+            "depth_without_m": depth["without"],
+            "loss_with_usd": loss["with"],
+            "loss_without_usd": loss["without"],
+            "lat": [p.y for p in pts],
+            "lon": [p.x for p in pts],
+        }
+    )
+    out.mkdir(parents=True, exist_ok=True)
+    frame.to_csv(out / "site_losses.csv", index=False)
+    print(f"  {spec['site']['attribution']['osm']}; {spec['site']['attribution']['dem']}")
+    print(f"  wrote {out / 'site_losses.csv'}")
     return 0
 
 
@@ -561,6 +655,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="animated 3D page (gangnam_rain.html) from the snapshots of --pluvial",
     )
+    ap.add_argument(
+        "--site-loss",
+        action="store_true",
+        help="per-building loss of the --pluvial design storm (site_losses.csv)",
+    )
     args = ap.parse_args(argv)
 
     out = Path(args.out) if args.out else paths.derived_dir("synthetic_city")
@@ -569,6 +668,8 @@ def main(argv: list[str] | None = None) -> int:
         return _print_site(spec, out)
     if args.pluvial:
         return _print_pluvial(spec, out)
+    if args.site_loss:
+        return _print_site_loss(spec, out)
     if args.animate_site:
         return _animate_site(spec, out)
     if args.animate:

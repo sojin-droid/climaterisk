@@ -175,8 +175,8 @@
   },
   "loss": {
     "_note": "Per-building loss of one design storm on the real site (twin/site_loss.py; AGENTS.md step R3). Building values are NOT client data: footprint area (OSM) x exposed storeys x an assumed replacement cost per m2. Every number here is an assumption; the loss is the loss of ONE storm, not an expected annual loss.",
-    "entry_threshold_m": 0.15,
-    "entry_threshold_m_note": "assumption: door sill / entrance step height (m); street water below it does not enter. Depth fed to the JRC curve is street depth minus this.",
+    "entry_threshold_m": 0.05,
+    "entry_threshold_m_note": "No-damage threshold T (m), method of the user's sheet 무피해문턱_계산표(261020): damage 0 while outside depth <= T, the unchanged JRC Asia curve at the full depth once over T (FLOPROS-style rule, Scussolini et al. 2016). 0.05 m is the sheet's default when no survey value exists: the JRC curve as implemented in CLIMADA-petals is already 0 at 0.05 m, so nothing extra is blocked. No Korean standard value for entrance sills was found (sheet source F1), so no larger sill is assumed. Per-building sills, flood barriers, ground-floor heights and pumps (sheet steps 1-5) need survey data and are not available for OSM buildings.",
     "max_exposed_storeys": 1,
     "max_exposed_storeys_note": "assumption: street water reaches the ground floor only, so the JRC curve applies to one storey of floor area; upper floors of tall buildings are not exposed. Basement car parks are NOT modelled (a known gap: most 2022 Gangnam damage was in basements).",
     "cost_usd_per_m2": {
