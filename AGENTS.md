@@ -172,6 +172,13 @@ R. **Real neighbourhood (user, 2026-11-05: public data allowed).** Gangnam stati
    CLI `--basement` re-runs the storm with and without walls, both with basement sinks, and
    prices ground + basement storeys from the coupled depths and volumes; it reports
    basement volume as a share of the rain (must be < 100 %).
+   **R3d done** (Sonnet + review; without sink_fn the solver reproduces R2 exactly:
+   0.0756/0.0606 km2, 1.96/2.49 m). Gangnam 160 mm / 2 h, with / without walls: basements
+   take 14,428 / 22,422 m3 (8.0 / 12.5 % of rain; 248 / 155 basements wet); street area
+   >10 cm 0.046 / 0.025 km2; loss ground 52.1 / 11.2 M + basement 12.2 / 21.0 M = 64.3 M
+   (3.1 %) / 32.2 M (1.5 %) USD of 1.50 bn basement + 0.59 bn ground-storey value.
+   Basements are the main sink of the water the sewer cannot take. Indicative (Froude 0.96
+   with walls). Ramp rain is not added in the coupled model (it already falls on the street).
 10. **Pluvial (rain) flood.** On the step-6 model: Huff design-storm hyetograph, NRCS
     curve-number infiltration, manhole sinks at a sewer capacity. Repo-specific method —
     label it as such in outputs.
