@@ -129,6 +129,13 @@ R. **Real neighbourhood (user, 2026-11-05: public data allowed).** Gangnam stati
    rain, sink and open-edge outflow in `hydraulics.run`, and `twin/pluvial.py` (design
    storm, NRCS CN, sewer capacity, roof runoff onto streets). Add a `rain` section to the
    spec and a `--pluvial` CLI flag writing snapshots and a with/without-buildings table.
+   **R2 done** (Sonnet + review). Review changes: sewer capacity per unit *catchment* area
+   (roofs drain to the sewer), so with/without buildings get the same rain and the same
+   total sewer; gate no longer asserts which way buildings move depths (that was an
+   artefact of the old sewer); real-site test runs on the real data root with the sewer
+   off (pure terrain routing). Gangnam, 160 mm / 2 h, sewer 95 mm/h: flooded area (>10 cm)
+   0.076 km2 with buildings vs 0.061 without, max depth 1.96 vs 2.49 m. Max Fr 0.96 / 1.53:
+   OUTSIDE VALIDITY (steep 30 m DEM slopes, thin sheet flow) — treat as indicative.
 10. **Pluvial (rain) flood.** On the step-6 model: Huff design-storm hyetograph, NRCS
     curve-number infiltration, manhole sinks at a sewer capacity. Repo-specific method —
     label it as such in outputs.
@@ -151,6 +158,9 @@ R. **Real neighbourhood (user, 2026-11-05: public data allowed).** Gangnam stati
   mislabelled storms by 10-24 % and cut EAL by ~2.8x.
 - **Petals surge bathtub floors at 1.83 m** for every wind >= 17.5 m/s (Xu 2010 intercept),
   so weak storms still flood a low coast. Report it as an upper bound.
+- **Don't gate a hypothesis.** A test asserting which way an effect goes (e.g. "buildings
+  make water deeper") is a guess; gate conservation laws and analytical cases, and let
+  the simulation show the direction.
 - **Never add ruff per-file ignores** to silence long lines; wrap them.
 - **Tooling versions.** Use `uv sync --locked --all-extras`; CI pins ruff 0.15.18. A newer
   ruff reformats Markdown code blocks — never commit changes to files outside your step.

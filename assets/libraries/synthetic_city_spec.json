@@ -173,6 +173,23 @@
     "max_valid_froude": 0.5,
     "max_valid_froude_note": "the local-inertial scheme drops advection; runs whose peak Froude number reaches this are flagged as outside validity (Neal et al. 2012; tests/test_hydraulics.py)."
   },
+  "rain": {
+    "_note": "Design-storm rain on the real site (twin/pluvial.py; AGENTS.md step R2). Repo-specific pluvial method (design storm, NRCS CN, uniform sewer sink); every number is an assumption, not a calibration or a reconstruction of an observed event.",
+    "total_mm": 160.0,
+    "total_mm_note": "assumption: storm depth (mm) over duration_min, of the order of the 8 Aug 2022 Seoul downpour (more than 100 mm/h at its peak); NOT a reconstruction of observations.",
+    "duration_min": 120.0,
+    "duration_min_note": "assumption: a two-hour storm; the hyetograph is stretched over this time.",
+    "cumulative_fraction": [0.0, 0.03, 0.08, 0.16, 0.30, 0.52, 0.70, 0.82, 0.90, 0.96, 1.0],
+    "cumulative_fraction_note": "assumed shape: cumulative rain as a fraction of the total at 0, 10, ..., 100 % of the storm; intensity peaks in the 4th to 6th tenth like a Huff 2nd/3rd-quartile storm. To be replaced by the MOLIT Huff coefficients for Seoul.",
+    "recession_min": 60.0,
+    "recession_min_note": "assumption: extra simulated time after the storm (min) so water can drain and pond.",
+    "cn_paved": 98.0,
+    "cn_paved_note": "NRCS (SCS) curve number of an impervious urban surface, TR-55 (USDA 1986); applied to every cell, roofs and streets alike.",
+    "sewer_capacity_mm_h": 95.0,
+    "sewer_capacity_mm_h_note": "assumption: Seoul's former 30-year design standard for storm sewers (mm/h), taken as a uniform drain on every open cell; real capacity varies by pipe and is not modelled.",
+    "edge_slope": 0.005,
+    "edge_slope_note": "assumption: bed slope (-) for Manning normal-flow outflow through the site edges."
+  },
   "climate": {
     "_note": "Climate-change river stage shift vs the present baseline. The future stage law is h_future(T) = (stage_2y_m + stage_2y_m_shift) + (stage_slope_m + stage_slope_m_shift)*ln(T/2); return periods and centroid positions are unchanged, so the future hazard is compared event-for-event with the present. Defence design depths are derived from the PRESENT hazard and applied fixed to the future hazard — defences keep their present height and do not grow with the flood (see compare_climate in twin/pipeline.py and AGENTS.md step 3). A scenario with shift 0 is equivalent to the present.",
     "future_scenarios": [

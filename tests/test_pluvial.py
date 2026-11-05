@@ -32,7 +32,9 @@ Module ``twin/pluvial.py``:
   rain on wall cells is moved onto open cells by scaling the open-cell rate by
   ``n_cells / n_open`` (roof runoff to the streets, spread uniformly — a simplification);
   ``hydraulics.run(blocked=walls, infiltration=drain, open_edges=spec["rain"]["edge_slope"])``
-  with ``drain = spec["rain"]["sewer_capacity_mm_h"] / 3.6e6`` (m/s) on open cells; Manning n
+  with ``drain = spec["rain"]["sewer_capacity_mm_h"] / 3.6e6 * n_cells / n_open`` (m/s) on open
+  cells — sewer capacity per unit catchment area, roofs included (changed in review: per
+  open area it shrank the total sewer capacity whenever buildings were added); Manning n
   and alpha from ``spec["hydraulic"]``; runs ``duration_min + recession_min``.
 """
 
@@ -171,14 +173,19 @@ def test_roof_rain_reaches_the_streets(fast_spec: dict) -> None:
     assert np.all(res["h_max"][walls] == 0.0)
 
 
-def test_buildings_concentrate_the_water(fast_spec: dict) -> None:
+def test_buildings_change_where_the_water_goes_not_how_much(fast_spec: dict) -> None:
+    """Same rain and the same total sewer capacity with or without buildings; the walls only
+    change where the water goes. Changed in review: the first version asserted that buildings
+    make the water deeper, which held only because it had also shrunk the sewer; with a fair
+    sewer the toy site's street depths came out slightly LOWER with buildings (0.050 vs
+    0.053 m). Which way buildings push the depths is a result to look at, not a law to gate.
+    """
     ground, walls = _toy_site(fast_spec)
     with_walls = pluvial.run_pluvial(ground, walls, 10.0, fast_spec)
     without = pluvial.run_pluvial(ground, np.zeros_like(walls), 10.0, fast_spec)
-    assert with_walls["h_max"][~walls].max() > without["h_max"].max()
-    hollow = np.zeros_like(walls)
-    hollow[10:20, 15:25] = True
-    assert with_walls["h_max"][hollow].mean() > with_walls["h_max"][~walls & ~hollow].mean()
+    np.testing.assert_allclose(with_walls["rain_volume_m3"], without["rain_volume_m3"], rtol=1e-3)
+    assert np.all(with_walls["h_max"][walls] == 0.0)
+    assert np.abs(with_walls["h_max"][~walls] - without["h_max"][~walls]).max() > 0.01
 
 
 def test_more_sewer_capacity_floods_less(fast_spec: dict) -> None:
@@ -190,14 +197,23 @@ def test_more_sewer_capacity_floods_less(fast_spec: dict) -> None:
     assert b["h_max"].sum() < a["h_max"].sum()
 
 
-def test_gangnam_rain_gathers_in_the_seocho_basin() -> None:
-    """Real site (skipped when the OSM / DEM files are not on this machine)."""
+def test_gangnam_rain_gathers_in_the_seocho_basin(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Real site, terrain routing only (skipped when the OSM / DEM files are not here).
+
+    Changed in review: the sewer is switched off so the check isolates what it is about —
+    the terrain sending water west into the Seocho basin. With the uniform 95 mm/h sink the
+    two means were 0.067 vs 0.068 m (the sink, not the terrain, sets the residual). Reads
+    the real data root (read-only), which tests/conftest.py otherwise hides.
+    """
     pytest.importorskip("pyogrio")
     from climaterisk_worker.twin import site
 
     from climaterisk import paths
 
+    monkeypatch.setenv("CLIMATERISK_DATA_ROOT", str(paths.default_data_root()))
+    paths.clear_cache()
     spec = load_spec()
+    spec["rain"]["sewer_capacity_mm_h"] = 0.0
     cfg = spec["site"]
     if not (
         paths.osm_dir(cfg["osm_file"]).exists()

@@ -91,6 +91,8 @@ def step(
     h_dry: float = 1e-4,
     g: float = 9.81,
     blocked: np.ndarray | None = None,
+    open_edges: float | None = None,
+    stats: dict[str, float] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Advance the local-inertial solver by one explicit time step.
 
@@ -123,6 +125,13 @@ def step(
         blocked: Optional boolean raster ``(ny, nx)``; every face touching a blocked cell
             gets $q=0$ right after the momentum update, and rain, infiltration and inflow
             on blocked cells are ignored, so blocked cells keep their depth.
+        open_edges: ``None`` (closed outer faces) or a bed slope $S_0$ [$-$]. Each outer face
+            of a non-blocked edge cell then carries the outward Manning normal-flow discharge
+            $q = h^{5/3}\\sqrt{S_0}/n$ [m$^2$ s$^{-1}$] (zero while $h \\le h_{\\text{dry}}$),
+            limited with the other outflows by :func:`_limit_outflow`.
+        stats: Optional dict; ``rain``, ``sink`` and ``outflow`` volumes (m$^3$) of this step
+            are added to its keys of those names (rain actually added to open cells, water
+            actually removed by ``infiltration``, water that left through the outer faces).
 
     Returns:
         ``(h_new, q_x_new, q_y_new)`` updated arrays.
@@ -175,8 +184,34 @@ def step(
         q_x_new[:, 1:-1] = np.where(blocked[:, :-1] | blocked[:, 1:], 0.0, q_x_new[:, 1:-1])
         q_y_new[1:-1, :] = np.where(blocked[:-1, :] | blocked[1:, :], 0.0, q_y_new[1:-1, :])
 
+    if open_edges is not None and open_edges > 0.0:
+        # outward normal flow on the outer faces (sign: +x / +y is positive, so the west and
+        # south faces carry the negative of the outward discharge)
+        coef = np.sqrt(open_edges) / manning_n
+        q_out_w = np.where(h[:, 0] > h_dry, h[:, 0] ** (5.0 / 3.0) * coef, 0.0)
+        q_out_e = np.where(h[:, -1] > h_dry, h[:, -1] ** (5.0 / 3.0) * coef, 0.0)
+        q_out_s = np.where(h[0, :] > h_dry, h[0, :] ** (5.0 / 3.0) * coef, 0.0)
+        q_out_n = np.where(h[-1, :] > h_dry, h[-1, :] ** (5.0 / 3.0) * coef, 0.0)
+        if blocked is not None:
+            q_out_w = np.where(blocked[:, 0], 0.0, q_out_w)
+            q_out_e = np.where(blocked[:, -1], 0.0, q_out_e)
+            q_out_s = np.where(blocked[0, :], 0.0, q_out_s)
+            q_out_n = np.where(blocked[-1, :], 0.0, q_out_n)
+        q_x_new[:, 0] = -q_out_w
+        q_x_new[:, -1] = q_out_e
+        q_y_new[0, :] = -q_out_s
+        q_y_new[-1, :] = q_out_n
+
     # --- outflow limiter: no cell may lose more water than it holds ---
     _limit_outflow(h, q_x_new, q_y_new, dx, dy, dt)
+
+    if stats is not None:
+        stats["outflow"] = stats.get("outflow", 0.0) + dt * float(
+            (-q_x_new[:, 0]).sum() * dy
+            + q_x_new[:, -1].sum() * dy
+            + (-q_y_new[0, :]).sum() * dx
+            + q_y_new[-1, :].sum() * dx
+        )
 
     # --- continuity ---
     div_x = (q_x_new[:, 1:] - q_x_new[:, :-1]) / dx
@@ -184,7 +219,10 @@ def step(
 
     dh = dt * (-div_x - div_y)
     if rain is not None:
-        dh += dt * (rain if blocked is None else np.where(blocked, 0.0, rain))
+        rain_added = dt * (rain if blocked is None else np.where(blocked, 0.0, rain))
+        dh += rain_added
+        if stats is not None:
+            stats["rain"] = stats.get("rain", 0.0) + float(np.sum(rain_added) * dx * dy)
     if inflow_cells is not None and inflow_rate != 0.0:
         rows, cols = inflow_cells
         for r, c in zip(rows, cols, strict=True):
@@ -197,6 +235,8 @@ def step(
         if blocked is not None:
             taken = np.where(blocked, 0.0, taken)
         h_new = h_new - taken
+        if stats is not None:
+            stats["sink"] = stats.get("sink", 0.0) + float(np.sum(taken) * dx * dy)
     # the limiter keeps h_new >= 0 up to round-off; clip only that round-off
     h_new = np.maximum(h_new, 0.0)
 
@@ -222,6 +262,8 @@ def _limit_outflow(
         $h_c$ depth (m), $q$ face discharge per unit width (m^2/s), $\Delta t$ (s),
         $\Delta x, \Delta y$ (m), $r_c$ dimensionless.
     """
+    # the outer faces (index 0 and nx / ny) count like any other: positive leaves the left
+    # cell, negative the right one, so open-edge outflow is limited together with the rest
     out_x = (np.maximum(q_x[:, 1:], 0.0) + np.maximum(-q_x[:, :-1], 0.0)) / dx
     out_y = (np.maximum(q_y[1:, :], 0.0) + np.maximum(-q_y[:-1, :], 0.0)) / dy
     v_out = dt * (out_x + out_y)
@@ -235,6 +277,10 @@ def _limit_outflow(
     q_x[:, 1:-1] = np.where(fx > 0, fx * r[:, :-1], fx * r[:, 1:])
     fy = q_y[1:-1, :]
     q_y[1:-1, :] = np.where(fy > 0, fy * r[:-1, :], fy * r[1:, :])
+    q_x[:, 0] *= r[:, 0]
+    q_x[:, -1] *= r[:, -1]
+    q_y[0, :] *= r[0, :]
+    q_y[-1, :] *= r[-1, :]
 
 
 def run(
@@ -256,6 +302,8 @@ def run(
     froude_min_depth: float = 0.05,
     snapshot_every_s: float | None = None,
     blocked: np.ndarray | None = None,
+    rain_fn: Any | None = None,
+    open_edges: float | None = None,
 ) -> dict[str, Any]:
     """Run the local-inertial solver from $t=0$ to $t_{\\text{end}}$.
 
@@ -288,14 +336,22 @@ def run(
             touching a blocked cell carry zero discharge (see :func:`step`) and rain,
             infiltration and inflow there are ignored, so blocked cells keep their initial
             depth and water flows around them. ``stage_fn`` cells are the caller's business.
+        rain_fn: Callable ``t -> rate`` (m s$^{-1}$, scalar or ``(ny, nx)``) used instead of
+            ``rain``; the rate at the start of a step is held over that step. If the callable
+            has a ``breakpoints_s`` attribute (times where the rate jumps), no step crosses
+            one, so a piecewise-constant rate is integrated exactly.
+        open_edges: ``None`` (closed outer faces, default) or a bed slope $S_0$: water leaves
+            through the outer faces at Manning normal flow (see :func:`step`).
 
     Returns:
         Dict with ``h``, ``q_x``, ``q_y``, ``t``, ``n_steps``, ``h_max`` (peak depth per
         cell over the run, m), ``boundary_volume_m3`` (net water added by ``stage_fn``,
         m^3; zero without it) and ``max_froude`` (largest cell Froude number over the run,
-        dimensionless). With ``snapshot_every_s`` also ``snapshots``: a list of
-        ``(t_s, h)`` pairs (``h`` a copy, m) with strictly increasing times, the last being
-        the end time.
+        dimensionless), ``rain_volume_m3`` (rain added to open cells), ``sink_volume_m3``
+        (water removed by ``infiltration``) and ``outflow_volume_m3`` (water that left through
+        open edges), all m^3 and zero when unused. With ``snapshot_every_s`` also
+        ``snapshots``: a list of ``(t_s, h)`` pairs (``h`` a copy, m) with strictly increasing
+        times, the last being the end time.
 
     Algorithm:
         Walls: $q_f = 0$ on every face $f$ with a blocked neighbour, so for a blocked cell
@@ -314,6 +370,9 @@ def run(
     rate = 0.0
     boundary_volume = 0.0
     max_froude = 0.0
+    breaks = getattr(rain_fn, "breakpoints_s", None)
+    rain_breaks = None if breaks is None else np.sort(np.asarray(breaks, dtype=float))
+    stats: dict[str, float] = {"rain": 0.0, "sink": 0.0, "outflow": 0.0}
 
     def _apply_stage(time: float) -> float:
         """Reset the boundary cells to the stage at ``time``; return the volume added (m^3)."""
@@ -335,11 +394,20 @@ def run(
     while t < t_end:
         dt = adaptive_dt(h, dx, dy, manning_n, alpha_cfl, g, h_dry)
         dt = min(dt, t_end - t)
+        if rain_breaks is not None:
+            # a step must not straddle a change of the rain rate (it is held from the start)
+            later = rain_breaks[rain_breaks > t + 1e-9]
+            if later.size:
+                dt = min(dt, float(later[0]) - t)
 
         inflow_cells = None
         if inflow_fn is not None:
             rows, cols, rate = inflow_fn(t)
             inflow_cells = (rows, cols)
+
+        rain_now = rain
+        if rain_fn is not None:
+            rain_now = np.broadcast_to(np.asarray(rain_fn(t), dtype=h.dtype), h.shape)
 
         h, q_x, q_y = step(
             h,
@@ -350,7 +418,7 @@ def run(
             dy,
             dt,
             manning_n,
-            rain=rain,
+            rain=rain_now,
             infiltration=infiltration,
             inflow_cells=inflow_cells,
             inflow_rate=rate,
@@ -358,6 +426,8 @@ def run(
             h_dry=h_dry,
             g=g,
             blocked=blocked,
+            open_edges=open_edges,
+            stats=stats,
         )
         t += dt
         n_steps += 1
@@ -388,6 +458,9 @@ def run(
         "h_max": h_max,
         "boundary_volume_m3": boundary_volume,
         "max_froude": max_froude,
+        "rain_volume_m3": stats["rain"],
+        "sink_volume_m3": stats["sink"],
+        "outflow_volume_m3": stats["outflow"],
     }
     if snapshot_every_s is not None:
         result["snapshots"] = snapshots

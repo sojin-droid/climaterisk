@@ -358,6 +358,86 @@ def _print_site(spec: dict[str, Any], out: Path) -> int:
     return 0
 
 
+def _print_pluvial(spec: dict[str, Any], out: Path) -> int:
+    """Design-storm rain on the real site, with and without buildings as walls."""
+    import numpy as np
+    import rasterio
+    from climaterisk_worker.twin import pluvial
+    from climaterisk_worker.twin.site import build_site
+    from rasterio.transform import from_origin
+
+    site = build_site(spec)
+    grid, walls, ground = site["grid"], site["mask"], site["ground"]
+    cell_m = float(spec["site"]["cell_m"])
+    r = spec["rain"]
+    max_fr_ok = float(spec["hydraulic"]["max_valid_froude"])
+    _, lon = grid.centres()
+    west = (lon < 127.0255) & ~walls  # Seocho basin
+    east = (lon > 127.0300) & ~walls  # Yeoksam slope
+    print("Pluvial flood, Gangnam site — repo-specific pluvial method (design storm, NRCS CN,")
+    print("  uniform sewer sink); storm shape and sewer capacity are assumptions, not calibrated.")
+    print(
+        f"  storm {r['total_mm']:g} mm in {r['duration_min']:g} min "
+        f"(CN {r['cn_paved']:g}, sewer {r['sewer_capacity_mm_h']:g} mm/h), "
+        f"{r['recession_min']:g} min recession"
+    )
+    runs = {}
+    for label, w, snap in (
+        ("with buildings", walls, 300.0),
+        ("no buildings", np.zeros_like(walls), None),
+    ):
+        res = pluvial.run_pluvial(ground, w, cell_m, spec, snapshot_every_s=snap)
+        runs[label] = res
+        open_cells = ~w
+        h_max = res["h_max"]
+        flooded_km2 = float(((h_max > 0.10) & open_cells).sum()) * cell_m**2 / 1e6
+        stored = float(res["h"].sum()) * cell_m**2
+        fr = res["max_froude"]
+        flag = "  OUTSIDE VALIDITY" if fr >= max_fr_ok else ""
+        print(f"  [{label}]")
+        print(f"    flooded area (h_max > 0.10 m)  {flooded_km2:8.4f} km2")
+        print(f"    max depth                      {float(h_max[open_cells].max()):8.2f} m")
+        print(
+            f"    volumes (m3): rain {res['rain_volume_m3']:,.0f}  sewer "
+            f"{res['sink_volume_m3']:,.0f}  outflow {res['outflow_volume_m3']:,.0f}  "
+            f"stored {stored:,.0f}"
+        )
+        print(f"    max Froude {fr:.2f}{flag}")
+        print(
+            f"    mean peak depth: Seocho basin (W of 127.0255) "
+            f"{float(h_max[west & open_cells].mean()):.3f} m, Yeoksam slope (E of 127.0300) "
+            f"{float(h_max[east & open_cells].mean()):.3f} m"
+        )
+    out.mkdir(parents=True, exist_ok=True)
+    snaps = runs["with buildings"]["snapshots"]
+    np.savez_compressed(
+        out / "pluvial_snapshots.npz",
+        times_s=np.array([t for t, _ in snaps], dtype=float),
+        depth=np.stack([h for _, h in snaps]).astype("float32"),
+        bed=ground,
+        cell_m=cell_m,
+        walls=walls,
+    )
+    cell_deg_y = grid.cell_m / 111320.0
+    cell_deg_x = grid.cell_m / grid.lon_m_per_deg
+    transform = from_origin(grid.west, grid.south + grid.ny * cell_deg_y, cell_deg_x, cell_deg_y)
+    with rasterio.open(
+        out / "pluvial_hmax.tif",
+        "w",
+        driver="GTiff",
+        height=grid.ny,
+        width=grid.nx,
+        count=1,
+        dtype="float32",
+        crs="EPSG:4326",
+        transform=transform,
+    ) as ds:
+        ds.write(runs["with buildings"]["h_max"][::-1].astype("float32"), 1)
+    print(f"  {spec['site']['attribution']['osm']}; {spec['site']['attribution']['dem']}")
+    print(f"  wrote {out / 'pluvial_snapshots.npz'} and {out / 'pluvial_hmax.tif'}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Generate the synthetic city and print the EAL summary."""
     from climaterisk import paths
@@ -439,12 +519,20 @@ def main(argv: list[str] | None = None) -> int:
         help="real neighbourhood: OSM buildings + Copernicus DEM -> site_ground.tif, "
         "site_buildings.gpkg",
     )
+    ap.add_argument(
+        "--pluvial",
+        action="store_true",
+        help="design-storm rain on the real site, with and without buildings -> "
+        "pluvial_snapshots.npz, pluvial_hmax.tif",
+    )
     args = ap.parse_args(argv)
 
     out = Path(args.out) if args.out else paths.derived_dir("synthetic_city")
     spec = load_spec(args.spec)
     if args.site:
         return _print_site(spec, out)
+    if args.pluvial:
+        return _print_pluvial(spec, out)
     if args.animate:
         return _animate(spec, out)
     if args.coastal2d:
