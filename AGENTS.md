@@ -6,7 +6,10 @@ engine. Read `CLAUDE.md` too: its conventions (type hints, docstrings with `Algo
 seeds, tests against analytical solutions, conventional commits) apply here unchanged.
 
 The aim is a simulation tool in the spirit of EnergyPlus / ENVI-met / CFD: physical
-equations stepped in time on an imaginary city. It cannot be validated against
+equations stepped in time on an imaginary city. **Purpose (user, 2026-11-05):** see, mathematically
+and visually, how a physical environment (terrain, buildings, flow, shade) changes what the
+CLIMADA engine reports. So every physical model should also leave something to look at:
+time snapshots, maps, cross-sections — not only a final number. It cannot be validated against
 measurements, so every model must be **verified** — against analytical solutions,
 published benchmarks and conservation laws — before its numbers are used.
 
@@ -90,8 +93,13 @@ published benchmarks and conservation laws — before its numbers are used.
    EAL 7.9 % (10.6 % with +0.5 m sea level). High because the bank is 0.5 m above datum
    with no sea wall, and Petals' Xu (2010) line floors surge at 1.83 m for ANY wind above
    CLIMADA's 17.5 m/s threshold (19 of 20 tracks). Treat 9A as an upper bound.
-   **9B (next):** step-6 2D model with a surge stage hydrograph at the coast (the surge
-   lasts hours, not a day: the bathtub assumption should matter more here than for rivers).
+   **Gate 9B: `tests/test_surge2d.py`** (protected) — 2D surge in `twin/surge2d.py` plus
+   `hydraulics.run(snapshot_every_s=...)` time snapshots for animation. Add
+   `surge_duration_h` / `surge_recession_h` to the spec `coast` section and a
+   `--coastal2d` CLI flag comparing bathtub (Petals) and 2D EAL.
+9b. **Time viewer.** Animate the 2D snapshots (river flood, surge) over the 3D city in the
+   deck.gl page: time slider + play, water depth on the raster, buildings coloured by
+   depth reached so far, a panel showing the governing equations and live numbers.
 10. **Pluvial (rain) flood.** On the step-6 model: Huff design-storm hyetograph, NRCS
     curve-number infiltration, manhole sinks at a sewer capacity. Repo-specific method —
     label it as such in outputs.
