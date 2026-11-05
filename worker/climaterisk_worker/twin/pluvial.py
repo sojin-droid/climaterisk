@@ -123,6 +123,7 @@ def run_pluvial(
     cell_m: float,
     spec: dict[str, Any],
     snapshot_every_s: float | None = None,
+    sink_fn: Any | None = None,
 ) -> dict[str, Any]:
     """Run the design storm over a site on the 2D hydraulic model.
 
@@ -141,10 +142,13 @@ def run_pluvial(
         cell_m: Cell size (m).
         spec: City spec (``rain`` and ``hydraulic`` sections).
         snapshot_every_s: Optional snapshot interval (s) for animation.
+        sink_fn: Optional ``(t, h, dt) -> depth raster`` removed from the flow every step
+            (see :func:`hydraulics.run`), e.g. a ``BasementSink``.
 
     Returns:
         Dict with ``h_max``, ``h`` (m), ``rain_volume_m3``, ``sink_volume_m3``,
-        ``outflow_volume_m3``, ``max_froude`` and, if requested, ``snapshots``.
+        ``outflow_volume_m3``, ``sink_fn_volume_m3``, ``max_froude`` and, if requested,
+        ``snapshots``.
     """
     r = spec["rain"]
     hyd = spec["hydraulic"]
@@ -176,6 +180,7 @@ def run_pluvial(
         blocked=walls,
         rain_fn=rain_fn,
         open_edges=float(r["edge_slope"]),
+        sink_fn=sink_fn,
     )
     return res
 

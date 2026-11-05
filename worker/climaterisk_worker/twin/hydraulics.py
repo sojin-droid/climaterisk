@@ -93,6 +93,8 @@ def step(
     blocked: np.ndarray | None = None,
     open_edges: float | None = None,
     stats: dict[str, float] | None = None,
+    sink_fn: Any | None = None,
+    sink_t: float = 0.0,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Advance the local-inertial solver by one explicit time step.
 
@@ -131,7 +133,12 @@ def step(
             limited with the other outflows by :func:`_limit_outflow`.
         stats: Optional dict; ``rain``, ``sink`` and ``outflow`` volumes (m$^3$) of this step
             are added to its keys of those names (rain actually added to open cells, water
-            actually removed by ``infiltration``, water that left through the outer faces).
+            actually removed by ``infiltration``, water that left through the outer faces);
+            ``sink_fn`` adds the key ``sink_fn``.
+        sink_fn: Optional callable ``(t, h, dt) -> depth raster (m)`` called once after the
+            continuity update and the infiltration sink; its result is clipped to
+            ``[0, h_new]`` per cell and removed. ``t`` is ``sink_t`` (set by :func:`run`).
+        sink_t: Time (s) passed to ``sink_fn``.
 
     Returns:
         ``(h_new, q_x_new, q_y_new)`` updated arrays.
@@ -239,6 +246,12 @@ def step(
             stats["sink"] = stats.get("sink", 0.0) + float(np.sum(taken) * dx * dy)
     # the limiter keeps h_new >= 0 up to round-off; clip only that round-off
     h_new = np.maximum(h_new, 0.0)
+    if sink_fn is not None:
+        # a state-dependent sink (e.g. basements): it can only take the water that is there
+        taken_fn = np.clip(np.asarray(sink_fn(sink_t + dt, h_new, dt), dtype=float), 0.0, h_new)
+        h_new = h_new - taken_fn
+        if stats is not None:
+            stats["sink_fn"] = stats.get("sink_fn", 0.0) + float(np.sum(taken_fn) * dx * dy)
 
     return h_new, q_x_new, q_y_new
 
@@ -304,6 +317,7 @@ def run(
     blocked: np.ndarray | None = None,
     rain_fn: Any | None = None,
     open_edges: float | None = None,
+    sink_fn: Any | None = None,
 ) -> dict[str, Any]:
     """Run the local-inertial solver from $t=0$ to $t_{\\text{end}}$.
 
@@ -342,6 +356,9 @@ def run(
             one, so a piecewise-constant rate is integrated exactly.
         open_edges: ``None`` (closed outer faces, default) or a bed slope $S_0$: water leaves
             through the outer faces at Manning normal flow (see :func:`step`).
+        sink_fn: Optional callable ``(t, h, dt) -> depth raster (m)`` called once per step
+            after the continuity update (``t`` the end of the step, ``h`` the updated depth);
+            the result is clipped to ``[0, h]`` per cell and removed (see :func:`step`).
 
     Returns:
         Dict with ``h``, ``q_x``, ``q_y``, ``t``, ``n_steps``, ``h_max`` (peak depth per
@@ -349,7 +366,8 @@ def run(
         m^3; zero without it) and ``max_froude`` (largest cell Froude number over the run,
         dimensionless), ``rain_volume_m3`` (rain added to open cells), ``sink_volume_m3``
         (water removed by ``infiltration``) and ``outflow_volume_m3`` (water that left through
-        open edges), all m^3 and zero when unused. With ``snapshot_every_s`` also
+        open edges) and ``sink_fn_volume_m3`` (water removed by ``sink_fn``), all m^3 and zero
+        when unused. With ``snapshot_every_s`` also
         ``snapshots``: a list of ``(t_s, h)`` pairs (``h`` a copy, m) with strictly increasing
         times, the last being the end time.
 
@@ -372,7 +390,7 @@ def run(
     max_froude = 0.0
     breaks = getattr(rain_fn, "breakpoints_s", None)
     rain_breaks = None if breaks is None else np.sort(np.asarray(breaks, dtype=float))
-    stats: dict[str, float] = {"rain": 0.0, "sink": 0.0, "outflow": 0.0}
+    stats: dict[str, float] = {"rain": 0.0, "sink": 0.0, "outflow": 0.0, "sink_fn": 0.0}
 
     def _apply_stage(time: float) -> float:
         """Reset the boundary cells to the stage at ``time``; return the volume added (m^3)."""
@@ -428,6 +446,8 @@ def run(
             blocked=blocked,
             open_edges=open_edges,
             stats=stats,
+            sink_fn=sink_fn,
+            sink_t=t,
         )
         t += dt
         n_steps += 1
@@ -461,6 +481,7 @@ def run(
         "rain_volume_m3": stats["rain"],
         "sink_volume_m3": stats["sink"],
         "outflow_volume_m3": stats["outflow"],
+        "sink_fn_volume_m3": stats["sink_fn"],
     }
     if snapshot_every_s is not None:
         result["snapshots"] = snapshots

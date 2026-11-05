@@ -564,104 +564,142 @@ def _animate_site(spec: dict[str, Any], out: Path) -> int:
 
 
 def _print_basement(spec: dict[str, Any], out: Path) -> int:
-    """Basement flooding of the --pluvial design storm through ramp weirs, with/without walls."""
+    """Basements coupled both ways to the 2D street flow of the design storm, with/without walls."""
+    import time
+
     import numpy as np
     import pandas as pd
-    from climaterisk_worker.twin import basement, site_loss
+    from climaterisk_worker.twin import basement, pluvial, site_loss
     from climaterisk_worker.twin.site import build_site
 
-    files = {
-        "with": out / "pluvial_snapshots.npz",
-        "without": out / "pluvial_snapshots_nowalls.npz",
-    }
-    stored = {}
-    for key, f in files.items():
-        if not f.exists():
-            print(f"error: {f} not found - run with --pluvial first to write it", file=sys.stderr)
-            return 1
-        with np.load(f) as z:
-            if "h_max" not in z.files:
-                print(
-                    f"error: {f} has no h_max - re-run with --pluvial to write it",
-                    file=sys.stderr,
-                )
-                return 1
-            stored[key] = (
-                np.asarray(z["times_s"], dtype=float),
-                np.asarray(z["depth"], dtype=float),
-                np.asarray(z["walls"], dtype=bool),
-                np.asarray(z["h_max"], dtype=float),
-            )
     site = build_site(spec)
-    grid, b = site["grid"], site["buildings"]
+    grid, b, ground = site["grid"], site["buildings"], site["ground"]
+    walls_site = site["mask"]
+    cell_m = float(spec["site"]["cell_m"])
+    max_fr_ok = float(spec["hydraulic"]["max_valid_froude"])
+    ff = float(spec["site"]["floor_to_floor_m"])
     n_lv = basement.basement_levels(b, spec)
     area = site_loss.footprint_area_m2(b)
-    ground_value = float(site_loss.exposed_value_usd(b, spec).sum())
-    ramp_rain = (
-        float(spec["basement"]["ramp_rain_area_m2"]) * float(spec["rain"]["total_mm"]) / 1000.0
-    )
-    rain_vol = float(spec["rain"]["total_mm"]) / 1000.0 * grid.nx * grid.ny * grid.cell_m**2
-    vol, priced = {}, {}
-    for key, (times, depth_t, w, h_max) in stored.items():
-        ground = site_loss.entry_depths(grid, b, h_max, w, spec)
-        series = basement.ring_series(grid, b, depth_t, w)
-        vol[key] = basement.basement_volume_m3(series, times, spec)
-        bdepth = basement.basement_depths(vol[key], area, n_lv, spec)
-        priced[key] = basement.price_with_basements(b, ground, bdepth, spec)
+    capacity = n_lv * area * ff
     has = n_lv > 0
-    inflow = {k: np.where(has, np.maximum(vol[k] - ramp_rain, 0.0), 0.0) for k in vol}
-    print("Basement flooding of ONE design storm through ramp weirs (Q = C B (h - T)^1.5).")
+    ground_value = float(site_loss.exposed_value_usd(b, spec).sum())
+    t_end = (float(spec["rain"]["duration_min"]) + float(spec["rain"]["recession_min"])) * 60.0
+    keys = ("with", "without")
+    res: dict[str, Any] = {}
+    vol: dict[str, Any] = {}
+    priced: dict[str, Any] = {}
+    street: dict[str, tuple[float, float]] = {}
+    out.mkdir(parents=True, exist_ok=True)
+    for key, w, fname in (
+        ("with", walls_site, "pluvial_basement_snapshots.npz"),
+        ("without", np.zeros_like(walls_site), "pluvial_basement_snapshots_nowalls.npz"),
+    ):
+        entr_r, entr_c = basement.entrance_cells(grid, b, ground, w, n_lv)
+        sink = basement.BasementSink(entr_r, entr_c, capacity, cell_m, spec)
+        t0 = time.perf_counter()
+        r = pluvial.run_pluvial(ground, w, cell_m, spec, sink_fn=sink, snapshot_every_s=300.0)
+        print(f"  [{key} walls] coupled run {time.perf_counter() - t0:.0f} s, {r['n_steps']} steps")
+        res[key] = r
+        g_depth = site_loss.entry_depths(grid, b, r["h_max"], w, spec)
+        vol[key] = sink.final_volume_m3(t_end)
+        bdepth = basement.basement_depths(vol[key], area, n_lv, spec)
+        priced[key] = basement.price_with_basements(b, g_depth, bdepth, spec)
+        open_cells = ~w
+        street[key] = (
+            float(((r["h_max"] > 0.10) & open_cells).sum()) * cell_m**2 / 1e6,
+            float(r["h_max"][open_cells].max()),
+        )
+        snaps = r["snapshots"]
+        np.savez_compressed(
+            out / fname,
+            times_s=np.array([t for t, _ in snaps], dtype=float),
+            depth=np.stack([h for _, h in snaps]).astype("float32"),
+            bed=ground,
+            cell_m=cell_m,
+            walls=w,
+            max_froude=float(r["max_froude"]),
+            h_max=r["h_max"].astype("float32"),
+            basement_m3=vol[key],
+        )
+    value = float(priced["with"]["basement_value_usd"].sum())
+    print("Basements coupled both ways to the 2D street flow of ONE design storm")
+    print("  (ramp weir Q = C B (h - T)^1.5 removed from the street every solver step).")
     print("  loss of ONE design storm; basement storeys, ramps and pumps are assumptions")
-    print("  (no survey data).")
-    print(f"  {'':<40}{'with walls':>18}{'without walls':>18}")
-    value = float((priced["with"]["basement_value_usd"]).sum())
-    rows = {
-        "buildings with basements": ([int(has.sum())] * 2, "{:>18,d}"),
-        "total basement value (USD)": ([value] * 2, "{:>18,.0f}"),
-        "flooded basements (weir inflow > 0)": (
-            [int((inflow[k] > 0).sum()) for k in ("with", "without")],
+    print("  (no survey data); basements coupled both ways to the street flow.")
+    print(f"  {'':<42}{'with walls':>18}{'without walls':>18}")
+
+    def pct_rain(k: str) -> float:
+        return 100.0 * float(res[k]["sink_fn_volume_m3"]) / float(res[k]["rain_volume_m3"])
+
+    for k in keys:
+        assert pct_rain(k) < 100.0, f"basements took {pct_rain(k):.1f} % of the rain ({k})"
+    stored = {k: float(res[k]["h"].sum()) * cell_m**2 for k in keys}
+    froude = {k: float(res[k]["max_froude"]) for k in keys}
+    table: list[tuple[str, list[Any], str]] = [
+        ("buildings with basements", [int(has.sum())] * 2, "{:>18,d}"),
+        ("total basement value (USD)", [value] * 2, "{:>18,.0f}"),
+        (
+            "flooded basements (volume > 0)",
+            [int((vol[k] > 0).sum()) for k in keys],
             "{:>18,d}",
         ),
-        "weir inflow total (m3)": (
-            [float(inflow[k].sum()) for k in ("with", "without")],
+        (
+            "basement volume, taken from street (m3)",
+            [float(res[k]["sink_fn_volume_m3"]) for k in keys],
             "{:>18,.0f}",
         ),
-        "  as % of storm rain over the site": (
-            [100.0 * float(inflow[k].sum()) / rain_vol for k in ("with", "without")],
+        ("  as % of storm rain volume", [pct_rain(k) for k in keys], "{:>18.3f}"),
+        ("basement volume after pumps (m3)", [float(vol[k].sum()) for k in keys], "{:>18,.0f}"),
+        ("volume balance (m3):", [], ""),
+        ("  rain", [float(res[k]["rain_volume_m3"]) for k in keys], "{:>18,.0f}"),
+        ("  sewer", [float(res[k]["sink_volume_m3"]) for k in keys], "{:>18,.0f}"),
+        ("  basements", [float(res[k]["sink_fn_volume_m3"]) for k in keys], "{:>18,.0f}"),
+        ("  outflow at edges", [float(res[k]["outflow_volume_m3"]) for k in keys], "{:>18,.0f}"),
+        ("  stored in streets", [stored[k] for k in keys], "{:>18,.0f}"),
+        ("max Froude", [froude[k] for k in keys], "{:>18.2f}"),
+        (
+            "street flooded area >10 cm (km2)",
+            [street[k][0] for k in keys],
+            "{:>18.4f}",
+        ),
+        ("street max depth (m)", [street[k][1] for k in keys], "{:>18.2f}"),
+        (
+            "ground-storey loss (USD)",
+            [float(priced[k]["ground_loss_usd"].sum()) for k in keys],
+            "{:>18,.0f}",
+        ),
+        (
+            "basement loss (USD)",
+            [float(priced[k]["basement_loss_usd"].sum()) for k in keys],
+            "{:>18,.0f}",
+        ),
+        (
+            "total loss (USD)",
+            [float(priced[k]["loss_usd"].sum()) for k in keys],
+            "{:>18,.0f}",
+        ),
+        (
+            "total loss, % of ground + basement value",
+            [100.0 * float(priced[k]["loss_usd"].sum()) / (ground_value + value) for k in keys],
             "{:>18.3f}",
         ),
-        "ground-storey loss (USD)": (
-            [float(priced[k]["ground_loss_usd"].sum()) for k in ("with", "without")],
-            "{:>18,.0f}",
-        ),
-        "basement loss (USD)": (
-            [float(priced[k]["basement_loss_usd"].sum()) for k in ("with", "without")],
-            "{:>18,.0f}",
-        ),
-        "total loss (USD)": (
-            [float(priced[k]["loss_usd"].sum()) for k in ("with", "without")],
-            "{:>18,.0f}",
-        ),
-        "total loss, % of ground + basement value": (
-            [
-                100.0 * float(priced[k]["loss_usd"].sum()) / (ground_value + value)
-                for k in ("with", "without")
-            ],
-            "{:>18.3f}",
-        ),
-    }
-    for name, (vals, f) in rows.items():
-        print(f"  {name:<40}" + "".join(f.format(v) for v in vals))
-    print(f"  storm rain over the site {rain_vol:,.0f} m3")
-    print("  one-way coupling check: water entering basements is not removed from the street flow")
-    for key, title in (("with", "with walls"), ("without", "without walls")):
-        loss = priced[key]["basement_loss_usd"]
+    ]
+    for name, vals, f in table:
+        print(f"  {name:<42}" + "".join(f.format(v) for v in vals))
+    for k, title in zip(keys, ("with walls", "without walls"), strict=True):
+        if froude[k] >= max_fr_ok:
+            print(f"  max Froude {froude[k]:.2f} [{title}]: OUTSIDE VALIDITY - indicative only")
+    print("  uncoupled --pluvial street numbers for comparison: flooded area 0.076 / 0.061 km2,")
+    print("  max depth 1.96 / 2.49 m (with / without walls)")
+    for k, title in zip(keys, ("with walls", "without walls"), strict=True):
+        loss = priced[k]["basement_loss_usd"]
         print(f"  top 5 buildings by basement loss [{title}]")
         for i in np.argsort(-loss)[:5]:
+            fill = 100.0 * vol[k][i] / capacity[i] if capacity[i] > 0 else 0.0
             print(
                 f"    #{int(i):<4} {b['building'].iloc[i]!s:<12}"
                 f"height {float(b['height_m'].iloc[i]):5.1f} m  levels {int(n_lv[i])}"
-                f"  inflow {inflow[key][i]:>9,.0f} m3  loss {loss[i]:>12,.0f} USD"
+                f"  volume {vol[k][i]:>9,.0f} m3  fill {fill:5.1f} %  loss {loss[i]:>12,.0f} USD"
             )
     pts = [g.representative_point() for g in b.geometry]
     kinds = [
@@ -678,8 +716,8 @@ def _print_basement(spec: dict[str, Any], out: Path) -> int:
             "storeys": site_loss.storeys(b, spec),
             "basement_levels": n_lv,
             "area_m2": area,
-            "inflow_with_m3": inflow["with"],
-            "inflow_without_m3": inflow["without"],
+            "inflow_with_m3": vol["with"],
+            "inflow_without_m3": vol["without"],
             "ground_loss_with_usd": priced["with"]["ground_loss_usd"],
             "basement_loss_with_usd": priced["with"]["basement_loss_usd"],
             "ground_loss_without_usd": priced["without"]["ground_loss_usd"],
@@ -688,10 +726,11 @@ def _print_basement(spec: dict[str, Any], out: Path) -> int:
             "lon": [p.x for p in pts],
         }
     )
-    out.mkdir(parents=True, exist_ok=True)
     frame.to_csv(out / "site_losses_basement.csv", index=False)
     print(f"  {spec['site']['attribution']['osm']}; {spec['site']['attribution']['dem']}")
     print(f"  wrote {out / 'site_losses_basement.csv'}")
+    print(f"  and {out / 'pluvial_basement_snapshots.npz'},")
+    print(f"      {out / 'pluvial_basement_snapshots_nowalls.npz'}")
     return 0
 
 
@@ -795,8 +834,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument(
         "--basement",
         action="store_true",
-        help="basement flooding of the --pluvial design storm via ramp weirs "
-        "(site_losses_basement.csv)",
+        help="basements coupled both ways to the 2D street flow of the design storm "
+        "(site_losses_basement.csv, pluvial_basement_snapshots*.npz)",
     )
     args = ap.parse_args(argv)
 

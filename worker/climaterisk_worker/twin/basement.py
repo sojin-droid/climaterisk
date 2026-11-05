@@ -191,10 +191,144 @@ def price_with_basements(
     }
 
 
+def entrance_cells(
+    grid: SiteGrid,
+    buildings: gpd.GeoDataFrame,
+    bed: np.ndarray,
+    walls: np.ndarray,
+    n_levels: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Ramp entrance cell (row, col) of each building: the lowest cell of its ring.
+
+    The ring is that of ``site_loss.ring_cells``; ties go to the first cell in row-major
+    order. Buildings without basements (``n_levels == 0``) or with an empty ring get -1.
+
+    Args:
+        grid: Site grid.
+        buildings: Buildings (EPSG:4326).
+        bed: Bed elevation (m), shape ``(ny, nx)``.
+        walls: Boolean ``(ny, nx)`` wall raster.
+        n_levels: Basement storeys per building.
+
+    Returns:
+        ``(rows, cols)`` int arrays of length ``len(buildings)``.
+    """
+    n = np.asarray(n_levels, dtype=int)
+    rows_out = np.full(len(buildings), -1, dtype=int)
+    cols_out = np.full(len(buildings), -1, dtype=int)
+    for i, geom in enumerate(buildings.geometry):
+        if n[i] <= 0:
+            continue
+        rows, cols = site_loss._cells(grid, geom)
+        rr, cc = site_loss.ring_cells(grid, rows, cols, walls)
+        if rr.size:
+            k = int(np.argmin(np.asarray(bed)[rr, cc]))  # argmin: first minimum, row-major
+            rows_out[i], cols_out[i] = int(rr[k]), int(cc[k])
+    return rows_out, cols_out
+
+
+class BasementSink:
+    """Two-way coupled basements: a ``sink_fn`` for ``hydraulics.run`` (step R3d).
+
+    Each building with an entrance cell takes ramp weir flow from the street water above the
+    door sill, limited by the water above the sill in the shared cell and by its free
+    capacity. The water is removed from the 2D flow by the solver.
+
+    Algorithm:
+        Wanted volume in a step: $$W_b = C\\,B\\,\\max(h - T, 0)^{3/2}\\,\\Delta t$$
+        Cell scaling over the buildings $b$ sharing the cell:
+        $$s = \\min\\big(1,\\ \\max(h - T, 0)\\,\\Delta x^2 / \\textstyle\\sum_b W_b\\big)$$
+        Taken: $V_b \\mathrel{+}= \\min(s W_b,\\ K_b - V_b)$; removed depth in the cell is
+        $\\sum_b \\Delta V_b / \\Delta x^2$.
+        ASCII: W = C*B*max(h-T,0)^1.5*dt; s = min(1, max(h-T,0)*dx^2/sum(W));
+        dV = min(s*W, K - V).
+
+        $C$ weir coefficient (m^0.5/s), $B$ ramp width (m), $T$ sill (m), $h$ cell depth (m),
+        $\\Delta t$ step (s), $\\Delta x$ cell size (m), $K_b$ capacity (m3), $V_b$ volume (m3).
+
+    Attributes:
+        volume_m3: Cumulative water per building (m3), before pumping.
+    """
+
+    def __init__(
+        self,
+        rows: np.ndarray,
+        cols: np.ndarray,
+        capacity_m3: np.ndarray,
+        cell_m: float,
+        spec: dict[str, Any],
+    ) -> None:
+        """Precompute the index arrays.
+
+        Args:
+            rows: Entrance row per building (-1: no basement).
+            cols: Entrance column per building.
+            capacity_m3: Basement capacity per building (m3).
+            cell_m: Cell size (m).
+            spec: City spec with ``basement`` and ``loss`` sections.
+        """
+        bs = spec["basement"]
+        self._q = float(bs["weir_coefficient"]) * float(bs["ramp_width_m"])
+        self._sill = float(spec["loss"]["entry_threshold_m"])
+        self._pump = float(bs["pump_m3_h"])
+        self._cell_area = float(cell_m) ** 2
+        r = np.asarray(rows, dtype=int)
+        c = np.asarray(cols, dtype=int)
+        self._cap = np.asarray(capacity_m3, dtype=float)
+        self.volume_m3 = np.zeros(r.size, dtype=float)
+        self._idx = np.nonzero(r >= 0)[0]
+        self._r = r[self._idx]
+        self._c = c[self._idx]
+        self._cap_active = self._cap[self._idx]
+        # unique entrance cells and each active building's slot among them
+        flat = self._r * (int(self._c.max()) + 1 if self._c.size else 1) + self._c
+        self._cells, self._slot = np.unique(flat, return_inverse=True)
+        first = np.zeros(self._cells.size, dtype=int)
+        first[self._slot[::-1]] = np.arange(self._slot.size)[::-1]
+        self._cell_r = self._r[first]
+        self._cell_c = self._c[first]
+
+    def __call__(self, t: float, h: np.ndarray, dt: float) -> np.ndarray:
+        """Remove the weir flow of one step; return the removed depth raster (m).
+
+        Args:
+            t: Time (s), unused (the sink has no explicit time dependence).
+            h: Updated street depth (m), shape ``(ny, nx)``.
+            dt: Step (s).
+
+        Returns:
+            Depth (m) removed per cell, same shape as ``h``.
+        """
+        out = np.zeros_like(h, dtype=float)
+        if self._idx.size == 0:
+            return out
+        head_cell = np.maximum(h[self._cell_r, self._cell_c] - self._sill, 0.0)
+        if not head_cell.any():
+            return out
+        want = self._q * head_cell[self._slot] ** 1.5 * dt
+        total = np.bincount(self._slot, weights=want, minlength=self._cells.size)
+        avail = head_cell * self._cell_area
+        scale = np.ones_like(total)
+        over = total > avail
+        scale[over] = avail[over] / total[over]
+        take = np.minimum(want * scale[self._slot], self._cap_active - self.volume_m3[self._idx])
+        take = np.maximum(take, 0.0)
+        self.volume_m3[self._idx] += take
+        removed = np.bincount(self._slot, weights=take, minlength=self._cells.size)
+        out[self._cell_r, self._cell_c] = removed / self._cell_area
+        return out
+
+    def final_volume_m3(self, t_end_s: float) -> np.ndarray:
+        """Volume (m3) left after pumping for ``t_end_s``: ``max(V - pump t / 3600, 0)``."""
+        return np.maximum(self.volume_m3 - self._pump * float(t_end_s) / 3600.0, 0.0)
+
+
 __all__ = [
+    "BasementSink",
     "basement_depths",
     "basement_levels",
     "basement_volume_m3",
+    "entrance_cells",
     "price_with_basements",
     "ring_series",
 ]
