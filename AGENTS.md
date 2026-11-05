@@ -125,6 +125,10 @@ R. **Real neighbourhood (user, 2026-11-05: public data allowed).** Gangnam stati
    an exposure for R3 (water enters it).
    R2 rain on the real site (this replaces step 10 on the synthetic city), time viewer with
    real footprints, buildings-as-walls vs no-buildings comparison. R3 pricing.
+   **Gate R2: `tests/test_pluvial.py`** (protected) — API in its docstring: time-varying
+   rain, sink and open-edge outflow in `hydraulics.run`, and `twin/pluvial.py` (design
+   storm, NRCS CN, sewer capacity, roof runoff onto streets). Add a `rain` section to the
+   spec and a `--pluvial` CLI flag writing snapshots and a with/without-buildings table.
 10. **Pluvial (rain) flood.** On the step-6 model: Huff design-storm hyetograph, NRCS
     curve-number infiltration, manhole sinks at a sewer capacity. Repo-specific method —
     label it as such in outputs.

@@ -7,3 +7,4 @@ tests/test_coastal.py
 tests/test_surge2d.py
 tests/test_viewer_time.py
 tests/test_site.py
+tests/test_pluvial.py
