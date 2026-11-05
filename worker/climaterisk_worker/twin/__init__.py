@@ -21,6 +21,13 @@ if str(_SRC) not in sys.path:
 
 from climaterisk_worker.twin.city import M_PER_DEG_LAT, build_city, node_kind  # noqa: E402
 from climaterisk_worker.twin.climate import build_future_hazard, future_scenarios  # noqa: E402
+from climaterisk_worker.twin.coastal import (  # noqa: E402
+    coast_centroids,
+    coast_latitude,
+    price_surge,
+    surge_hazard,
+    write_dem,
+)
 from climaterisk_worker.twin.flood import flood_depths, layered_frequencies  # noqa: E402
 from climaterisk_worker.twin.hazard import build_hazard  # noqa: E402
 from climaterisk_worker.twin.heat import (  # noqa: E402
@@ -62,6 +69,8 @@ __all__ = [
     "build_hazard",
     "build_heat_hazard",
     "build_tc_hazard",
+    "coast_centroids",
+    "coast_latitude",
     "compare_climate",
     "compare_defences",
     "defences_for",
@@ -80,6 +89,7 @@ __all__ = [
     "portfolio_impact",
     "price_assets",
     "price_productivity",
+    "price_surge",
     "price_tc",
     "productivity_impact_function",
     "render_3d",
@@ -88,6 +98,8 @@ __all__ = [
     "sky_view_factor",
     "street_canyons",
     "sunlit_fraction",
+    "surge_hazard",
     "synthetic_tracks",
     "wind_hazard",
+    "write_dem",
 ]

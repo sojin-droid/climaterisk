@@ -55,6 +55,19 @@
       "road": 1.0
     }
   },
+  "coast": {
+    "_note": "Synthetic sea coast for the storm-surge scenario (twin/coastal.py; AGENTS.md step 9). In this scenario the bank (row 0 side) faces the sea: the river and coastal scenarios are alternatives on the same terrain, not both present at once. The coast is synthetic, a straight east-west line; CLIMADA's real distance-to-coast raster is not used. Every value is an assumption.",
+    "coastline_offset_m": 62.5,
+    "coastline_offset_m_note": "Assumed distance (m) of the coastline south of grid row 0. Must equal (n + 0.5) x hydraulic.cell_m so the coast falls on a raster cell edge and no DEM cell straddles it: land cells fill the gap, sea cells start beyond it.",
+    "sea_rows": 4,
+    "sea_rows_note": "Assumed number of sea raster rows written south of the coast in the DEM (at least this many rows at sea_bed_m).",
+    "sea_bed_m": -5.0,
+    "sea_bed_m_note": "Assumed sea-bed elevation (m, negative = below datum) of the sea rows; shallow shelf, a placeholder.",
+    "inland_decay_m_per_km": 0.2,
+    "inland_decay_m_per_km_note": "Surge height lost per km inland (m/km); the CLIMADA Petals default from Pielke and Pielke (1997).",
+    "sea_level_rise_m": 0.0,
+    "sea_level_rise_m_note": "Sea-level rise added to the surge (m); 0.0 is present day, raise it for a climate scenario."
+  },
   "typhoon": {
     "_note": "Synthetic typhoon tracks (twin/typhoon.py; AGENTS.md step 7). Straight, constant-intensity hourly tracks aimed at the city centre with a random lateral offset and heading; wind is CLIMADA's Holland profile; priced with the repo's TC regional impact function for Korea. Every value is an assumption, not a fitted climatology.",
     "n_tracks": 20,

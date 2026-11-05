@@ -149,6 +149,51 @@ def _print_typhoon(spec: dict[str, Any], out: Path) -> int:
     return 0
 
 
+def _print_coastal(spec: dict[str, Any], out: Path) -> int:
+    """Storm-surge bathtub on a synthetic coast: write the DEM, price CF, print the losses."""
+    import copy
+
+    import numpy as np
+    from climaterisk_worker.twin.city import build_city
+    from climaterisk_worker.twin.coastal import price_surge, surge_hazard, write_dem
+
+    graph, assets = build_city(spec)
+    out.mkdir(parents=True, exist_ok=True)
+    dem = write_dem(graph, spec, out / "coast_dem.tif")
+    total_value = sum(a["asset_value_usd"] for a in assets)
+
+    def run(sp: dict[str, Any]) -> tuple[Any, list[float]]:
+        hz = surge_hazard(assets, graph, sp, dem)
+        return hz, [r.eal_usd or 0.0 for r in price_surge(assets, hz)]
+
+    hazard, eal = run(spec)
+    co = spec["coast"]
+    depth = hazard.intensity.toarray()
+    print(
+        f"Coastal surge bathtub (seed {spec['seed']}) - coast {co['coastline_offset_m']} m south "
+        f"of row 0, sea level rise {co['sea_level_rise_m']} m; DEM -> {dem}"
+    )
+    print(f"  max surge depth {float(depth.max()):.2f} m")
+    print(f"  assets flooded  {int(np.count_nonzero(depth.max(axis=0) > 0))} of {len(assets)}")
+    print(f"  total        EAL {sum(eal):>12,.0f} USD/yr ({100 * sum(eal) / total_value:.3f} %)")
+    by_kind: dict[str, list[float]] = {}
+    for a, e in zip(assets, eal, strict=True):
+        v = by_kind.setdefault(a["kind"], [0.0, 0.0, 0])
+        v[0] += e
+        v[1] += a["asset_value_usd"]
+        v[2] += 1
+    for k, (e, val, n) in sorted(by_kind.items()):
+        print(f"  {k:<12} n={n:<4} EAL {e:>12,.0f} USD/yr ({100 * e / val:.3f} %)")
+    risen = copy.deepcopy(spec)
+    risen["coast"]["sea_level_rise_m"] = co["sea_level_rise_m"] + 0.5
+    _, eal_slr = run(risen)
+    print(
+        f"  with +0.5 m sea level rise: EAL {sum(eal_slr):,.0f} USD/yr "
+        f"({100 * sum(eal_slr) / total_value:.3f} %)"
+    )
+    return 0
+
+
 def _print_heat(spec: dict[str, Any], out: Path) -> int:
     """Price street-level UTCI (canyon MRT approximation) and print productivity loss."""
     import numpy as np
@@ -242,6 +287,11 @@ def main(argv: list[str] | None = None) -> int:
         help="synthetic typhoon tracks -> CLIMADA wind -> engine TC pricing; prints EAL %%",
     )
     ap.add_argument(
+        "--coastal",
+        action="store_true",
+        help="synthetic coast: typhoon storm surge (Petals bathtub) -> engine CF pricing",
+    )
+    ap.add_argument(
         "--heat",
         action="store_true",
         help="street-level UTCI (canyon MRT approximation) -> productivity loss",
@@ -250,6 +300,8 @@ def main(argv: list[str] | None = None) -> int:
 
     out = Path(args.out) if args.out else paths.derived_dir("synthetic_city")
     spec = load_spec(args.spec)
+    if args.coastal:
+        return _print_coastal(spec, out)
     if args.heat:
         return _print_heat(spec, out)
     if args.typhoon:
