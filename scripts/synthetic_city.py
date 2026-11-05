@@ -120,6 +120,35 @@ def _print_hazard_models(spec: dict[str, Any], out: Path) -> int:
     return 0
 
 
+def _print_typhoon(spec: dict[str, Any], out: Path) -> int:
+    """Price the synthetic typhoons through the engine and print EAL as % of asset value."""
+    from climaterisk_worker.twin.city import build_city
+    from climaterisk_worker.twin.typhoon import build_tc_hazard, price_tc
+
+    _, assets = build_city(spec)
+    hazard = build_tc_hazard(assets, spec)
+    rows = price_tc(assets, hazard)
+    eal = [r.eal_usd or 0.0 for r in rows]
+    total_value = sum(a["asset_value_usd"] for a in assets)
+    ty = spec["typhoon"]
+    print(
+        f"Typhoon (seed {spec['seed']}) - {ty['n_tracks']} tracks, "
+        f"{ty['annual_rate_per_year']} /yr, vmax {ty['vmax_ms']} m/s; EAL as % of asset value:"
+    )
+    print(f"  total        EAL {sum(eal):>12,.0f} USD/yr ({100 * sum(eal) / total_value:.3f} %)")
+    by_kind: dict[str, list[float]] = {}
+    for a, e in zip(assets, eal, strict=True):
+        v = by_kind.setdefault(a["kind"], [0.0, 0.0, 0])
+        v[0] += e
+        v[1] += a["asset_value_usd"]
+        v[2] += 1
+    for k, (e, val, n) in sorted(by_kind.items()):
+        print(f"  {k:<12} n={n:<4} EAL {e:>12,.0f} USD/yr ({100 * e / val:.3f} %)")
+    out.mkdir(parents=True, exist_ok=True)
+    print(f"  max wind at any asset {float(hazard.intensity.max()):.1f} m/s")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Generate the synthetic city and print the EAL summary."""
     from climaterisk import paths
@@ -169,10 +198,17 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="compare the bathtub stage law with the 2D hydraulic model (hazard_models.csv)",
     )
+    ap.add_argument(
+        "--typhoon",
+        action="store_true",
+        help="synthetic typhoon tracks -> CLIMADA wind -> engine TC pricing; prints EAL %%",
+    )
     args = ap.parse_args(argv)
 
     out = Path(args.out) if args.out else paths.derived_dir("synthetic_city")
     spec = load_spec(args.spec)
+    if args.typhoon:
+        return _print_typhoon(spec, out)
     if args.climate:
         return _print_climate(spec, out)
     if args.hydraulic:

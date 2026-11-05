@@ -32,6 +32,13 @@ from climaterisk_worker.twin.pricing import (  # noqa: E402
     price_assets,
 )
 from climaterisk_worker.twin.spec import MODEL_ID, SPEC_PATH, load_spec  # noqa: E402
+from climaterisk_worker.twin.typhoon import (  # noqa: E402
+    build_tc_hazard,
+    make_track,
+    price_tc,
+    synthetic_tracks,
+    wind_hazard,
+)
 from climaterisk_worker.twin.viewer import render_map  # noqa: E402
 from climaterisk_worker.twin.viewer3d import generate_buildings, render_3d  # noqa: E402
 
@@ -42,6 +49,7 @@ __all__ = [
     "build_city",
     "build_future_hazard",
     "build_hazard",
+    "build_tc_hazard",
     "compare_climate",
     "compare_defences",
     "defences_for",
@@ -50,12 +58,16 @@ __all__ = [
     "generate_buildings",
     "layered_frequencies",
     "load_spec",
+    "make_track",
     "network_failure",
     "node_kind",
     "plot_city",
     "portfolio_impact",
     "price_assets",
+    "price_tc",
     "render_3d",
     "render_map",
     "run",
+    "synthetic_tracks",
+    "wind_hazard",
 ]
