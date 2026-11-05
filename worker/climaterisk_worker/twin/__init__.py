@@ -23,6 +23,17 @@ from climaterisk_worker.twin.city import M_PER_DEG_LAT, build_city, node_kind  #
 from climaterisk_worker.twin.climate import build_future_hazard, future_scenarios  # noqa: E402
 from climaterisk_worker.twin.flood import flood_depths, layered_frequencies  # noqa: E402
 from climaterisk_worker.twin.hazard import build_hazard  # noqa: E402
+from climaterisk_worker.twin.heat import (  # noqa: E402
+    build_heat_hazard,
+    feels_like,
+    heat_events,
+    mean_radiant_temperature,
+    price_productivity,
+    productivity_impact_function,
+    sky_view_factor,
+    street_canyons,
+    sunlit_fraction,
+)
 from climaterisk_worker.twin.network import network_failure  # noqa: E402
 from climaterisk_worker.twin.pipeline import compare_climate, compare_defences, run  # noqa: E402
 from climaterisk_worker.twin.plot import plot_city  # noqa: E402
@@ -49,25 +60,34 @@ __all__ = [
     "build_city",
     "build_future_hazard",
     "build_hazard",
+    "build_heat_hazard",
     "build_tc_hazard",
     "compare_climate",
     "compare_defences",
     "defences_for",
+    "feels_like",
     "flood_depths",
     "future_scenarios",
     "generate_buildings",
+    "heat_events",
     "layered_frequencies",
     "load_spec",
     "make_track",
+    "mean_radiant_temperature",
     "network_failure",
     "node_kind",
     "plot_city",
     "portfolio_impact",
     "price_assets",
+    "price_productivity",
     "price_tc",
+    "productivity_impact_function",
     "render_3d",
     "render_map",
     "run",
+    "sky_view_factor",
+    "street_canyons",
+    "sunlit_fraction",
     "synthetic_tracks",
     "wind_hazard",
 ]

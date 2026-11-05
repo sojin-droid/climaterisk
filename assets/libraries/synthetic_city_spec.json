@@ -1,6 +1,56 @@
 {
   "_note": "Synthetic (imaginary) virtual city for scripts/synthetic_city.py. Every number is an assumption made because no real building/GIS data may be used — none is a measurement. Change values here, not in code.",
   "seed": 20261029,
+  "heat": {
+    "_note": "Street-canyon heat proxy (twin/heat.py; AGENTS.md step 8), repo-specific and NOT UTCI: no UTCI library is installed. Air temperature per return period, plus urban-heat-island, sky-view factor and sunlit fraction of an infinite street canyon, give a weighted feels-like temperature priced through the repo's heat-productivity curve. Every value is an assumption, not a fitted climatology.",
+    "return_periods": [2, 5, 10, 25, 50, 100],
+    "return_periods_note": "Assumed heatwave return periods (years), the same ladder as the flood events.",
+    "t_air_2y_c": 34.0,
+    "t_air_2y_c_note": "Assumed 2-year peak daily-maximum air temperature (degC) for a Korean mid-latitude city; an assumption, not a station record.",
+    "t_air_slope_c": 1.2,
+    "t_air_slope_c_note": "Assumed Gumbel-like growth of the peak air temperature per ln-year (degC), so the 100-year peak is about 5.5 degC above the 2-year peak. An assumption.",
+    "mrt_sun_excess_c": 25.0,
+    "mrt_sun_excess_c_note": "Assumed extra mean radiant temperature (degC) over air temperature for a fully sunlit street at midsummer noon; an assumption in the usual 20-30 degC range for hot sunny days.",
+    "mrt_sky_excess_c": 5.0,
+    "mrt_sky_excess_c_note": "Assumed extra radiant load (degC) from the open sky and warm surfaces, scaled by the sky-view factor; an assumption.",
+    "mrt_weight": 0.3,
+    "mrt_weight_note": "Assumed weight of the radiant excess in the feels-like temperature (a person feels air temperature plus a fraction of the radiant excess); an assumption, not a UTCI regression.",
+    "solar_elevation_deg": 70.0,
+    "solar_elevation_deg_note": "Assumed solar elevation (degrees) at midsummer noon near 37 N (90 - 37 + 23.4 = 76 at solstice, lowered for typical heatwave dates); an assumption.",
+    "street_width_m": 15.0,
+    "street_width_m_note": "Assumed street width (m) between building faces, a typical Korean two-lane street with pavements; one value for the whole synthetic city.",
+    "uhi_c": {
+      "_note": "Assumed urban-heat-island air-temperature excess (degC) per asset kind: dense paved or hot-process lots are warmer than residential ones. Assumptions, not measurements.",
+      "residential": 0.5,
+      "commercial": 1.5,
+      "industrial": 2.0,
+      "substation": 1.0,
+      "hospital": 1.0,
+      "road": 2.0
+    },
+    "workers": {
+      "_note": "Assumed workers per asset (people present in the heat) used for the productivity exposure. Roads carry no workers: they have no payroll, so their exposure is zero. Assumptions, not a census.",
+      "residential": 2,
+      "commercial": 40,
+      "industrial": 60,
+      "substation": 3,
+      "hospital": 300,
+      "road": 0
+    },
+    "daily_wage_usd": 100.0,
+    "daily_wage_usd_note": "Assumed daily labour value (USD per worker-day) for a mid-income Korean city; an assumption.",
+    "heatwave_days": 10,
+    "heatwave_days_note": "Assumed number of heatwave working days per year over which the peak-day productivity loss applies; an assumption.",
+    "max_mdd": {
+      "_note": "Assumed maximum productivity loss at the top of the repo's heat ramp, per asset kind: higher for outdoor or heavy work (industrial, roads) and lower for air-conditioned work (commercial, hospital). Assumptions, not published curves.",
+      "residential": 0.5,
+      "commercial": 0.3,
+      "industrial": 1.0,
+      "substation": 0.8,
+      "hospital": 0.3,
+      "road": 1.0
+    }
+  },
   "typhoon": {
     "_note": "Synthetic typhoon tracks (twin/typhoon.py; AGENTS.md step 7). Straight, constant-intensity hourly tracks aimed at the city centre with a random lateral offset and heading; wind is CLIMADA's Holland profile; priced with the repo's TC regional impact function for Korea. Every value is an assumption, not a fitted climatology.",
     "n_tracks": 20,

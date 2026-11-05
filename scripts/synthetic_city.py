@@ -149,6 +149,44 @@ def _print_typhoon(spec: dict[str, Any], out: Path) -> int:
     return 0
 
 
+def _print_heat(spec: dict[str, Any], out: Path) -> int:
+    """Price the street-canyon heat proxy and print productivity loss (not UTCI)."""
+    import numpy as np
+    from climaterisk_worker.twin.city import build_city
+    from climaterisk_worker.twin.heat import build_heat_hazard, price_productivity
+
+    _, assets = build_city(spec)
+    hazard = build_heat_hazard(assets, spec)
+    rows = price_productivity(assets, hazard, spec)
+    feel = hazard.intensity.toarray()
+    hp = spec["heat"]
+    print(
+        f"Heatwave (seed {spec['seed']}) - street-canyon heat proxy (repo-specific, not UTCI); "
+        f"{hp['heatwave_days']} heatwave days/yr:"
+    )
+    print("  peak feels-like per event (degC, min..max over assets):")
+    for name, row in zip(hazard.event_name, feel, strict=True):
+        print(f"    {name:<7}{float(np.min(row)):>6.1f} .. {float(np.max(row)):>5.1f}")
+    exposure = sum(r["exposure_usd"] for r in rows)
+    eal = sum(r["eal_usd"] for r in rows)
+    pct = 100 * eal / exposure if exposure else 0.0
+    print(
+        f"  total expected annual productivity loss {eal:>12,.0f} USD/yr "
+        f"({pct:.2f} % of {exposure:,.0f} USD annual exposure)"
+    )
+    by_kind: dict[str, list[float]] = {}
+    for r in rows:
+        v = by_kind.setdefault(r["kind"], [0.0, 0.0, 0])
+        v[0] += r["eal_usd"]
+        v[1] += r["exposure_usd"]
+        v[2] += 1
+    for k, (e, ex, n) in sorted(by_kind.items()):
+        share = f"{100 * e / ex:.2f} %" if ex else "no workers"
+        print(f"  {k:<12} n={n:<4} loss {e:>12,.0f} USD/yr ({share})")
+    out.mkdir(parents=True, exist_ok=True)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Generate the synthetic city and print the EAL summary."""
     from climaterisk import paths
@@ -203,10 +241,17 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="synthetic typhoon tracks -> CLIMADA wind -> engine TC pricing; prints EAL %%",
     )
+    ap.add_argument(
+        "--heat",
+        action="store_true",
+        help="street-canyon heat proxy (repo-specific, not UTCI) -> productivity loss",
+    )
     args = ap.parse_args(argv)
 
     out = Path(args.out) if args.out else paths.derived_dir("synthetic_city")
     spec = load_spec(args.spec)
+    if args.heat:
+        return _print_heat(spec, out)
     if args.typhoon:
         return _print_typhoon(spec, out)
     if args.climate:
