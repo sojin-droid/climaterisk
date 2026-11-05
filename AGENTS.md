@@ -179,6 +179,16 @@ R. **Real neighbourhood (user, 2026-11-05: public data allowed).** Gangnam stati
    (3.1 %) / 32.2 M (1.5 %) USD of 1.50 bn basement + 0.59 bn ground-storey value.
    Basements are the main sink of the water the sewer cannot take. Indicative (Froude 0.96
    with walls). Ramp rain is not added in the coupled model (it already falls on the street).
+   **R3b done** (gate `tests/test_rain_eal.py`, protected; Sonnet + review; `--rain-eal`).
+   KMA ASOS Seoul (108) hourly 1961-2026, annual-max 2 h rain, GEV by L-moments
+   (xi 57.2, alpha 21.9 mm, k 0.096): 2/10/30/100/500 y = 65/102/120/139/160 mm (the R2
+   160 mm design storm is ~500 y). Ladder 2-500 y through the coupled R3d model, priced as
+   ONE RF hazard with layered frequencies (CLIMADA step convention; T < 2 y = no loss).
+   EAL with / without walls 1.26 M / 0.83 M USD per year (0.061 / 0.040 % of 2.09 bn);
+   bootstrap 5-95 % rain band 0.34-2.52 M / 0.29-1.55 M. Loss starts at the 10 y storm
+   (sewer 95 mm/h). Max Froude per run 0.6-2.35 (supercritical in the 20-100 y runs):
+   indicative only. One station ~7 km away; validation against the Seoul flood-trace maps
+   (공공누리 1유형, `<DATA_ROOT>/external/seoul_flood_traces`) is the next step.
 10. **Pluvial (rain) flood.** On the step-6 model: Huff design-storm hyetograph, NRCS
     curve-number infiltration, manhole sinks at a sewer capacity. Repo-specific method —
     label it as such in outputs.
