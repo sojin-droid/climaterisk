@@ -150,7 +150,7 @@ def _print_typhoon(spec: dict[str, Any], out: Path) -> int:
 
 
 def _print_heat(spec: dict[str, Any], out: Path) -> int:
-    """Price the street-canyon heat proxy and print productivity loss (not UTCI)."""
+    """Price street-level UTCI (canyon MRT approximation) and print productivity loss."""
     import numpy as np
     from climaterisk_worker.twin.city import build_city
     from climaterisk_worker.twin.heat import build_heat_hazard, price_productivity
@@ -161,10 +161,10 @@ def _print_heat(spec: dict[str, Any], out: Path) -> int:
     feel = hazard.intensity.toarray()
     hp = spec["heat"]
     print(
-        f"Heatwave (seed {spec['seed']}) - street-canyon heat proxy (repo-specific, not UTCI); "
-        f"{hp['heatwave_days']} heatwave days/yr:"
+        f"Heatwave (seed {spec['seed']}) - street-level UTCI "
+        f"(MRT from a street-canyon approximation); {hp['heatwave_days']} heatwave days/yr:"
     )
-    print("  peak feels-like per event (degC, min..max over assets):")
+    print("  peak UTCI per event (degC, min..max over assets):")
     for name, row in zip(hazard.event_name, feel, strict=True):
         print(f"    {name:<7}{float(np.min(row)):>6.1f} .. {float(np.max(row)):>5.1f}")
     exposure = sum(r["exposure_usd"] for r in rows)
@@ -244,7 +244,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument(
         "--heat",
         action="store_true",
-        help="street-canyon heat proxy (repo-specific, not UTCI) -> productivity loss",
+        help="street-level UTCI (canyon MRT approximation) -> productivity loss",
     )
     args = ap.parse_args(argv)
 

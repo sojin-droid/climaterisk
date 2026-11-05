@@ -70,8 +70,12 @@ published benchmarks and conservation laws — before its numbers are used.
    modules on a synthetic population. EnergyPlus for building cooling load is optional and
    needs the user's approval to install.
    **Gate: `tests/test_heat.py`** (protected) — its docstring is the API and every formula
-   for `twin/heat.py`. No UTCI library is installed: the heat index is a street-canyon
-   proxy (SVF, sunlit fraction, MRT, weighted feels-like), labelled repo-specific, not UTCI.
+   for `twin/heat.py`. Heat index = official UTCI (`pythermalcomfort==4.8.0`, installed in
+   `.climada-env` with the user's approval 2026-11-05); MRT from a street-canyon
+   approximation (SVF, sunlit fraction) — the MRT, not the UTCI, is the repo-specific part.
+   **Done** (`0b11414` proxy by Sonnet, UTCI in review): UTCI 39-52 degC at noon,
+   productivity loss 20 % of the heatwave-day wage bill. That is high because the noon peak
+   is applied to whole working days — an hourly UTCI cycle is the next refinement.
    Add a `heat` section to the spec (every value with a `_note`) and a `--heat` CLI flag.
    The heat-mortality module is calibrated on European reference cities; leave it out.
 9. **Coastal flood / surge.** Add a coastline to the spec; bathtub first (CLIMADA Petals

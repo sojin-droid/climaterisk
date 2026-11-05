@@ -1,9 +1,9 @@
 """Step 8 gate (written by the reviewer before the step; agents may not edit it).
 
 Heatwave: street-canyon heat on the synthetic city -> the repo's heat-productivity curve.
-No UTCI library is installed, so the heat index is a documented **repo-specific proxy**
-built from street-canyon geometry, not UTCI. Module under test:
-``worker/climaterisk_worker/twin/heat.py``. Required API and formulas:
+The heat index is the official UTCI (``pythermalcomfort==4.8.0``, installed with the user's
+approval); its mean radiant temperature comes from a street-canyon approximation below.
+Module under test: ``worker/climaterisk_worker/twin/heat.py``. Required API and formulas:
 
 - ``sky_view_factor(h_over_w)`` — symmetric infinite canyon, centre of the floor (Oke 1987):
   ``SVF = cos(arctan(2 H/W))``.
@@ -22,7 +22,9 @@ built from street-canyon geometry, not UTCI. Module under test:
   height from ``viewer3d.generate_buildings``; a road uses the mean height of its two end
   lots; ``W = spec["heat"]["street_width_m"]``.
 - ``build_heat_hazard(assets, spec)`` -> CLIMADA ``Hazard`` (``haz_type="HW"``, ``units="degC"``)
-  whose intensity is ``T_feel`` per event and asset, with the local air temperature
+  whose intensity is ``utci_c(T, MRT, spec)`` per event and asset — UTCI with
+  ``v10 = spec["heat"]["wind_10m_ms"]`` and ``RH = spec["heat"]["rh_pct"]`` — with the local
+  air temperature
   ``T = T_peak + spec["heat"]["uhi_c"][kind]`` and ``beta = spec["heat"]["solar_elevation_deg"]``.
 - ``productivity_impact_function(max_mdd)`` -> a CLIMADA ``ImpactFunc`` (``HW``) built
   from the repo's heat-productivity curve ``physical._CATALOG_PERILS["heatwave"]``
@@ -139,7 +141,7 @@ def test_hazard_and_productivity_loss_equal_the_hand_calculation() -> None:
     t_loc = t_peak[:, None] + np.array([hp["uhi_c"][a["kind"]] for a in assets])[None, :]
     mrt = heat.mean_radiant_temperature(t_loc, hw[None, :], hp["solar_elevation_deg"], spec)
     np.testing.assert_allclose(
-        hazard.intensity.toarray(), heat.feels_like(t_loc, mrt, spec), rtol=1e-12
+        hazard.intensity.toarray(), heat.utci_c(t_loc, mrt, spec), rtol=1e-12
     )
     rows = heat.price_productivity(assets, hazard, spec)
     got = np.array([r["eal_usd"] for r in rows])
@@ -182,3 +184,32 @@ def test_hotter_summers_cost_more_and_shade_helps() -> None:
     wide["heat"]["street_width_m"] *= 4.0  # less shade
     exposed = heat.build_heat_hazard(assets, wide).intensity.toarray()
     assert np.all(exposed >= heat.build_heat_hazard(assets, spec).intensity.toarray() - 1e-12)
+
+
+def test_utci_is_the_official_index() -> None:
+    """Added when UTCI replaced the proxy: matches pythermalcomfort, and in the reference
+    environment (MRT = T, v10 = 0.5 m/s, RH 50 %) UTCI is close to air temperature."""
+    from pythermalcomfort.models import utci
+
+    spec = load_spec()
+    t = np.array([[30.0, 34.0], [36.0, 38.0]])
+    mrt = t + np.array([[10.0, 30.0], [5.0, 40.0]])
+    got = heat.utci_c(t, mrt, spec)
+    want = utci(
+        tdb=t,
+        tr=mrt,
+        v=spec["heat"]["wind_10m_ms"],
+        rh=spec["heat"]["rh_pct"],
+        round_output=False,
+    ).utci
+    np.testing.assert_allclose(got, want, rtol=1e-12)
+    ref = copy.deepcopy(spec)
+    ref["heat"].update(wind_10m_ms=0.5, rh_pct=50.0)
+    temps = np.array([20.0, 25.0, 30.0])
+    np.testing.assert_allclose(heat.utci_c(temps, temps, ref), temps, atol=0.6)
+    assert np.all(np.diff(heat.utci_c(np.full(3, 33.0), [40.0, 55.0, 70.0], spec)) > 0)
+
+
+def test_utci_refuses_inputs_outside_its_range() -> None:
+    with pytest.raises(ValueError):
+        heat.utci_c(34.0, 34.0 + 90.0, load_spec())  # MRT - T > 70 K

@@ -167,15 +167,59 @@ def street_canyons(assets: list[dict[str, Any]], spec: dict[str, Any]) -> Any:
     return out
 
 
+def utci_c(t_air_c: Any, mrt_c: Any, spec: dict[str, Any]) -> np.ndarray:
+    """Universal Thermal Climate Index (degC) from ``pythermalcomfort`` (Broede et al. 2012).
+
+    UTCI is the air temperature of a reference environment (10 m wind 0.5 m/s, MRT equal to
+    air temperature, 50 % relative humidity) producing the same physiological strain as the
+    actual one. It is evaluated with the official operational polynomial; inputs outside its
+    validity range (e.g. MRT - T > 70 K, wind outside 0.5-17 m/s) raise instead of being
+    silently dropped.
+
+    Algorithm:
+        $$\\mathrm{UTCI} = T + f(T,\\; \\mathrm{MRT} - T,\\; v_{10},\\; e)$$
+        ASCII: UTCI = T + offset polynomial(T, MRT - T, v10, vapour pressure e)
+
+    $T$ air temperature (degC), MRT mean radiant temperature (degC), $v_{10}$ wind speed at
+    10 m (m/s, ``spec["heat"]["wind_10m_ms"]``), $e$ vapour pressure from relative humidity
+    ``spec["heat"]["rh_pct"]`` (%).
+
+    Raises:
+        ValueError: when any input is outside the UTCI validity range.
+    """
+    from pythermalcomfort.models import utci
+
+    hp = spec["heat"]
+    t = np.asarray(t_air_c, dtype=float)
+    tr = np.broadcast_to(np.asarray(mrt_c, dtype=float), np.broadcast(t, mrt_c).shape)
+    t = np.broadcast_to(t, tr.shape)
+    out = np.asarray(
+        utci(
+            tdb=t,
+            tr=tr,
+            v=np.full(t.shape, float(hp["wind_10m_ms"])),
+            rh=np.full(t.shape, float(hp["rh_pct"])),
+            round_output=False,
+        ).utci,
+        dtype=float,
+    )
+    if np.isnan(out).any():
+        raise ValueError("UTCI inputs outside the validity range (see pythermalcomfort.utci)")
+    return out
+
+
 def build_heat_hazard(assets: list[dict[str, Any]], spec: dict[str, Any]) -> Any:
-    """A CLIMADA heat ``Hazard`` (``HW``, degC) whose intensity is the feels-like temperature.
+    """A CLIMADA heat ``Hazard`` (``HW``, degC) whose intensity is street-level UTCI.
 
     Algorithm:
         $$T_{loc} = T_{peak}(T_i) + u_{kind},\\quad
-        I_{ik} = T_{loc} + w\\,(\\mathrm{MRT}(T_{loc}, H/W_k, \\beta) - T_{loc})$$
-        ASCII: T_loc = T_peak + uhi[kind]; I = T_loc + w * (MRT - T_loc)
+        I_{ik} = \\mathrm{UTCI}\\big(T_{loc},\\; \\mathrm{MRT}(T_{loc}, H/W_k, \\beta),
+          v_{10}, \\mathrm{RH}\\big)$$
+        ASCII: T_loc = T_peak + uhi[kind]; I = UTCI(T_loc, MRT(T_loc, H/W, beta), v10, RH)
 
-        $u_{kind}$ urban-heat-island excess (degC), $\\beta$ solar elevation (degrees).
+        $u_{kind}$ urban-heat-island excess (degC), $\\beta$ solar elevation (degrees). The
+        MRT is the street-canyon approximation of :func:`mean_radiant_temperature`; UTCI
+        itself is the official index (:func:`utci_c`).
 
     Args:
         assets: Asset dicts from :func:`climaterisk_worker.twin.build_city`.
@@ -195,7 +239,7 @@ def build_heat_hazard(assets: list[dict[str, Any]], spec: dict[str, Any]) -> Any
     mrt = mean_radiant_temperature(
         t_loc, street_canyons(assets, spec)[None, :], hp["solar_elevation_deg"], spec
     )
-    feel = feels_like(t_loc, mrt, spec)
+    feel = utci_c(t_loc, mrt, spec)
     return Hazard(
         haz_type="HW",
         units="degC",
