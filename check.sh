@@ -15,6 +15,6 @@ uv run ruff check .
 uv run ruff format --check .
 uv run mypy src/
 uv run pytest -q
-"${PY}" -m pytest -q tests/test_synthetic_city.py tests/test_hydraulics.py tests/test_inundation.py tests/test_typhoon.py tests/test_heat.py tests/test_coastal.py tests/test_surge2d.py tests/test_viewer_time.py tests/test_site.py tests/test_pluvial.py tests/test_viewer_site.py tests/test_site_loss.py
+"${PY}" -m pytest -q tests/test_synthetic_city.py tests/test_hydraulics.py tests/test_inundation.py tests/test_typhoon.py tests/test_heat.py tests/test_coastal.py tests/test_surge2d.py tests/test_viewer_time.py tests/test_site.py tests/test_pluvial.py tests/test_viewer_site.py tests/test_site_loss.py tests/test_basement.py
 "${PY}" scripts/synthetic_city.py --out /tmp/twin_check >/dev/null
 echo "check.sh: all checks passed"

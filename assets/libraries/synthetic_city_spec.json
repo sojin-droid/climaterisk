@@ -201,6 +201,34 @@
     "underground_property_type": "commercial",
     "underground_property_type_note": "Underground features (Gangnam Station Underground Shopping Center) are shops: one storey, commercial curve, filled by the street water above the threshold over their footprint (capped at one storey)."
   },
+  "basement": {
+    "_note": "Basement storeys of above-ground buildings on the real site (twin/basement.py; AGENTS.md step R3c), following the user's sheets 층별_침수피해율_비교(261020) (storey-weighted value, default basement storeys by use) and 지하침수_시험계산 (ramp entrance as a broad-crested weir). OSM has no basement data: every number here is an assumption or a sheet default, not a survey value. Street water entering a basement is NOT removed from the 2D street flow (one-way coupling).",
+    "levels": {
+      "_note": "Default basement storeys by OSM building value, from the storey sheet's defaults when the location is unknown (office 4, retail/hotel 3, residential 2, logistics 1); unlisted values use _default.",
+      "_default": 3,
+      "office": 4,
+      "commercial": 3,
+      "retail": 3,
+      "hotel": 3,
+      "apartments": 2,
+      "residential": 2,
+      "house": 0,
+      "detached": 0,
+      "industrial": 1,
+      "warehouse": 1,
+      "garage": 0
+    },
+    "min_storeys": 4,
+    "min_storeys_note": "assumption: only buildings with at least this many above-ground storeys get basements; small low-rise buildings in OSM are not assumed to have basement car parks.",
+    "ramp_width_m": 6.0,
+    "ramp_width_m_note": "Sheet default (무피해문턱_계산표 L1): two-lane ramp, 주차장법 시행규칙 제6조제1항제5호 (6 m or more); one ramp per building assumed.",
+    "weir_coefficient": 1.705,
+    "weir_coefficient_note": "Broad-crested weir, Q = C B H^1.5 with C = (2/3)^1.5 sqrt(g) = 1.705 m^0.5/s (Henderson 1966, sheet H1); theoretical, an upper bound on inflow.",
+    "ramp_rain_area_m2": 200.0,
+    "ramp_rain_area_m2_note": "Sheet assumption (지하침수_시험계산): ramp (6 m x about 30 m) plus a dry area of about 20 m2; all rain on it (runoff coefficient 1) goes down.",
+    "pump_m3_h": 0.0,
+    "pump_m3_h_note": "Drainage pumps are survey data, not available for OSM buildings: 0 (conservative, like the sheet's sump capacity 0)."
+  },
   "rain": {
     "_note": "Design-storm rain on the real site (twin/pluvial.py; AGENTS.md step R2). Repo-specific pluvial method (design storm, NRCS CN, uniform sewer sink); every number is an assumption, not a calibration or a reconstruction of an observed event.",
     "total_mm": 160.0,

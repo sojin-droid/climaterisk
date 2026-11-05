@@ -154,6 +154,14 @@ R. **Real neighbourhood (user, 2026-11-05: public data allowed).** Gangnam stati
    Gaps: basements (층별_침수피해율_비교, 지하침수_시험계산: weir inflow 1.705 B H^1.5 — next,
    R3c); buildings touching the bbox edge read the nearest edge cell with full value.
    R3b (EAL over a return-period rain ladder) waits for KMA ASOS Seoul (108) hourly rain.
+   R3c basements. **Gate R3c: `tests/test_basement.py`** (protected) — API in its docstring:
+   `twin/basement.py` (levels by use from the storey sheet for walls with >= min_storeys;
+   ring depth per snapshot; ramp weir inflow C B (h - T)^1.5 integrated over the snapshots +
+   ramp rain - pumps; fill from the lowest storey; every storey priced through the engine).
+   Spec `basement` section (reviewer: sheet defaults and assumptions). CLI `--basement`:
+   reads both pluvial npz files, prints ground vs basement loss with and without walls,
+   the total basement inflow vs the rain volume (one-way coupling check), writes
+   `site_losses_basement.csv`.
 10. **Pluvial (rain) flood.** On the step-6 model: Huff design-storm hyetograph, NRCS
     curve-number infiltration, manhole sinks at a sewer capacity. Repo-specific method —
     label it as such in outputs.

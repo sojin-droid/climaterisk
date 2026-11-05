@@ -10,3 +10,4 @@ tests/test_site.py
 tests/test_pluvial.py
 tests/test_viewer_site.py
 tests/test_site_loss.py
+tests/test_basement.py
