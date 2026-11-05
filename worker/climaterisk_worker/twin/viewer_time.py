@@ -456,7 +456,7 @@ function init() {
     return;
   }
   deckgl = new G.Deck({
-    container: 'deck-container',
+    parent: document.getElementById('deck-container'),  // deck.gl 9: parent, not container
     initialViewState: {longitude: D.center[0], latitude: D.center[1] - 0.004,
       zoom: 14.4, pitch: 58, bearing: 15},
     controller: true,
