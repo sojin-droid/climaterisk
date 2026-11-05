@@ -86,6 +86,12 @@ published benchmarks and conservation laws — before its numbers are used.
    `get_dist_coast` is overridden and re-attach them to the wind hazard before calling
    `TCSurgeBathtub.from_tc_winds` (TropCyclone replaces its centroids). DEM = city terrain
    written as a GeoTIFF. Add a `coast` section to the spec and a `--coastal` CLI flag.
+   **9A done** (`f1baac7` by Sonnet, verified): max surge 4.4 m, 566/1160 assets wet,
+   EAL 7.9 % (10.6 % with +0.5 m sea level). High because the bank is 0.5 m above datum
+   with no sea wall, and Petals' Xu (2010) line floors surge at 1.83 m for ANY wind above
+   CLIMADA's 17.5 m/s threshold (19 of 20 tracks). Treat 9A as an upper bound.
+   **9B (next):** step-6 2D model with a surge stage hydrograph at the coast (the surge
+   lasts hours, not a day: the bathtub assumption should matter more here than for rivers).
 10. **Pluvial (rain) flood.** On the step-6 model: Huff design-storm hyetograph, NRCS
     curve-number infiltration, manhole sinks at a sewer capacity. Repo-specific method —
     label it as such in outputs.
@@ -106,6 +112,8 @@ published benchmarks and conservation laws — before its numbers are used.
 - **CLIMADA TC wind comes from central pressure**, not `max_sustained_wind`. Solve the
   pressure for the wanted wind (`typhoon.pressure_for_vmax`); a fixed pressure-wind formula
   mislabelled storms by 10-24 % and cut EAL by ~2.8x.
+- **Petals surge bathtub floors at 1.83 m** for every wind >= 17.5 m/s (Xu 2010 intercept),
+  so weak storms still flood a low coast. Report it as an upper bound.
 - **Never add ruff per-file ignores** to silence long lines; wrap them.
 - **Tooling versions.** Use `uv sync --locked --all-extras`; CI pins ruff 0.15.18. A newer
   ruff reformats Markdown code blocks — never commit changes to files outside your step.
