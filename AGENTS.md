@@ -146,6 +146,14 @@ R. **Real neighbourhood (user, 2026-11-05: public data allowed).** Gangnam stati
    `site_losses.csv` (per building, with and without walls) and prints the totals as the
    loss of ONE storm, never as EAL. Point of the comparison: with walls = building-resolved
    hydraulics; without walls = the building-free hazard map CLIMADA would normally sample.
+   **R3 done** (Sonnet + review). Threshold follows the user's 무피해문턱_계산표(261020):
+   T = 0.05 m, step rule (0 at or below T, unshifted JRC above) — the first draft's
+   0.15 m shifted curve was wrong. Gangnam, 160 mm / 2 h: exposed value 587 M USD (ground
+   storey only); loss 88.0 M USD (15.0 %) with walls vs 68.6 M (11.7 %) without; 578 vs 242
+   buildings damaged; underground mall 0.19 M vs 0. Indicative (Froude outside validity).
+   Gaps: basements (층별_침수피해율_비교, 지하침수_시험계산: weir inflow 1.705 B H^1.5 — next,
+   R3c); buildings touching the bbox edge read the nearest edge cell with full value.
+   R3b (EAL over a return-period rain ladder) waits for KMA ASOS Seoul (108) hourly rain.
 10. **Pluvial (rain) flood.** On the step-6 model: Huff design-storm hyetograph, NRCS
     curve-number infiltration, manhole sinks at a sewer capacity. Repo-specific method —
     label it as such in outputs.
