@@ -69,6 +69,11 @@ published benchmarks and conservation laws — before its numbers are used.
    mean radiant temperature / UTCI and the repo's labour-productivity and heat-mortality
    modules on a synthetic population. EnergyPlus for building cooling load is optional and
    needs the user's approval to install.
+   **Gate: `tests/test_heat.py`** (protected) — its docstring is the API and every formula
+   for `twin/heat.py`. No UTCI library is installed: the heat index is a street-canyon
+   proxy (SVF, sunlit fraction, MRT, weighted feels-like), labelled repo-specific, not UTCI.
+   Add a `heat` section to the spec (every value with a `_note`) and a `--heat` CLI flag.
+   The heat-mortality module is calibrated on European reference cities; leave it out.
 9. **Coastal flood / surge.** Add a coastline to the spec; bathtub first (CLIMADA Petals
    `TCSurgeBathtub`), then the step-6 model with a coastal boundary stage.
 10. **Pluvial (rain) flood.** On the step-6 model: Huff design-storm hyetograph, NRCS
