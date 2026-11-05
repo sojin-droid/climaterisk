@@ -351,5 +351,16 @@
     "bootstrap_n": 2000,
     "bootstrap_seed": 20261105,
     "band": [0.05, 0.95]
+  },
+  "validation": {
+    "_note": "Step R4: building-level check of the twin against the Seoul flood-trace maps (서울시 침수흔적도, 서울 열린데이터광장 OA-15636, 공공누리 제1유형; paths.external_dir('seoul_flood_traces')/<year>). Polygons are only queried (footprint + buffer intersects a trace), never rasterised or shipped. 2022 is run with the observed 10-min rain of the nearest Seoul rain gauges (서울시 강우량 정보 OA-1168, 공공누리 제2유형: internal calibration only, never shipped; paths.external_dir('seoul_rain_gauges')). 2010 and 2011 have no gauge files, so they are checked for spatial pattern only (design-storm shape, total chosen so the modelled flooded street area matches the traced area).",
+    "buffer_m": 10.0,
+    "buffer_m_note": "assumption: traces are digitised at street scale and the DEM is 30 m; a building counts as observed-flooded when a trace lies within this distance of its footprint.",
+    "step_min": 10,
+    "events": {
+      "2010": {"name": "2010-09-21 집중호우 (추석)"},
+      "2011": {"name": "2011-07-26/28 집중호우"},
+      "2022": {"name": "2022-08-08 집중호우", "gauges": [2401, 101, 2402], "gauges_note": "서초구청 1.5 km, 강남구청 2.9 km, 반포펌프장 3.0 km from the site centre", "start": "2022-08-08 12:00", "end": "2022-08-09 06:00"}
+    }
   }
 }
