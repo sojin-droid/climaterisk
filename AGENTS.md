@@ -136,6 +136,16 @@ R. **Real neighbourhood (user, 2026-11-05: public data allowed).** Gangnam stati
    off (pure terrain routing). Gangnam, 160 mm / 2 h, sewer 95 mm/h: flooded area (>10 cm)
    0.076 km2 with buildings vs 0.061 without, max depth 1.96 vs 2.49 m. Max Fr 0.96 / 1.53:
    OUTSIDE VALIDITY (steep 30 m DEM slopes, thin sheet flow) — treat as indicative.
+   R3 per-building loss of the design storm. **Gate R3: `tests/test_site_loss.py`**
+   (protected) — API in its docstring: `twin/site_loss.py` (OSM type -> property type,
+   footprint area, exposed value = area x min(storeys, max_exposed) x cost/m2, entry depth
+   = ring max minus door sill for walls, volume over footprint for the underground mall,
+   pricing through `engine.calculate` against one RF event, sum == ImpactCalc). Spec
+   `loss` section (written by the reviewer: assumptions). CLI `--site-loss`: `--pluvial`
+   also stores the true `h_max` in both npz files; `--site-loss` reads them and writes
+   `site_losses.csv` (per building, with and without walls) and prints the totals as the
+   loss of ONE storm, never as EAL. Point of the comparison: with walls = building-resolved
+   hydraulics; without walls = the building-free hazard map CLIMADA would normally sample.
 10. **Pluvial (rain) flood.** On the step-6 model: Huff design-storm hyetograph, NRCS
     curve-number infiltration, manhole sinks at a sewer capacity. Repo-specific method —
     label it as such in outputs.

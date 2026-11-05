@@ -173,6 +173,34 @@
     "max_valid_froude": 0.5,
     "max_valid_froude_note": "the local-inertial scheme drops advection; runs whose peak Froude number reaches this are flagged as outside validity (Neal et al. 2012; tests/test_hydraulics.py)."
   },
+  "loss": {
+    "_note": "Per-building loss of one design storm on the real site (twin/site_loss.py; AGENTS.md step R3). Building values are NOT client data: footprint area (OSM) x exposed storeys x an assumed replacement cost per m2. Every number here is an assumption; the loss is the loss of ONE storm, not an expected annual loss.",
+    "entry_threshold_m": 0.15,
+    "entry_threshold_m_note": "assumption: door sill / entrance step height (m); street water below it does not enter. Depth fed to the JRC curve is street depth minus this.",
+    "max_exposed_storeys": 1,
+    "max_exposed_storeys_note": "assumption: street water reaches the ground floor only, so the JRC curve applies to one storey of floor area; upper floors of tall buildings are not exposed. Basement car parks are NOT modelled (a known gap: most 2022 Gangnam damage was in basements).",
+    "cost_usd_per_m2": {
+      "_note": "assumption: replacement cost per m2 of floor (USD), of the order of Korean reinforced-concrete new-build unit costs (about 2.0-2.5 million KRW/m2 at about 1,350 KRW/USD); not a citation of a published table, contents not included.",
+      "commercial": 1700.0,
+      "residential": 1500.0,
+      "industrial": 900.0
+    },
+    "property_type": {
+      "_note": "OSM building value -> engine property_type (physical_risk_config.json maps it to the JRC sector); unlisted values use _default.",
+      "_default": "commercial",
+      "apartments": "residential",
+      "residential": "residential",
+      "house": "residential",
+      "detached": "residential",
+      "semidetached_house": "residential",
+      "terrace": "residential",
+      "dormitory": "residential",
+      "industrial": "industrial",
+      "warehouse": "industrial"
+    },
+    "underground_property_type": "commercial",
+    "underground_property_type_note": "Underground features (Gangnam Station Underground Shopping Center) are shops: one storey, commercial curve, filled by the street water above the threshold over their footprint (capped at one storey)."
+  },
   "rain": {
     "_note": "Design-storm rain on the real site (twin/pluvial.py; AGENTS.md step R2). Repo-specific pluvial method (design storm, NRCS CN, uniform sewer sink); every number is an assumption, not a calibration or a reconstruction of an observed event.",
     "total_mm": 160.0,
