@@ -339,5 +339,17 @@
         "storeys_note": "Four to eight storeys: a multi-storey clinical block as the city's tallest facility."
       }
     }
+  },
+  "rain_frequency": {
+    "_note": "Step R3b: return-period ladder of 2-hour storms from the KMA ASOS Seoul (108) hourly record (기상청_지상(종관, ASOS) 시간자료 조회서비스, data.go.kr 15057210, 1961-), files in paths.kma_dir()/asos_hourly/<station>. Annual maxima of the window_h-hour total, L-moment fit (Hosking 1990; GEV by Hosking, Wallis & Wood 1985), bootstrap band. One station 7 km from the site; local storms can differ (validated against the Seoul flood-trace maps in a later step).",
+    "station": "108",
+    "window_h": 2,
+    "window_h_note": "matches rain.duration_min (120 min): the ladder storm keeps the hyetograph shape and only its total changes.",
+    "distribution": "gev",
+    "distribution_note": "GEV by L-moments; the Gumbel fit is reported alongside (MOLIT 확률강우량도 practice uses Gumbel).",
+    "return_periods": [2, 5, 10, 20, 30, 50, 100, 200, 500],
+    "bootstrap_n": 2000,
+    "bootstrap_seed": 20261105,
+    "band": [0.05, 0.95]
   }
 }

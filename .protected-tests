@@ -12,3 +12,4 @@ tests/test_viewer_site.py
 tests/test_site_loss.py
 tests/test_basement.py
 tests/test_basement_coupled.py
+tests/test_rain_eal.py
