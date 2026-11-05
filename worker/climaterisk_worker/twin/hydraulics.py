@@ -266,14 +266,14 @@ def _limit_outflow(
     exactly one cell (its upwind cell), so scaling by that cell's factor conserves mass.
 
     Algorithm:
-        $$V^{out}_c = \Delta t\Big(\frac{\sum q^{+}_{x}}{\Delta x}
-          + \frac{\sum q^{+}_{y}}{\Delta y}\Big),\qquad
-          r_c = \min\big(1,\; h_c / V^{out}_c\big)$$
+        $$V^{out}_c = \\Delta t\\Big(\\frac{\\sum q^{+}_{x}}{\\Delta x}
+          + \\frac{\\sum q^{+}_{y}}{\\Delta y}\\Big),\\qquad
+          r_c = \\min\\big(1,\\; h_c / V^{out}_c\\big)$$
         ASCII: V_out_c = dt * (sum of outgoing q_x / dx + sum of outgoing q_y / dy);
         r_c = min(1, h_c / V_out_c); every outgoing flux of cell c is multiplied by r_c.
 
-        $h_c$ depth (m), $q$ face discharge per unit width (m^2/s), $\Delta t$ (s),
-        $\Delta x, \Delta y$ (m), $r_c$ dimensionless.
+        $h_c$ depth (m), $q$ face discharge per unit width (m^2/s), $\\Delta t$ (s),
+        $\\Delta x, \\Delta y$ (m), $r_c$ dimensionless.
     """
     # the outer faces (index 0 and nx / ny) count like any other: positive leaves the left
     # cell, negative the right one, so open-edge outflow is limited together with the rest
@@ -376,7 +376,7 @@ def run(
         $\\partial h/\\partial t = 0$ (ASCII: q_f = 0 if either cell of face f is blocked).
 
         Cell Froude number from the face discharges averaged to the cell centre:
-        $$\mathrm{Fr} = \frac{\sqrt{\bar q_x^2 + \bar q_y^2}}{h\,\sqrt{g h}}$$
+        $$\\mathrm{Fr} = \\frac{\\sqrt{\\bar q_x^2 + \\bar q_y^2}}{h\\,\\sqrt{g h}}$$
         ASCII: Fr = sqrt(qx_mean^2 + qy_mean^2) / (h * sqrt(g h)), for h > froude_min_depth.
     """
     ny, nx = h0.shape

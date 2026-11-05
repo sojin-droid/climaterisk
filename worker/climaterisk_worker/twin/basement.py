@@ -12,9 +12,10 @@ Algorithm:
     Ring depth of building $b$ at time $t$: $h_b(t) = \\max_{R_b} h(t)$ with the ring $R_b$ of
     ``site_loss.entry_depths``. Water in the basement over the run:
     $$V_b = \\max\\Big(\\int_{t_0}^{t_{end}} C\\,B\\,\\max(h_b(t) - T, 0)^{3/2}\\,dt
-    + A_r\\,\\frac{P}{1000} - Q_p\\,\\frac{t_{end} - t_0}{3600},\;0\\Big)$$
+    + A_r\\,\\frac{P}{1000} - Q_p\\,\\frac{t_{end} - t_0}{3600},\\;0\\Big)$$
     Storey $k$ (0 = lowest) of $n_b$ storeys, each with floor area $A_b$:
-    $$d_{b,k} = \\mathrm{clip}\\big(V_b / A_b - k\\,\\Delta_f,\;0,\;\\Delta_f\\big),\\quad k < n_b$$
+    $$d_{b,k} = \\mathrm{clip}\\big(V_b / A_b - k\\,\\Delta_f,\\;0,\\;\\Delta_f\\big),
+    \\quad k < n_b$$
     Basement loss $L_b = \\sum_k A_b\\,c_{j(b)}\\,\\mathrm{MDR}_{j(b)}(d_{b,k})$ (engine).
     ASCII: V = max(sum(C*B*max(h-T,0)^1.5 * dt) + A_r*P/1000 - Q_p*(t_end-t0)/3600, 0);
     depth_k = clip(V/area - k*ff, 0, ff); loss = sum_k area*cost*MDR(depth_k).

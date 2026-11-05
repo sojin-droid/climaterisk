@@ -461,8 +461,8 @@ def compare_hazard_models(
     shorter wave should give equal or lower EAL.
 
     Algorithm:
-        $$r = \frac{\mathrm{EAL}^{2D}}{\mathrm{EAL}^{stage}},\qquad
-          \mathrm{EAL} = \sum_i f_i\,v\,\mathrm{MDR}(d_i)$$
+        $$r = \\frac{\\mathrm{EAL}^{2D}}{\\mathrm{EAL}^{stage}},\\qquad
+          \\mathrm{EAL} = \\sum_i f_i\\,v\\,\\mathrm{MDR}(d_i)$$
         ASCII: r = EAL_2D / EAL_stage_law, same defence scenario and engine.
 
     Args:

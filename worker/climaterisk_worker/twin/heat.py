@@ -40,7 +40,7 @@ def sunlit_fraction(h_over_w: ArrayLike, solar_elevation_deg: float) -> Any:
     """Fraction of the street floor in direct sun, sun perpendicular to the canyon.
 
     Algorithm:
-        $$f = \\mathrm{clip}\\bigl(1 - (H/W)/\\tan\\beta,\; 0,\; 1\\bigr)$$
+        $$f = \\mathrm{clip}\\bigl(1 - (H/W)/\\tan\\beta,\\; 0,\\; 1\\bigr)$$
         ASCII: f = clip(1 - (H/W) / tan(beta), 0, 1)
 
         $\\beta$ is the solar elevation (degrees), $H/W$ the aspect ratio (dimensionless);

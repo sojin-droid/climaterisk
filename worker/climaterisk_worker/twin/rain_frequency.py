@@ -10,7 +10,7 @@ Algorithm:
     Unbiased probability-weighted moments of the ordered sample $x_{(1)} \\le \\dots \\le
     x_{(n)}$ and L-moments:
     $$b_r = \\frac1n\\sum_{i=1}^{n} \\frac{\\binom{i-1}{r}}{\\binom{n-1}{r}} x_{(i)},\\quad
-    \\lambda_1 = b_0,\; \\lambda_2 = 2b_1 - b_0,\; \\tau_3 = (6b_2 - 6b_1 + b_0)/\\lambda_2$$
+    \\lambda_1 = b_0,\\; \\lambda_2 = 2b_1 - b_0,\\; \\tau_3 = (6b_2 - 6b_1 + b_0)/\\lambda_2$$
     Gumbel: $\\alpha = \\lambda_2/\\ln 2$, $u = \\lambda_1 - \\gamma\\alpha$. GEV (Hosking sign,
     $k>0$ bounded above): $c = 2/(3+\\tau_3) - \\ln 2/\\ln 3$, $k = 7.8590c + 2.9554c^2$,
     $\\alpha = \\lambda_2 k / ((1-2^{-k})\\Gamma(1+k))$,
