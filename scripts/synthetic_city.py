@@ -563,17 +563,75 @@ def _animate_site(spec: dict[str, Any], out: Path) -> int:
     return 0
 
 
-def _print_basement(spec: dict[str, Any], out: Path) -> int:
-    """Basements coupled both ways to the 2D street flow of the design storm, with/without walls."""
+def _coupled_storm(
+    site: dict[str, Any],
+    spec: dict[str, Any],
+    walls: Any,
+    snapshot_every_s: float | None = 300.0,
+) -> dict[str, Any]:
+    """One coupled storm (street flow + basement sinks) on the site; shared by --basement
+    and --rain-eal.
+
+    Builds the basement sink, runs the 2D pluvial model with it, and derives ground entry
+    depths, basement volumes, per-storey basement depths and street statistics.
+
+    Args:
+        site: Result of ``build_site``.
+        spec: City spec (``rain.total_mm`` is the storm depth).
+        walls: Boolean wall raster of this run (all False for the no-walls run).
+        snapshot_every_s: Snapshot interval (s) or None.
+
+    Returns:
+        Dict with ``run`` (``run_pluvial`` result), ``ground_depth`` (n,), ``volume_m3`` (n,),
+        ``basement_depth`` (n, max_levels), ``street_km2`` (flooded area > 10 cm),
+        ``street_max_m``, ``n_levels``, ``area_m2``, ``capacity_m3`` and ``seconds``.
+    """
     import time
 
     import numpy as np
-    import pandas as pd
     from climaterisk_worker.twin import basement, pluvial, site_loss
+
+    grid, b, ground = site["grid"], site["buildings"], site["ground"]
+    cell_m = float(spec["site"]["cell_m"])
+    ff = float(spec["site"]["floor_to_floor_m"])
+    n_lv = basement.basement_levels(b, spec)
+    area = site_loss.footprint_area_m2(b)
+    capacity = n_lv * area * ff
+    t_end = (float(spec["rain"]["duration_min"]) + float(spec["rain"]["recession_min"])) * 60.0
+    w = np.asarray(walls, dtype=bool)
+    entr_r, entr_c = basement.entrance_cells(grid, b, ground, w, n_lv)
+    sink = basement.BasementSink(entr_r, entr_c, capacity, cell_m, spec)
+    t0 = time.perf_counter()
+    r = pluvial.run_pluvial(
+        ground, w, cell_m, spec, sink_fn=sink, snapshot_every_s=snapshot_every_s
+    )
+    seconds = time.perf_counter() - t0
+    vol = sink.final_volume_m3(t_end)
+    open_cells = ~w
+    return {
+        "run": r,
+        "ground_depth": site_loss.entry_depths(grid, b, r["h_max"], w, spec),
+        "volume_m3": vol,
+        "basement_depth": basement.basement_depths(vol, area, n_lv, spec),
+        "street_km2": float(((r["h_max"] > 0.10) & open_cells).sum()) * cell_m**2 / 1e6,
+        "street_max_m": float(r["h_max"][open_cells].max()),
+        "n_levels": n_lv,
+        "area_m2": area,
+        "capacity_m3": capacity,
+        "seconds": seconds,
+    }
+
+
+def _print_basement(spec: dict[str, Any], out: Path) -> int:
+    """Basements coupled both ways to the 2D street flow of the design storm, with/without walls."""
+
+    import numpy as np
+    import pandas as pd
+    from climaterisk_worker.twin import basement, site_loss
     from climaterisk_worker.twin.site import build_site
 
     site = build_site(spec)
-    grid, b, ground = site["grid"], site["buildings"], site["ground"]
+    b, ground = site["buildings"], site["ground"]
     walls_site = site["mask"]
     cell_m = float(spec["site"]["cell_m"])
     max_fr_ok = float(spec["hydraulic"]["max_valid_froude"])
@@ -583,7 +641,6 @@ def _print_basement(spec: dict[str, Any], out: Path) -> int:
     capacity = n_lv * area * ff
     has = n_lv > 0
     ground_value = float(site_loss.exposed_value_usd(b, spec).sum())
-    t_end = (float(spec["rain"]["duration_min"]) + float(spec["rain"]["recession_min"])) * 60.0
     keys = ("with", "without")
     res: dict[str, Any] = {}
     vol: dict[str, Any] = {}
@@ -594,21 +651,15 @@ def _print_basement(spec: dict[str, Any], out: Path) -> int:
         ("with", walls_site, "pluvial_basement_snapshots.npz"),
         ("without", np.zeros_like(walls_site), "pluvial_basement_snapshots_nowalls.npz"),
     ):
-        entr_r, entr_c = basement.entrance_cells(grid, b, ground, w, n_lv)
-        sink = basement.BasementSink(entr_r, entr_c, capacity, cell_m, spec)
-        t0 = time.perf_counter()
-        r = pluvial.run_pluvial(ground, w, cell_m, spec, sink_fn=sink, snapshot_every_s=300.0)
-        print(f"  [{key} walls] coupled run {time.perf_counter() - t0:.0f} s, {r['n_steps']} steps")
+        storm = _coupled_storm(site, spec, w)
+        r = storm["run"]
+        print(f"  [{key} walls] coupled run {storm['seconds']:.0f} s, {r['n_steps']} steps")
         res[key] = r
-        g_depth = site_loss.entry_depths(grid, b, r["h_max"], w, spec)
-        vol[key] = sink.final_volume_m3(t_end)
-        bdepth = basement.basement_depths(vol[key], area, n_lv, spec)
-        priced[key] = basement.price_with_basements(b, g_depth, bdepth, spec)
-        open_cells = ~w
-        street[key] = (
-            float(((r["h_max"] > 0.10) & open_cells).sum()) * cell_m**2 / 1e6,
-            float(r["h_max"][open_cells].max()),
+        vol[key] = storm["volume_m3"]
+        priced[key] = basement.price_with_basements(
+            b, storm["ground_depth"], storm["basement_depth"], spec
         )
+        street[key] = (storm["street_km2"], storm["street_max_m"])
         snaps = r["snapshots"]
         np.savez_compressed(
             out / fname,
@@ -734,6 +785,251 @@ def _print_basement(spec: dict[str, Any], out: Path) -> int:
     return 0
 
 
+def _read_asos_rain(station: str) -> Any:
+    """Hourly rain (mm, blank = 0) of one ASOS station from ``kma_dir()/asos_hourly/<station>``."""
+    import pandas as pd
+
+    from climaterisk import paths
+
+    folder = paths.kma_dir() / "asos_hourly" / str(station)
+    files = sorted(folder.glob("*.csv"))
+    if not files:
+        raise SystemExit(f"ASOS hourly files not found: {folder}")
+    df = pd.concat([pd.read_csv(f, usecols=["tm", "rn"]) for f in files])
+    rain = pd.Series(
+        pd.to_numeric(df["rn"], errors="coerce").fillna(0.0).to_numpy(),
+        index=pd.to_datetime(df["tm"]),
+    )
+    return rain, len(files)
+
+
+def _price_storm_ladder(
+    storms: list[dict[str, Any]],
+    b: Any,
+    spec: dict[str, Any],
+    rps: list[float],
+    unit_value: Any,
+    ground_value: Any,
+) -> dict[str, Any]:
+    """Price K coupled storms (ground storeys and every basement storey) as ONE ladder each."""
+    import numpy as np
+    from climaterisk_worker.twin import rain_eal
+
+    n = len(b)
+    n_lv = storms[0]["n_levels"]
+    g = rain_eal.price_ladder(
+        b, np.stack([s["ground_depth"] for s in storms]), ground_value, rps, spec
+    )
+    bdepth = np.stack([s["basement_depth"] for s in storms])  # (K, n, L)
+    base_event = np.zeros((len(storms), n))
+    base_eal = np.zeros(n)
+    base_portfolio = 0.0
+    for k in range(bdepth.shape[2]):
+        idx = np.nonzero(n_lv > k)[0]
+        if idx.size == 0:
+            continue
+        lad = rain_eal.price_ladder(b.iloc[idx], bdepth[:, idx, k], unit_value[idx], rps, spec)
+        base_event[:, idx] += lad["event_loss_usd"]
+        base_eal[idx] += lad["eal_usd"]
+        base_portfolio += lad["portfolio_eal_usd"]
+    return {
+        "ground_eal": g["eal_usd"],
+        "basement_eal": base_eal,
+        "ground_event": g["event_loss_usd"].sum(axis=1),
+        "basement_event": base_event.sum(axis=1),
+        "eal_total": float(g["portfolio_eal_usd"] + base_portfolio),
+        "eal_ground_total": float(g["portfolio_eal_usd"]),
+        "eal_basement_total": float(base_portfolio),
+    }
+
+
+def _print_rain_eal(spec: dict[str, Any], out: Path) -> int:
+    """EAL of the Gangnam site over a ladder of 2-hour storms from the KMA ASOS record."""
+    import json
+
+    import numpy as np
+    import pandas as pd
+    from climaterisk_worker.twin import rain_eal, rain_frequency, site_loss
+    from climaterisk_worker.twin.site import build_site
+
+    rf = spec["rain_frequency"]
+    dist = str(rf["distribution"])
+    rps = [float(t) for t in rf["return_periods"]]
+    t_arr = np.array(rps)
+    rain, n_files = _read_asos_rain(str(rf["station"]))
+    am = rain_frequency.annual_maxima(rain, int(rf["window_h"]))
+    x = am.to_numpy()
+    fit_g = rain_frequency.fit_gumbel(x)
+    fit_v = rain_frequency.fit_gev(x)
+    params = fit_v if dist == "gev" else fit_g
+    central = rain_frequency.quantile(dist, params, t_arr)
+    gumbel_levels = rain_frequency.quantile("gumbel", fit_g, t_arr)
+    band = rain_frequency.bootstrap_quantiles(
+        x, t_arr, dist, int(rf["bootstrap_n"]), int(rf["bootstrap_seed"]), tuple(rf["band"])
+    )
+    cases = {"central": central, "low": band[0], "high": band[1]}
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "rain_frequency.json").write_text(
+        json.dumps(
+            {
+                "station": rf["station"],
+                "window_h": rf["window_h"],
+                "distribution": dist,
+                "n_years": int(am.size),
+                "annual_maxima_mm": {int(k): float(v) for k, v in am.items()},
+                "gumbel": {"u_mm": fit_g[0], "alpha_mm": fit_g[1]},
+                "gev": {"xi_mm": fit_v[0], "alpha_mm": fit_v[1], "k": fit_v[2]},
+                "return_periods_years": rps,
+                "return_level_mm": {
+                    "central": central.tolist(),
+                    "band_low": band[0].tolist(),
+                    "band_high": band[1].tolist(),
+                    "band_quantiles": list(rf["band"]),
+                    "gumbel": gumbel_levels.tolist(),
+                },
+            },
+            indent=2,
+        )
+    )
+
+    site = build_site(spec)
+    b, walls_site = site["buildings"], site["mask"]
+    max_fr_ok = float(spec["hydraulic"]["max_valid_froude"])
+    cost: dict[str, float] = spec["loss"]["cost_usd_per_m2"]
+    area = site_loss.footprint_area_m2(b)
+    unit = np.array([area[i] * float(cost[k]) for i, k in enumerate(site_loss._types(b, spec))])
+    ground_value = site_loss.exposed_value_usd(b, spec)
+    walls_by_key = {"with": walls_site, "without": np.zeros_like(walls_site)}
+
+    storms: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for case, levels in cases.items():
+        for key, w in walls_by_key.items():
+            runs = []
+            for t, mm in zip(rps, levels, strict=True):
+                st = _coupled_storm(site, rain_eal.spec_for_rain(spec, float(mm)), w, None)
+                runs.append(st)
+                print(
+                    f"  [{case} {key} walls] T={t:g} y  {mm:6.1f} mm  {st['seconds']:.1f} s",
+                    file=sys.stderr,
+                )
+            storms[(case, key)] = runs
+    priced = {
+        ck: _price_storm_ladder(runs, b, spec, rps, unit, ground_value)
+        for ck, runs in storms.items()
+    }
+
+    pts = [g.representative_point() for g in b.geometry]
+    c = priced
+    frame = pd.DataFrame(
+        {
+            "idx": np.arange(len(b)),
+            "building": b["building"].to_numpy(),
+            "property_type": site_loss._types(b, spec),
+            "basement_levels": storms[("central", "with")][0]["n_levels"],
+            "area_m2": area,
+            "eal_ground_with_usd": c[("central", "with")]["ground_eal"],
+            "eal_basement_with_usd": c[("central", "with")]["basement_eal"],
+            "eal_ground_without_usd": c[("central", "without")]["ground_eal"],
+            "eal_basement_without_usd": c[("central", "without")]["basement_eal"],
+            "lat": [p.y for p in pts],
+            "lon": [p.x for p in pts],
+        }
+    )
+    frame.to_csv(out / "rain_eal_buildings.csv", index=False)
+
+    basement_value = float((storms[("central", "with")][0]["n_levels"] * unit).sum())
+    total_value = float(ground_value.sum()) + basement_value
+    per_rp = []
+    for i, t in enumerate(rps):
+        row: dict[str, Any] = {"return_period_years": t, "rain_mm": float(central[i])}
+        for key in ("with", "without"):
+            st = storms[("central", key)][i]
+            pr = priced[("central", key)]
+            row[key] = {
+                "portfolio_storm_loss_ground_usd": float(pr["ground_event"][i]),
+                "portfolio_storm_loss_basement_usd": float(pr["basement_event"][i]),
+                "flooded_street_area_gt_10cm_km2": st["street_km2"],
+                "basement_volume_m3": float(st["volume_m3"].sum()),
+                "max_froude": float(st["run"]["max_froude"]),
+            }
+        per_rp.append(row)
+    eal_totals = {
+        case: {
+            key: {
+                "ground_usd": priced[(case, key)]["eal_ground_total"],
+                "basement_usd": priced[(case, key)]["eal_basement_total"],
+                "total_usd": priced[(case, key)]["eal_total"],
+                "total_pct_of_value": 100.0 * priced[(case, key)]["eal_total"] / total_value,
+            }
+            for key in ("with", "without")
+        }
+        for case in cases
+    }
+    (out / "rain_eal_summary.json").write_text(
+        json.dumps(
+            {
+                "note": "EAL over the return-period ladder; storms more frequent than the "
+                "first rung cause no loss; rain from one station.",
+                "station": rf["station"],
+                "total_value_usd": total_value,
+                "per_return_period": per_rp,
+                "eal": eal_totals,
+            },
+            indent=2,
+        )
+    )
+
+    print(
+        "Expected annual loss (EAL) of the Gangnam site over the ladder of "
+        f"{int(rf['window_h'])}-hour storms"
+    )
+    print(
+        f"  rain: KMA ASOS station {rf['station']} ({n_files} yearly files), {am.size} annual "
+        f"maxima {int(am.index.min())}-{int(am.index.max())}, {dist.upper()} by L-moments, "
+        f"band = bootstrap {rf['band'][0]:.0%}-{rf['band'][1]:.0%} ({rf['bootstrap_n']} resamples)"
+    )
+    print(
+        f"  GEV xi {fit_v[0]:.1f} mm alpha {fit_v[1]:.1f} mm k {fit_v[2]:.3f};  "
+        f"Gumbel u {fit_g[0]:.1f} mm alpha {fit_g[1]:.1f} mm"
+    )
+    print(
+        "  Storms more frequent than the first rung "
+        f"(T < {rps[0]:g} y) are taken as no loss; the rain is ONE station ~7 km from the site."
+    )
+    print(
+        f"  {'T (y)':>6}{'mm':>8}{'band low':>10}{'band high':>10}{'Gumbel':>8}"
+        f"{'loss with (M USD)':>19}{'without':>9}{'street km2 w/wo':>17}{'bsmt m3 w/wo':>17}"
+    )
+    for i, row in enumerate(per_rp):
+        w, wo = row["with"], row["without"]
+        lw = (w["portfolio_storm_loss_ground_usd"] + w["portfolio_storm_loss_basement_usd"]) / 1e6
+        lo = (wo["portfolio_storm_loss_ground_usd"] + wo["portfolio_storm_loss_basement_usd"]) / 1e6
+        print(
+            f"  {rps[i]:>6g}{central[i]:>8.1f}{band[0][i]:>10.1f}{band[1][i]:>10.1f}"
+            f"{gumbel_levels[i]:>8.1f}{lw:>19.2f}{lo:>9.2f}"
+            f"{w['flooded_street_area_gt_10cm_km2']:>9.3f}/{wo['flooded_street_area_gt_10cm_km2']:.3f}"
+            f"{w['basement_volume_m3']:>9,.0f}/{wo['basement_volume_m3']:,.0f}"
+        )
+    print(f"  EAL (USD/yr) of {total_value / 1e9:.2f} bn ground + basement value:")
+    print(f"  {'':<10}{'walls':<9}{'ground':>14}{'basement':>14}{'total':>14}{'% value':>9}")
+    for case in cases:
+        for key in ("with", "without"):
+            e = eal_totals[case][key]
+            print(
+                f"  {case:<10}{key:<9}{e['ground_usd']:>14,.0f}{e['basement_usd']:>14,.0f}"
+                f"{e['total_usd']:>14,.0f}{e['total_pct_of_value']:>9.3f}"
+            )
+    over = max(float(st["run"]["max_froude"]) for runs in storms.values() for st in runs)
+    if over >= max_fr_ok:
+        print(f"  max Froude {over:.2f}: OUTSIDE VALIDITY in some runs - indicative only")
+    print("  Loss with basements coupled to the street flow; basements, ramps and pumps are")
+    print("  assumptions (spec basement). Repo-specific pluvial method; not calibrated.")
+    print(f"  {spec['site']['attribution']['osm']}; {spec['site']['attribution']['dem']}")
+    print(f"  wrote {out / 'rain_frequency.json'}, {out / 'rain_eal_buildings.csv'},")
+    print(f"        {out / 'rain_eal_summary.json'}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Generate the synthetic city and print the EAL summary."""
     from climaterisk import paths
@@ -837,6 +1133,12 @@ def main(argv: list[str] | None = None) -> int:
         help="basements coupled both ways to the 2D street flow of the design storm "
         "(site_losses_basement.csv, pluvial_basement_snapshots*.npz)",
     )
+    ap.add_argument(
+        "--rain-eal",
+        action="store_true",
+        help="EAL of the site over a return-period ladder of storms from the KMA ASOS record "
+        "(rain_frequency.json, rain_eal_buildings.csv, rain_eal_summary.json)",
+    )
     args = ap.parse_args(argv)
 
     out = Path(args.out) if args.out else paths.derived_dir("synthetic_city")
@@ -849,6 +1151,8 @@ def main(argv: list[str] | None = None) -> int:
         return _print_site_loss(spec, out)
     if args.basement:
         return _print_basement(spec, out)
+    if args.rain_eal:
+        return _print_rain_eal(spec, out)
     if args.animate_site:
         return _animate_site(spec, out)
     if args.animate:
