@@ -90,6 +90,7 @@ def step(
     theta: float = 0.7,
     h_dry: float = 1e-4,
     g: float = 9.81,
+    blocked: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Advance the local-inertial solver by one explicit time step.
 
@@ -119,6 +120,9 @@ def step(
         theta: q-centring weight [$-$], $0 \\le \\theta \\le 1$.
         h_dry: Wet/dry threshold [m]; faces with $h_f < h_{\\text{dry}}$ get $q=0$.
         g: Gravity [m s$^{-2}$].
+        blocked: Optional boolean raster ``(ny, nx)``; every face touching a blocked cell
+            gets $q=0$ right after the momentum update, and rain, infiltration and inflow
+            on blocked cells are ignored, so blocked cells keep their depth.
 
     Returns:
         ``(h_new, q_x_new, q_y_new)`` updated arrays.
@@ -166,6 +170,11 @@ def step(
         den = 1.0 + g * dt * manning_n**2 * np.abs(q_n) / (h_f_face ** (7.0 / 3.0))
         q_y_new[1:-1, :] = np.where(wet, num / den, 0.0)
 
+    if blocked is not None:
+        # walls: a face next to a blocked cell carries nothing (before limiter and continuity)
+        q_x_new[:, 1:-1] = np.where(blocked[:, :-1] | blocked[:, 1:], 0.0, q_x_new[:, 1:-1])
+        q_y_new[1:-1, :] = np.where(blocked[:-1, :] | blocked[1:, :], 0.0, q_y_new[1:-1, :])
+
     # --- outflow limiter: no cell may lose more water than it holds ---
     _limit_outflow(h, q_x_new, q_y_new, dx, dy, dt)
 
@@ -175,15 +184,19 @@ def step(
 
     dh = dt * (-div_x - div_y)
     if rain is not None:
-        dh += dt * rain
+        dh += dt * (rain if blocked is None else np.where(blocked, 0.0, rain))
     if inflow_cells is not None and inflow_rate != 0.0:
         rows, cols = inflow_cells
         for r, c in zip(rows, cols, strict=True):
-            dh[r, c] += dt * inflow_rate / (dx * dy) / len(rows)
+            if blocked is None or not blocked[r, c]:
+                dh[r, c] += dt * inflow_rate / (dx * dy) / len(rows)
     h_new = h + dh
     if infiltration is not None:
         # infiltration can only take the water that is there
-        h_new = h_new - np.minimum(dt * infiltration, np.maximum(h_new, 0.0))
+        taken = np.minimum(dt * infiltration, np.maximum(h_new, 0.0))
+        if blocked is not None:
+            taken = np.where(blocked, 0.0, taken)
+        h_new = h_new - taken
     # the limiter keeps h_new >= 0 up to round-off; clip only that round-off
     h_new = np.maximum(h_new, 0.0)
 
@@ -242,6 +255,7 @@ def run(
     stage_fn: Any | None = None,
     froude_min_depth: float = 0.05,
     snapshot_every_s: float | None = None,
+    blocked: np.ndarray | None = None,
 ) -> dict[str, Any]:
     """Run the local-inertial solver from $t=0$ to $t_{\\text{end}}$.
 
@@ -270,6 +284,10 @@ def run(
             thin film at a wet/dry front has meaningless velocities.
         snapshot_every_s: If set (s), store the depth raster at $t=0$, at the first step
             reaching each further multiple of this interval, and at the end time.
+        blocked: Optional boolean raster ``(ny, nx)`` of impassable cells (buildings). Faces
+            touching a blocked cell carry zero discharge (see :func:`step`) and rain,
+            infiltration and inflow there are ignored, so blocked cells keep their initial
+            depth and water flows around them. ``stage_fn`` cells are the caller's business.
 
     Returns:
         Dict with ``h``, ``q_x``, ``q_y``, ``t``, ``n_steps``, ``h_max`` (peak depth per
@@ -280,6 +298,9 @@ def run(
         the end time.
 
     Algorithm:
+        Walls: $q_f = 0$ on every face $f$ with a blocked neighbour, so for a blocked cell
+        $\\partial h/\\partial t = 0$ (ASCII: q_f = 0 if either cell of face f is blocked).
+
         Cell Froude number from the face discharges averaged to the cell centre:
         $$\mathrm{Fr} = \frac{\sqrt{\bar q_x^2 + \bar q_y^2}}{h\,\sqrt{g h}}$$
         ASCII: Fr = sqrt(qx_mean^2 + qy_mean^2) / (h * sqrt(g h)), for h > froude_min_depth.
@@ -336,6 +357,7 @@ def run(
             theta=theta,
             h_dry=h_dry,
             g=g,
+            blocked=blocked,
         )
         t += dt
         n_steps += 1

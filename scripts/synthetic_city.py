@@ -314,6 +314,50 @@ def _print_heat(spec: dict[str, Any], out: Path) -> int:
     return 0
 
 
+def _print_site(spec: dict[str, Any], out: Path) -> int:
+    """Build the real site (OSM buildings + Copernicus DEM) and write its ground and footprints."""
+    import numpy as np
+    import rasterio
+    from climaterisk_worker.twin.site import build_site
+    from rasterio.transform import from_origin
+
+    site = build_site(spec)
+    grid, buildings, mask, ground = site["grid"], site["buildings"], site["mask"], site["ground"]
+    cfg = spec["site"]
+    print(f"Site: {cfg['name']}  bbox {cfg['bbox']}")
+    print(f"  grid {grid.nx} x {grid.ny} cells of {grid.cell_m:g} m  ({mask.sum()} building cells)")
+    print(f"  buildings: {len(buildings)}")
+    shares = buildings["height_source"].value_counts(normalize=True)
+    for source in ("height", "levels", "typology"):
+        print(f"    height_source {source:<9}{100.0 * float(shares.get(source, 0.0)):6.1f} %")
+    heights = buildings["height_m"].to_numpy()
+    print(
+        f"  height range {heights.min():.1f} - {heights.max():.1f} m "
+        f"(median {np.median(heights):.1f})"
+    )
+    print(f"  ground elevation {ground.min():.1f} - {ground.max():.1f} m")
+    print(f"  data: {cfg['attribution']['osm']}; {cfg['attribution']['dem']}")
+    out.mkdir(parents=True, exist_ok=True)
+    cell_deg_y = grid.cell_m / 111320.0
+    cell_deg_x = grid.cell_m / grid.lon_m_per_deg
+    transform = from_origin(grid.west, grid.south + grid.ny * cell_deg_y, cell_deg_x, cell_deg_y)
+    with rasterio.open(
+        out / "site_ground.tif",
+        "w",
+        driver="GTiff",
+        height=grid.ny,
+        width=grid.nx,
+        count=1,
+        dtype="float32",
+        crs="EPSG:4326",
+        transform=transform,
+    ) as ds:
+        ds.write(ground[::-1].astype("float32"), 1)  # file rows run north to south
+    buildings.to_file(out / "site_buildings.gpkg", driver="GPKG")
+    print(f"  wrote {out / 'site_ground.tif'} and {out / 'site_buildings.gpkg'}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Generate the synthetic city and print the EAL summary."""
     from climaterisk import paths
@@ -389,10 +433,18 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="street-level UTCI (canyon MRT approximation) -> productivity loss",
     )
+    ap.add_argument(
+        "--site",
+        action="store_true",
+        help="real neighbourhood: OSM buildings + Copernicus DEM -> site_ground.tif, "
+        "site_buildings.gpkg",
+    )
     args = ap.parse_args(argv)
 
     out = Path(args.out) if args.out else paths.derived_dir("synthetic_city")
     spec = load_spec(args.spec)
+    if args.site:
+        return _print_site(spec, out)
     if args.animate:
         return _animate(spec, out)
     if args.coastal2d:

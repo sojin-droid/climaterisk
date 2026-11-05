@@ -1,6 +1,47 @@
 {
   "_note": "Synthetic (imaginary) virtual city for scripts/synthetic_city.py. Every number is an assumption made because no real building/GIS data may be used — none is a measurement. Change values here, not in code.",
   "seed": 20261029,
+  "site": {
+    "_note": "Real neighbourhood (AGENTS.md step R, user approval 2026-11-05: public data allowed) built by twin/site.py from OpenStreetMap buildings and the Copernicus GLO-30 surface model. Unlike the rest of this file these are choices about real data, not an imaginary city; the building-storey defaults are assumptions for central Seoul, not measurements.",
+    "name": "Gangnam station area, Seoul",
+    "name_note": "Label for outputs only.",
+    "bbox": [127.022, 37.492, 127.034, 37.502],
+    "bbox_note": "West, south, east, north in degrees (about 1.06 km x 1.11 km) around Gangnam station.",
+    "cell_m": 10.0,
+    "cell_m_note": "Hydraulic raster cell size (m): fine enough to resolve streets about 20 m wide and building blocks, coarse enough for the explicit solver to stay fast. An assumption.",
+    "osm_file": "south-korea-261013.osm.pbf",
+    "osm_file_note": "Geofabrik South Korea extract (OSM data of 2026-10-13) in paths.osm_dir().",
+    "dem_file": "Copernicus_DSM_COG_10_N37_00_E127_00_DEM.tif",
+    "dem_file_note": "Copernicus GLO-30 surface model tile (about 30 m, EPSG:4326) in paths.external_dir('copernicus_dem'); it includes buildings and trees, so footprints are masked and the ground interpolated.",
+    "floor_to_floor_m": 3.3,
+    "floor_to_floor_m_note": "Assumed storey height (m) used to turn building:levels or default levels into a height; typical 3.0-3.6 m for Korean offices and apartments.",
+    "default_levels": {
+      "_note": "Assumed number of storeys by OSM building value when the footprint has neither a height nor a building:levels tag; numbers are assumptions for central Seoul, not measurements. Unlisted values fall back to 'yes'.",
+      "yes": 4,
+      "apartments": 15,
+      "residential": 4,
+      "house": 2,
+      "commercial": 6,
+      "retail": 3,
+      "office": 12,
+      "school": 4,
+      "church": 3,
+      "hospital": 8,
+      "hotel": 12,
+      "industrial": 2,
+      "warehouse": 2,
+      "garage": 1,
+      "public": 5,
+      "university": 6
+    },
+    "attribution": {
+      "_note": "Credits required by the data licences; show them wherever the site is displayed.",
+      "osm": "(c) OpenStreetMap contributors, ODbL 1.0",
+      "osm_note": "OpenStreetMap building footprints and tags, Open Database License.",
+      "dem": "Copernicus DEM GLO-30, (c) DLR e.V. 2010-2014 and (c) Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved",
+      "dem_note": "Copernicus GLO-30 surface model, ESA / European Union licence."
+    }
+  },
   "heat": {
     "_note": "Street-canyon heat proxy (twin/heat.py; AGENTS.md step 8), repo-specific and NOT UTCI: no UTCI library is installed. Air temperature per return period, plus urban-heat-island, sky-view factor and sunlit fraction of an infinite street canyon, give a weighted feels-like temperature priced through the repo's heat-productivity curve. Every value is an assumption, not a fitted climatology.",
     "return_periods": [2, 5, 10, 25, 50, 100],
