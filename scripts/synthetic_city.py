@@ -622,6 +622,228 @@ def _coupled_storm(
     }
 
 
+def _print_validate(spec: dict[str, Any], out: Path) -> int:
+    """Building-level validation against the Seoul flood-trace maps (step R4).
+
+    Algorithm:
+        Per event: model flag $m_b = \\mathbb{1}[d_b > T]$ with $d_b$ the entry depth of the
+        loss steps and $T$ the no-damage threshold; observed flag $o_b$ = buffered footprint
+        touches a trace polygon. Scores over wall buildings: POD, FAR, CSI, bias. Area-matched
+        run: storm total $P^*$ with $A_{mod}(P^*) \\approx A_{trace}$ by log-space bisection.
+        ASCII: m = depth > T; o = footprint+buffer intersects trace; CSI = h/(h+fa+miss).
+    """
+    import json
+
+    import geopandas as gpd
+    import numpy as np
+    import pandas as pd
+    from climaterisk_worker.twin import rain_eal, site_loss, validate
+    from climaterisk_worker.twin.site import build_site
+
+    v = spec["validation"]
+    thr = float(spec["loss"]["entry_threshold_m"])
+    buf = float(v["buffer_m"])
+    step = float(v["step_min"])
+    flood_h = float(v["flooded_depth_m"])
+    lo_mm, hi_mm = (float(x) for x in v["match_range_mm"])
+    max_runs = int(v["match_max_runs"])
+    site = build_site(spec)
+    grid, b, ground = site["grid"], site["buildings"], site["ground"]
+    walls_site = site["mask"]
+    max_fr_ok = float(spec["hydraulic"]["max_valid_froude"])
+    is_wall = b["is_wall"].to_numpy(dtype=bool)
+    under = b["underground"].to_numpy(dtype=bool)
+    score_set = is_wall & ~under
+    bbox = tuple(float(x) for x in spec["site"]["bbox"])
+    print("Validation against the Seoul flood-trace maps (서울시 침수흔적도, 공공누리 제1유형).")
+    print("  Trace polygons are only queried (footprint + buffer intersects), never shipped.")
+    print(f"  building observed-flooded = footprint buffered {buf:g} m touches a trace;")
+    print(
+        f"  model flooded = entry depth > {thr:g} m (loss-step rule); scored over wall buildings;"
+    )
+    print(f"  street area = open cells with h_max > {flood_h:g} m.")
+
+    def runs_for(spec_run: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "with": _coupled_storm(site, spec_run, walls_site, None),
+            "without": _coupled_storm(site, spec_run, np.zeros_like(walls_site), None),
+        }
+
+    # per-building geometry, lowest-ground baseline
+    ring_min = np.full(len(b), np.nan)
+    for i, geom in enumerate(b.geometry):
+        rows, cols = site_loss._cells(grid, geom)
+        if is_wall[i]:
+            rr, cc = site_loss.ring_cells(grid, rows, cols, walls_site)
+            if rr.size:
+                ring_min[i] = float(ground[rr, cc].min())
+                continue
+        ring_min[i] = float(ground[rows, cols].min())
+    rep = b.geometry.representative_point()
+
+    from shapely.geometry import box as shp_box
+
+    site_box = gpd.GeoSeries([shp_box(*bbox)], crs="EPSG:4326").to_crs("EPSG:5179").iloc[0]
+
+    def scores(flags: Any, obs: Any) -> dict[str, Any]:
+        return validate.contingency(flags[score_set], obs[score_set])
+
+    obs_by_year: dict[str, Any] = {}
+    traced_km2: dict[str, float] = {}
+    for year in v["events"]:
+        tr = validate.read_traces(year, bbox)
+        obs_by_year[year] = validate.trace_flags(b, tr, buf)
+        clip = tr.geometry.intersection(site_box)
+        traced_km2[year] = float(clip.union_all().area) / 1e6 if len(tr) else 0.0
+        crs_name = tr.crs.to_string() if tr.crs else "none"
+        print(
+            f"  traces {year}: {len(tr)} polygons near the site, CRS {crs_name},"
+            f" traced area in the site box {traced_km2[year]:.4f} km2,"
+            f" observed-flooded buildings {int(obs_by_year[year][score_set].sum())}"
+            f" of {int(score_set.sum())} wall buildings"
+        )
+
+    def match_total(year: str) -> tuple[float, dict[str, Any], int]:
+        target = traced_km2[year]
+        tried: list[tuple[float, float, dict[str, Any]]] = []
+
+        def evaluate(mm: float) -> float:
+            st = _coupled_storm(site, rain_eal.spec_for_rain(spec, mm), walls_site, None)
+            tried.append((mm, st["street_km2"], st))
+            return float(st["street_km2"])
+
+        a_lo, a_hi = evaluate(lo_mm), evaluate(hi_mm)
+        lo, hi = lo_mm, hi_mm
+        if a_lo < target < a_hi:
+            while len(tried) < max_runs:
+                mid = float(np.sqrt(lo * hi))
+                a = evaluate(mid)
+                if a < target:
+                    lo = mid
+                else:
+                    hi = mid
+        best = min(tried, key=lambda r: abs(r[1] - target))
+        return best[0], best[2], len(tried)
+
+    events: dict[str, Any] = {}
+    cols: dict[str, Any] = {}
+    for year, ev in v["events"].items():
+        obs = obs_by_year[year]
+        n_obs = int(obs[score_set].sum())
+        rec: dict[str, Any] = {
+            "name": ev["name"],
+            "n_wall_buildings": int(score_set.sum()),
+            "observed_flooded_wall_buildings": n_obs,
+            "traced_area_km2": traced_km2[year],
+            "runs": {},
+        }
+        # naive lowest-ground baseline
+        order = np.argsort(np.where(score_set, ring_min, np.inf))
+        naive = np.zeros(len(b), dtype=bool)
+        naive[order[:n_obs]] = True
+        rec["lowest_ground_baseline"] = scores(naive, obs)
+        cols[f"obs_{year}"] = obs
+        cols[f"naive_lowest_{year}"] = naive
+        planned: list[tuple[str, dict[str, Any], dict[str, Any], dict[str, Any]]] = []
+        if "gauges" in ev:
+            df = pd.concat(
+                [
+                    validate.read_gauge_file(pd.Timestamp(ev["start"]).year, m)
+                    for m in sorted(
+                        {pd.Timestamp(ev["start"]).month, pd.Timestamp(ev["end"]).month}
+                    )
+                ]
+            )
+            series = validate.gauge_series(
+                df, ev["gauges"], pd.Timestamp(ev["start"]), pd.Timestamp(ev["end"]), step
+            )
+            s_obs = validate.observed_rain_spec(spec, series.to_numpy(), step)
+            peak10 = float(series.max())
+            print(
+                f"[{year}] {ev['name']}: observed rain, gauges {list(ev['gauges'])}, "
+                f"{float(series.sum()):.1f} mm in {s_obs['rain']['duration_min'] / 60:.0f} h "
+                f"(peak {peak10:.1f} mm / {step:g} min)"
+            )
+            st = runs_for(s_obs)
+            planned.append(("observed_rain", {"total_mm": float(series.sum())}, st, s_obs))
+        print(f"[{year}] area-matched storm (design-storm shape, total searched):")
+        mm, _, n_runs = match_total(year)
+        s_m = rain_eal.spec_for_rain(spec, mm)
+        stm = runs_for(s_m)
+        planned.append(
+            (
+                "area_matched",
+                {
+                    "total_mm": mm,
+                    "search_runs": n_runs,
+                    "note": "checks WHERE water goes, not how much rain causes it",
+                },
+                stm,
+                s_m,
+            )
+        )
+        print(f"    search used {n_runs} coupled runs (cap {max_runs}); best total {mm:.0f} mm")
+        for label, info, st, _ in planned:
+            rr: dict[str, Any] = dict(info)
+            for key in ("with", "without"):
+                s = st[key]
+                flags = validate.model_flags(s["ground_depth"], thr)
+                cols[f"model_{label}_{year}_{key}"] = flags
+                fr = float(s["run"]["max_froude"])
+                rr[key] = {
+                    "street_flooded_km2": s["street_km2"],
+                    "max_froude": fr,
+                    "outside_validity": fr >= max_fr_ok,
+                    "model_flooded_wall_buildings": int(flags[score_set].sum()),
+                    "scores": scores(flags, obs),
+                }
+            rec["runs"][label] = rr
+        events[year] = rec
+        print(
+            f"  {'run':<30}{'walls':<9}{'street km2':>11}{'traced':>9}{'model n':>9}{'obs n':>7}"
+            f"{'POD':>7}{'FAR':>7}{'CSI':>7}{'bias':>7}{'Fr':>6}"
+        )
+        for label, rr in rec["runs"].items():
+            for key in ("with", "without"):
+                x = rr[key]
+                sc = x["scores"]
+                flag = " OUT" if x["outside_validity"] else ""
+                print(
+                    f"  {label + ' ' + format(rr['total_mm'], '.0f') + ' mm':<30}{key:<9}"
+                    f"{x['street_flooded_km2']:>11.4f}{traced_km2[year]:>9.4f}"
+                    f"{x['model_flooded_wall_buildings']:>9d}{n_obs:>7d}"
+                    f"{sc['pod']:>7.2f}{sc['far']:>7.2f}{sc['csi']:>7.2f}{sc['bias']:>7.2f}"
+                    f"{x['max_froude']:>6.2f}{flag}"
+                )
+        nb = rec["lowest_ground_baseline"]
+        print(
+            f"  {'baseline: N lowest ground':<30}{'-':<9}{'':>11}{'':>9}{n_obs:>9d}{n_obs:>7d}"
+            f"{nb['pod']:>7.2f}{nb['far']:>7.2f}{nb['csi']:>7.2f}{nb['bias']:>7.2f}"
+        )
+    print("  2010/2011: no gauge rain; the area-matched runs check WHERE water goes, not how")
+    print("  much rain causes it. Output holds per-building booleans and scores only.")
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "validation_summary.json").write_text(
+        json.dumps(
+            {"buffer_m": buf, "entry_threshold_m": thr, "events": events}, indent=2, allow_nan=True
+        ),
+        encoding="utf-8",
+    )
+    table = pd.DataFrame(
+        {
+            "building": np.arange(len(b)),
+            "lat": rep.y.to_numpy(),
+            "lon": rep.x.to_numpy(),
+            "is_wall": is_wall,
+            "underground": under,
+            **cols,
+        }
+    )
+    table.to_csv(out / "validation_buildings.csv", index=False)
+    print(f"  wrote {out / 'validation_summary.json'} and {out / 'validation_buildings.csv'}")
+    return 0
+
+
 def _print_basement(spec: dict[str, Any], out: Path) -> int:
     """Basements coupled both ways to the 2D street flow of the design storm, with/without walls."""
 
@@ -1139,6 +1361,12 @@ def main(argv: list[str] | None = None) -> int:
         help="EAL of the site over a return-period ladder of storms from the KMA ASOS record "
         "(rain_frequency.json, rain_eal_buildings.csv, rain_eal_summary.json)",
     )
+    ap.add_argument(
+        "--validate",
+        action="store_true",
+        help="building-level validation against the Seoul flood-trace maps "
+        "(validation_summary.json, validation_buildings.csv)",
+    )
     args = ap.parse_args(argv)
 
     out = Path(args.out) if args.out else paths.derived_dir("synthetic_city")
@@ -1151,6 +1379,8 @@ def main(argv: list[str] | None = None) -> int:
         return _print_site_loss(spec, out)
     if args.basement:
         return _print_basement(spec, out)
+    if args.validate:
+        return _print_validate(spec, out)
     if args.rain_eal:
         return _print_rain_eal(spec, out)
     if args.animate_site:

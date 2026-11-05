@@ -353,6 +353,12 @@
     "band": [0.05, 0.95]
   },
   "validation": {
+    "flooded_depth_m": 0.10,
+    "flooded_depth_m_note": "street depth (m) above which a cell counts as flooded when the modelled flooded street area is compared with the traced area (same 10 cm as the --pluvial and --basement tables).",
+    "match_range_mm": [50.0, 500.0],
+    "match_range_mm_note": "search range of the storm total (mm) for the area-matched runs; below ~100 mm the 95 mm/h sewer takes all the rain, so the lower end gives no street flooding.",
+    "match_max_runs": 9,
+    "match_max_runs_note": "cap on coupled runs per area-matched search (2 end points + log-space bisection; ~2 s each).",
     "_note": "Step R4: building-level check of the twin against the Seoul flood-trace maps (서울시 침수흔적도, 서울 열린데이터광장 OA-15636, 공공누리 제1유형; paths.external_dir('seoul_flood_traces')/<year>). Polygons are only queried (footprint + buffer intersects a trace), never rasterised or shipped. 2022 is run with the observed 10-min rain of the nearest Seoul rain gauges (서울시 강우량 정보 OA-1168, 공공누리 제2유형: internal calibration only, never shipped; paths.external_dir('seoul_rain_gauges')). 2010 and 2011 have no gauge files, so they are checked for spatial pattern only (design-storm shape, total chosen so the modelled flooded street area matches the traced area).",
     "buffer_m": 10.0,
     "buffer_m_note": "assumption: traces are digitised at street scale and the DEM is 30 m; a building counts as observed-flooded when a trace lies within this distance of its footprint.",

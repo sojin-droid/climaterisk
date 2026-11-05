@@ -189,6 +189,19 @@ R. **Real neighbourhood (user, 2026-11-05: public data allowed).** Gangnam stati
    (sewer 95 mm/h). Max Froude per run 0.6-2.35 (supercritical in the 20-100 y runs):
    indicative only. One station ~7 km away; validation against the Seoul flood-trace maps
    (공공누리 1유형, `<DATA_ROOT>/external/seoul_flood_traces`) is the next step.
+   **R4 done** (gate `tests/test_validate_traces.py`, protected; Sonnet + review;
+   `--validate`). Building-level check against 서울시 침수흔적도 (polygons only queried;
+   footprint + 10 m buffer). 2022-08-08 driven by the observed 10-min rain of Seoul gauges
+   2401/101/2402 (공공누리 2유형, internal only): 369 mm in 18 h — the ASOS 108 station
+   had 143 mm (max 2 h 40 mm vs 165-204 mm at the gauges). Scores over 878 wall buildings:
+   observed rain, walls CSI 0.29 (POD 0.50, FAR 0.59), no walls 0.21; modelled flooded
+   street 0.027 km2 vs 0.252 km2 traced -> the model UNDER-floods. A naive rule ("the N
+   lowest-ground buildings") scores CSI 0.57 and beats the model. Likely cause: the site
+   box is a bowl (interior low 7 m, edges 20-40 m) and the model has no run-on from the
+   upstream catchment outside it; the uniform 95 mm/h sewer sink is the other suspect.
+   2010/2011 area-matched (no gauge rain): CSI 0.05 / 0.20. The R3b EAL is therefore NOT
+   validated. Next: enlarge the domain to the catchment (or add run-on), then calibrate
+   the sewer capacity on 2022 and re-score; consider SWMM (1D) coupling if sewer data exist.
 10. **Pluvial (rain) flood.** On the step-6 model: Huff design-storm hyetograph, NRCS
     curve-number infiltration, manhole sinks at a sewer capacity. Repo-specific method —
     label it as such in outputs.
