@@ -227,6 +227,18 @@ R. **Real neighbourhood (user, 2026-11-05: public data allowed).** Gangnam stati
    site) that do not exist in the street; the solver fills them first. Terrain RANKING is
    still informative (the naive rule works), terrain DEPTHS are not. Next: a real terrain
    model (NGII 수치표고모델, login needed on 국토정보플랫폼) before any further calibration.
+   **R6b interim checks (2026-11-06, exploratory, `scripts/twin_interim_checks.py`, output
+   `derived/synthetic_city/interim_checks.json`).** NGII 공개DEM turned out to be 90 m
+   (useless at 1 km); of the four 1:5,000 수치지형도 sheets only 37705091 arrived (NW corner,
+   ~6 % of the site). (a) Terrain vs its 6 spot heights in the site: twin ground is +2.8 m
+   biased, RMSE 4.5 m, max 6.4 m; twin relief there ~10 m vs real ~4 m. (b) Filling closed
+   depressions > 1 m (priority flood; 41 pits, 21 % of cells raised, max 10 m): 2022 CSI
+   0.40 -> 0.41, optimum moves off the edge to 60 mm/h (CSI 0.415) — still below the naive
+   rule (0.57 / 0.59 filled). (c) 2023-2025 have no traces in the site; their largest
+   summer bursts (80-110 mm, 3 h max 47-81 mm) at the calibrated 10 mm/h flood 570-700
+   wall buildings (all false alarms), at 95 mm/h none (correct). The 10 mm/h calibration
+   is refuted; the terrain, not the sewer, is the bottleneck. Next: the other three
+   1:5,000 sheets (37705092, 37709001, 37709002) -> ground from spot heights + contours.
 10. **Pluvial (rain) flood.** On the step-6 model: Huff design-storm hyetograph, NRCS
     curve-number infiltration, manhole sinks at a sewer capacity. Repo-specific method —
     label it as such in outputs.
