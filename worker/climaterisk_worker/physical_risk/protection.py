@@ -54,15 +54,32 @@ def thresholds(hazard: Any, return_periods: Any) -> Any:
     return out
 
 
-def protect(hazard: Any, return_period: Any) -> Any:
-    """A copy of ``hazard`` without the events at or below the local design depth.
+def protect_with_threshold(hazard: Any, threshold: Any) -> Any:
+    """A copy of ``hazard`` protected by pre-computed per-centroid design depths.
 
-    ``return_period`` is one value for every centroid or an array with one per centroid
-    (e.g. levee-protected cells at a higher standard than the rest).
+    Unlike :func:`protect`, the design depth is taken from ``threshold`` rather than
+    derived from ``hazard`` itself. This is required for climate change: the design depth
+    must be derived from the **present** hazard and applied unchanged to the **future**
+    hazard. Using :func:`protect` on the future hazard re-derives the depth from the future
+    (wetter) stage, silently raising the levee and understating the multiplier
+    (≈1.22× instead of a larger value at +0.5 m) — see AGENTS.md, step 3.
+
+    Algorithm:
+        $$\\tilde{I}_{e,c} = I_{e,c},\\, \\mathbb{1}\\big[I_{e,c} > I^{P}_{c}\\big]$$
+        ASCII: keep event intensity at centroid c only where above the design depth
+        threshold[c]; cells at or below the design depth are zeroed.
+
+    Args:
+        hazard: The CLIMADA ``Hazard`` to protect (e.g. the future hazard).
+        threshold: Per-centroid design depth (m), derived from the present hazard. A scalar
+            is broadcast to every centroid; an array needs one value per centroid.
+
+    Returns:
+        A copy of ``hazard`` with intensities below the local design depth zeroed.
     """
     import numpy as np
 
-    threshold = thresholds(hazard, return_period)
+    threshold = np.broadcast_to(np.asarray(threshold, dtype=float), (hazard.centroids.size,))
     intensity = hazard.intensity.tocsr(copy=True)
     keep = intensity.data > threshold[intensity.indices]
     intensity.data = np.where(keep, intensity.data, 0.0)
@@ -74,6 +91,25 @@ def protect(hazard: Any, return_period: Any) -> Any:
     else:
         out.fraction = (intensity > 0).astype(float).tocsr()
     return out
+
+
+def protect(hazard: Any, return_period: Any) -> Any:
+    """A copy of ``hazard`` without the events at or below the local design depth.
+
+    ``return_period`` is one value for every centroid or an array with one per centroid
+    (e.g. levee-protected cells at a higher standard than the rest).
+
+    Algorithm:
+        $$\\tilde{I}_{e,c} = I_{e,c},\\, \\mathbb{1}\\big[I_{e,c} > I^{P}_{c}\\big]$$
+        ASCII: threshold[c] = intensity at centroid c for return period P
+        (stepfunction); keep event intensity at c only where above that threshold, else 0.
+
+    The design depth is derived from ``hazard`` itself (both for the threshold and the
+    masking). For climate change, where the design depth must come from the present hazard
+    and be applied fixed to a future hazard, use :func:`protect_with_threshold` instead.
+    """
+    threshold = thresholds(hazard, return_period)
+    return protect_with_threshold(hazard, threshold)
 
 
 def cells_near(hazard: Any, points: list[tuple[float, float]], radius_km: float) -> Any:

@@ -1,0 +1,298 @@
+# AGENTS.md — city digital twin (Hermes)
+
+This worktree (`~/Developer/climaterisk-twin`, branch `feat/city-digital-twin`) is where an
+autonomous agent builds a **synthetic city digital twin** on top of this repository's CLIMADA
+engine. Read `CLAUDE.md` too: its conventions (type hints, docstrings with `Algorithm:`,
+seeds, tests against analytical solutions, conventional commits) apply here unchanged.
+
+The aim is a simulation tool in the spirit of EnergyPlus / ENVI-met / CFD: physical
+equations stepped in time on an imaginary city. **Purpose (user, 2026-11-05):** see, mathematically
+and visually, how a physical environment (terrain, buildings, flow, shade) changes what the
+CLIMADA engine reports. So every physical model should also leave something to look at:
+time snapshots, maps, cross-sections — not only a final number. It cannot be validated against
+measurements, so every model must be **verified** — against analytical solutions,
+published benchmarks and conservation laws — before its numbers are used.
+
+## Where the code lives
+
+- `worker/climaterisk_worker/twin/` — everything: `spec`, `city`, `flood` (generator),
+  `hazard`, `pricing`, `network`, `plot`, `pipeline`. Not `src/`: the backend environment
+  has no NumPy/NetworkX and `mypy src/` runs in CI.
+- `scripts/synthetic_city.py` — thin CLI only.
+- `assets/libraries/synthetic_city_spec.json` — every assumption, each with a `_note`.
+
+## Steps (in order; finish, test and commit one before starting the next)
+
+1. ~~Twin package~~ — done (`8d560da`, `064d60a`).
+2. ~~Defence scenarios~~ — done (`91a15cf`, `063266f`): EAL 1.303 / 0.749 / 0.313 / 0.186 %
+   for none / 10 / 50 / 100 y, local 100-y levee on cols 5..14 = 0.739 %. Present-day
+   numbers to compare step 3 against.
+3. ~~Climate change~~ — done (`3524894`): +0.5 m stage, levees at present height.
+   Multiplier none 1.845 / 10 y 2.111 / 50 y 2.010 / 100 y 2.054 / levee 1.872 (the
+   re-derived-levee trap would give 1.22 at 50 y). `protection.protect_with_threshold`
+   applies a present design depth to a future hazard.
+4. ~~Map viewer~~ — done (`46a146b`, `d0ec7cd`): `twin/viewer.py`, `--map` → `city_map.html`.
+   Page scripts that read Folium objects must run on `window` `load`, not `setTimeout(0)`.
+5. ~~3D buildings~~ — done: `twin/viewer3d.py`, `--map3d` → `city_3d.html` (deck.gl 9.4.1
+   from jsDelivr, terrain + extruded buildings + flat water plane at the RP stage).
+   Storeys are geometry only; feeding them into ground-floor/basement exposure is a later,
+   separate change that WILL move EAL and needs its own expected values.
+6. **2D hydraulic model.** Local inertial shallow-water scheme on a raster (Bates,
+   Horritt & Fewtrell 2010, J. Hydrol.; stability per de Almeida et al. 2012, WRR),
+   written from the equations in NumPy — do not copy code from LISFLOOD-FP or others.
+   Gate: before any city run it must pass, as tests,
+   - 1D dam break vs the Ritter analytical solution,
+   - Thacker's parabolic bowl (wetting/drying),
+   - mass balance: inflow + rain − infiltration − drainage − storage < 0.1 %,
+   - qualitative agreement with the UK Environment Agency 2D benchmarks
+     (Néelz & Pender 2013) where reproducible.
+   Its peak depths then replace the stage law as the RF hazard (same engine pricing).
+   **Part A done** (`twin/hydraulics.py`, `tests/test_hydraulics.py`): Stoker wet dam break
+   L1 2.4 % (tol 5 %), Thacker bowl Fr 0.07 L1 1.1 % (tol 2 %), mass 1e-15 (tol 1e-3),
+   lake at rest exact. Errors are flat under refinement and grow with Froude (Thacker
+   1 / 4 / 9 % at Fr 0.07 / 0.14 / 0.28): that is the dropped advection term, a model limit.
+   Keep city runs at Fr < 0.5 and report the max Froude number of every run.
+   **Part B done** (`twin/inundation.py`, `tests/test_inundation.py`, `--hydraulic`):
+   25 m raster, river row on a raised-cosine stage wave peaking at h(T), Manning 0.05.
+   EAL 2D / stage law = 0.997 (24 h wave), volume closure 1e-11, max Fr 0.42. The city is
+   2 km deep and fills in minutes, so the bathtub is a good approximation *here*; the 2D
+   model differs in enclosed hollows (tested) and will matter for big floodplains, levee
+   breaches and rain (step 10). A 6 h wave reaches Fr 0.93: outside validity, flagged.
+   The stage law stays the default hazard (2D costs ~40 s per wave duration).
+   Levees are still applied after the run (`protection.protect`), not as walls in 2D.
+7. **Typhoon.** Synthetic tracks → CLIMADA `TropCyclone` wind field (Holland profile),
+   priced with the repo's TC regional impact function. **Gate: `tests/test_typhoon.py`**
+   (protected) — its docstring is the API to implement in `twin/typhoon.py`. Add a
+   `typhoon` section to the spec (seeded tracks passing near the city; every value with a
+   `_note`) and a `--typhoon` CLI flag printing EAL % by asset kind. Wind needs no download:
+   pass `ignore_distance_to_coast=True` to `TropCyclone.from_tracks`.
+   **Done** (`d649a43` by Sonnet, fixed in review): EAL 0.045 % of value, uniform across
+   asset kinds (the city is ~2 km, storms ~100 km wide, one WP4 curve for all types).
+8. **Heatwave.** Hazard-only in money terms (no published damage curve). Street-level
+   mean radiant temperature / UTCI and the repo's labour-productivity and heat-mortality
+   modules on a synthetic population. EnergyPlus for building cooling load is optional and
+   needs the user's approval to install.
+   **Gate: `tests/test_heat.py`** (protected) — its docstring is the API and every formula
+   for `twin/heat.py`. Heat index = official UTCI (`pythermalcomfort==4.8.0`, installed in
+   `.climada-env` with the user's approval 2026-11-05); MRT from a street-canyon
+   approximation (SVF, sunlit fraction) — the MRT, not the UTCI, is the repo-specific part.
+   **Done** (`0b11414` proxy by Sonnet, UTCI in review): UTCI 39-52 degC at noon,
+   productivity loss 20 % of the heatwave-day wage bill. That is high because the noon peak
+   is applied to whole working days — an hourly UTCI cycle is the next refinement.
+   Add a `heat` section to the spec (every value with a `_note`) and a `--heat` CLI flag.
+   The heat-mortality module is calibrated on European reference cities; leave it out.
+9. **Coastal flood / surge.** Add a coastline to the spec; bathtub first (CLIMADA Petals
+   `TCSurgeBathtub`), then the step-6 model with a coastal boundary stage.
+   **Gate 9A: `tests/test_coastal.py`** (protected) — its docstring is the API for
+   `twin/coastal.py`. The coast is synthetic: CLIMADA's distance-to-coast comes from a NASA
+   download (blocked, and meaningless for an imaginary city), so pass centroids whose
+   `get_dist_coast` is overridden and re-attach them to the wind hazard before calling
+   `TCSurgeBathtub.from_tc_winds` (TropCyclone replaces its centroids). DEM = city terrain
+   written as a GeoTIFF. Add a `coast` section to the spec and a `--coastal` CLI flag.
+   **9A done** (`f1baac7` by Sonnet, verified): max surge 4.4 m, 566/1160 assets wet,
+   EAL 7.9 % (10.6 % with +0.5 m sea level). High because the bank is 0.5 m above datum
+   with no sea wall, and Petals' Xu (2010) line floors surge at 1.83 m for ANY wind above
+   CLIMADA's 17.5 m/s threshold (19 of 20 tracks). Treat 9A as an upper bound.
+   **Gate 9B: `tests/test_surge2d.py`** (protected) — 2D surge in `twin/surge2d.py` plus
+   `hydraulics.run(snapshot_every_s=...)` time snapshots for animation. Add
+   `surge_duration_h` / `surge_recession_h` to the spec `coast` section and a
+   `--coastal2d` CLI flag comparing bathtub (Petals) and 2D EAL.
+   **9B done** (`a76d9de` by Sonnet, reviewed): EAL Petals 7.95 % (inland decay 0.2 m/km,
+   local wind) vs 2D 8.68 % (one coast stage from the strongest coastline wind, no decay)
+   — not like-for-like forcing. Against the same-stage bathtub the 2D depth is 1.005x on
+   average, up to +6.7 cm (momentum overshoot; above the 2 cm small-city tolerance).
+   Max Fr 1.9 is at 5 cm wetting fronts; bulk flow h > 0.3 m peaks at Fr 0.51 and at most
+   49 of 6006 cells exceed 0.5 at once. Flag kept as OUTSIDE VALIDITY (not re-thresholded
+   after seeing results). surge_duration_h = 2 h was chosen so the weak gate test (short <
+   long on a 500 m test city) passes; 2 h is still a plausible surge peak duration.
+9b. **Time viewer.** Animate the 2D snapshots (river flood, surge) over the 3D city in the
+   deck.gl page: time slider + play, water depth on the raster, buildings coloured by
+   depth reached so far, a panel showing the governing equations and live numbers.
+   **Gate: `tests/test_viewer_time.py`** (protected) — API in its docstring
+   (`twin/viewer_time.py`, `--animate` CLI flag reading `surge_snapshots.npz`).
+R. **Real neighbourhood (user, 2026-11-05: public data allowed).** Gangnam station area,
+   bbox ~127.022-127.034 E, 37.492-37.502 N: OpenStreetMap buildings from
+   `paths.osm_dir("south-korea-261013.osm.pbf")` (ODbL — credit "© OpenStreetMap
+   contributors") and the Copernicus GLO-30 surface model in
+   `paths.external_dir("copernicus_dem")` (credit "Copernicus DEM, ESA"). GLO-30 is a
+   surface model: building footprints are masked and the ground interpolated.
+   R1 site extraction + buildings as walls in the 2D model — **gate `tests/test_site.py`**.
+   **R1 done** (`f876274` by Sonnet + review): 105 x 111 cells of 10 m, 880 buildings
+   (height tag 30 %, levels 12 %, typology 58 %), ground 7-72 m (Seocho basin west of the
+   station, Yeoksam hill east). Review fix: OSM marks the Gangnam Station Underground
+   Shopping Center as a building — underground features (`layer` < 0, `location=underground`,
+   `tunnel=yes`) and canopies (`building=roof`) are not walls; keep the underground mall as
+   an exposure for R3 (water enters it).
+   R2 rain on the real site (this replaces step 10 on the synthetic city), time viewer with
+   real footprints, buildings-as-walls vs no-buildings comparison. R3 pricing.
+   **Gate R2: `tests/test_pluvial.py`** (protected) — API in its docstring: time-varying
+   rain, sink and open-edge outflow in `hydraulics.run`, and `twin/pluvial.py` (design
+   storm, NRCS CN, sewer capacity, roof runoff onto streets). Add a `rain` section to the
+   spec and a `--pluvial` CLI flag writing snapshots and a with/without-buildings table.
+   **R2 done** (Sonnet + review). Review changes: sewer capacity per unit *catchment* area
+   (roofs drain to the sewer), so with/without buildings get the same rain and the same
+   total sewer; gate no longer asserts which way buildings move depths (that was an
+   artefact of the old sewer); real-site test runs on the real data root with the sewer
+   off (pure terrain routing). Gangnam, 160 mm / 2 h, sewer 95 mm/h: flooded area (>10 cm)
+   0.076 km2 with buildings vs 0.061 without, max depth 1.96 vs 2.49 m. Max Fr 0.96 / 1.53:
+   OUTSIDE VALIDITY (steep 30 m DEM slopes, thin sheet flow) — treat as indicative.
+   R3 per-building loss of the design storm. **Gate R3: `tests/test_site_loss.py`**
+   (protected) — API in its docstring: `twin/site_loss.py` (OSM type -> property type,
+   footprint area, exposed value = area x min(storeys, max_exposed) x cost/m2, entry depth
+   = ring max minus door sill for walls, volume over footprint for the underground mall,
+   pricing through `engine.calculate` against one RF event, sum == ImpactCalc). Spec
+   `loss` section (written by the reviewer: assumptions). CLI `--site-loss`: `--pluvial`
+   also stores the true `h_max` in both npz files; `--site-loss` reads them and writes
+   `site_losses.csv` (per building, with and without walls) and prints the totals as the
+   loss of ONE storm, never as EAL. Point of the comparison: with walls = building-resolved
+   hydraulics; without walls = the building-free hazard map CLIMADA would normally sample.
+   **R3 done** (Sonnet + review). Threshold follows the user's 무피해문턱_계산표(261020):
+   T = 0.05 m, step rule (0 at or below T, unshifted JRC above) — the first draft's
+   0.15 m shifted curve was wrong. Gangnam, 160 mm / 2 h: exposed value 587 M USD (ground
+   storey only); loss 88.0 M USD (15.0 %) with walls vs 68.6 M (11.7 %) without; 578 vs 242
+   buildings damaged; underground mall 0.19 M vs 0. Indicative (Froude outside validity).
+   Gaps: basements (층별_침수피해율_비교, 지하침수_시험계산: weir inflow 1.705 B H^1.5 — next,
+   R3c); buildings touching the bbox edge read the nearest edge cell with full value.
+   R3b (EAL over a return-period rain ladder) waits for KMA ASOS Seoul (108) hourly rain.
+   R3c basements. **Gate R3c: `tests/test_basement.py`** (protected) — API in its docstring:
+   `twin/basement.py` (levels by use from the storey sheet for walls with >= min_storeys;
+   ring depth per snapshot; ramp weir inflow C B (h - T)^1.5 integrated over the snapshots +
+   ramp rain - pumps; fill from the lowest storey; every storey priced through the engine).
+   Spec `basement` section (reviewer: sheet defaults and assumptions). CLI `--basement`:
+   reads both pluvial npz files, prints ground vs basement loss with and without walls,
+   the total basement inflow vs the rain volume (one-way coupling check), writes
+   `site_losses_basement.csv`.
+   **R3c done but its numbers are INVALID** (Sonnet, commit 53ccf5e): one-way coupling let
+   basements take 39-45x the storm rain (7.3 M m3 vs 0.19 M m3), so basement loss 635 M USD
+   is meaningless. Trap: never read a sink off a depth field without removing the water.
+   R3d couples both ways. **Gate R3d: `tests/test_basement_coupled.py`** (protected):
+   `hydraulics.run(sink_fn=...)` (clipped, volume-balanced), `run_pluvial(sink_fn=...)`,
+   `basement.entrance_cells` (lowest ring cell), `basement.BasementSink` (weir flow above
+   the sill only, shared cells scaled, capped at basement capacity = levels x area x ff).
+   CLI `--basement` re-runs the storm with and without walls, both with basement sinks, and
+   prices ground + basement storeys from the coupled depths and volumes; it reports
+   basement volume as a share of the rain (must be < 100 %).
+   **R3d done** (Sonnet + review; without sink_fn the solver reproduces R2 exactly:
+   0.0756/0.0606 km2, 1.96/2.49 m). Gangnam 160 mm / 2 h, with / without walls: basements
+   take 14,428 / 22,422 m3 (8.0 / 12.5 % of rain; 248 / 155 basements wet); street area
+   >10 cm 0.046 / 0.025 km2; loss ground 52.1 / 11.2 M + basement 12.2 / 21.0 M = 64.3 M
+   (3.1 %) / 32.2 M (1.5 %) USD of 1.50 bn basement + 0.59 bn ground-storey value.
+   Basements are the main sink of the water the sewer cannot take. Indicative (Froude 0.96
+   with walls). Ramp rain is not added in the coupled model (it already falls on the street).
+   **R3b done** (gate `tests/test_rain_eal.py`, protected; Sonnet + review; `--rain-eal`).
+   KMA ASOS Seoul (108) hourly 1961-2026, annual-max 2 h rain, GEV by L-moments
+   (xi 57.2, alpha 21.9 mm, k 0.096): 2/10/30/100/500 y = 65/102/120/139/160 mm (the R2
+   160 mm design storm is ~500 y). Ladder 2-500 y through the coupled R3d model, priced as
+   ONE RF hazard with layered frequencies (CLIMADA step convention; T < 2 y = no loss).
+   EAL with / without walls 1.26 M / 0.83 M USD per year (0.061 / 0.040 % of 2.09 bn);
+   bootstrap 5-95 % rain band 0.34-2.52 M / 0.29-1.55 M. Loss starts at the 10 y storm
+   (sewer 95 mm/h). Max Froude per run 0.6-2.35 (supercritical in the 20-100 y runs):
+   indicative only. One station ~7 km away; validation against the Seoul flood-trace maps
+   (공공누리 1유형, `<DATA_ROOT>/external/seoul_flood_traces`) is the next step.
+   **R4 done** (gate `tests/test_validate_traces.py`, protected; Sonnet + review;
+   `--validate`). Building-level check against 서울시 침수흔적도 (polygons only queried;
+   footprint + 10 m buffer). 2022-08-08 driven by the observed 10-min rain of Seoul gauges
+   2401/101/2402 (공공누리 2유형, internal only): 369 mm in 18 h — the ASOS 108 station
+   had 143 mm (max 2 h 40 mm vs 165-204 mm at the gauges). Scores over 878 wall buildings:
+   observed rain, walls CSI 0.29 (POD 0.50, FAR 0.59), no walls 0.21; modelled flooded
+   street 0.027 km2 vs 0.252 km2 traced -> the model UNDER-floods. A naive rule ("the N
+   lowest-ground buildings") scores CSI 0.57 and beats the model. Likely cause: the site
+   box is a bowl (interior low 7 m, edges 20-40 m) and the model has no run-on from the
+   upstream catchment outside it; the uniform 95 mm/h sewer sink is the other suspect.
+   2010/2011 area-matched (no gauge rain): CSI 0.05 / 0.20. The R3b EAL is therefore NOT
+   validated. Next: enlarge the domain to the catchment (or add run-on), then calibrate
+   the sewer capacity on 2022 and re-score; consider SWMM (1D) coupling if sewer data exist.
+   **R5 done** (gate `tests/test_threshold_compare.py`, protected; Sonnet + review;
+   `--threshold-compare`). No-damage threshold vs none on the 243 buildings with a KNOWN
+   OSM use (116 residential, 125 commercial, 2 industrial; 'yes' etc. left out, never
+   assumed), ground storey only. Annual change vs no threshold, all known use: pure JRC
+   table T 0.05/0.15/0.30/0.60 m = -16 / -54 / -76 / -96 %; CLIMADA curve = 0 / -28 / -59 /
+   -93 % (its 0.05 m point already is a 5 cm threshold). Effect shrinks with storm size
+   (pure, T 0.15: -91 % at 10 y, -19 % at 500 y). 77 % of the buildings see 0-5 cm at the
+   10 y storm. Inherits R4: depths not validated, basement sinks and sewer assumed.
+   **User rule (2026-11-06): a twin replicates real space; no building attribute may be
+   assumed without telling the user.** Earlier R3/R3d/R3b totals include 618 buildings
+   assumed commercial and assumed basements — superseded for reporting by the rebuild (R6).
+   **R6 done — negative result** (gate `tests/test_real_rebuild.py`, protected; Sonnet +
+   review; `--real`). Real-data rebuild: OSM green (393 cells, CN 74 soil C assumed),
+   run-on by D8 on the GLO-30 ground padded 1.5 km (0.167 km2 upstream), no basements,
+   sewer calibrated on 2022 (observed gauge rain). CSI rises monotonically as the sewer
+   falls: best at the grid edge, 10 mm/h (CSI 0.40, POD 0.85, FAR 0.57, bias 1.98) — not
+   physical, not bracketed; run-on + green alone change nothing (0.294 vs 0.292). Still
+   below the naive lowest-ground rule (0.57); 2011 0.18 (naive 0.22); 2010 match failed.
+   With 10 mm/h even the 2 y storm floods 0.10 km2, max depth 2.6 m -> the R5-style
+   threshold effect shrinks to -1 / -5 / -12 / -31 % (pure, 0.05-0.60 m). Root cause found
+   in review: the 30 m GLO-30 surface model, with buildings masked and the ground
+   interpolated, has closed depressions up to 10 m deep (1,377 cells > 1 m, 12 % of the
+   site) that do not exist in the street; the solver fills them first. Terrain RANKING is
+   still informative (the naive rule works), terrain DEPTHS are not. Next: a real terrain
+   model (NGII 수치표고모델, login needed on 국토정보플랫폼) before any further calibration.
+   **R6b interim checks (2026-11-06, exploratory, `scripts/twin_interim_checks.py`, output
+   `derived/synthetic_city/interim_checks.json`).** NGII 공개DEM turned out to be 90 m
+   (useless at 1 km); of the four 1:5,000 수치지형도 sheets only 37705091 arrived (NW corner,
+   ~6 % of the site). (a) Terrain vs its 6 spot heights in the site: twin ground is +2.8 m
+   biased, RMSE 4.5 m, max 6.4 m; twin relief there ~10 m vs real ~4 m. (b) Filling closed
+   depressions > 1 m (priority flood; 41 pits, 21 % of cells raised, max 10 m): 2022 CSI
+   0.40 -> 0.41, optimum moves off the edge to 60 mm/h (CSI 0.415) — still below the naive
+   rule (0.57 / 0.59 filled). (c) 2023-2025 have no traces in the site; their largest
+   summer bursts (80-110 mm, 3 h max 47-81 mm) at the calibrated 10 mm/h flood 570-700
+   wall buildings (all false alarms), at 95 mm/h none (correct). The 10 mm/h calibration
+   is refuted; the terrain, not the sewer, is the bottleneck. Next: the other three
+   1:5,000 sheets (37705092, 37709001, 37709002) -> ground from spot heights + contours.
+10. **Pluvial (rain) flood.** On the step-6 model: Huff design-storm hyetograph, NRCS
+    curve-number infiltration, manhole sinks at a sewer capacity. Repo-specific method —
+    label it as such in outputs.
+
+## Known traps
+
+- **Service cut-off indicator.** `network_failure` counts a lot as cut off only if it is
+  *not* itself flooded, so the indicator can fall as floods get worse (e.g. 0 at +0.5 m
+  with a 50 y defence). Report flooded + cut-off together, and never compare scenarios on
+  the cut-off count alone.
+- **Seed sensitivity.** Seeds 1–3 move EAL by about ±7 % and the cut-off value by 4×.
+  Compare scenarios on the same seed, and show a seed spread before claiming a difference.
+- **A defence protects the land behind it.** A levee band covers the floodplain it fronts,
+  not just the bank cells (step 2 first defended row 0 only and the city still flooded).
+- **Tolerances come before results.** Pick a test tolerance from the method's known error
+  and say why; never widen it to whatever the code produced (step 6A first shipped a
+  2 m dam break with a 1.6 m tolerance and a wrong Ritter formula).
+- **CLIMADA TC wind comes from central pressure**, not `max_sustained_wind`. Solve the
+  pressure for the wanted wind (`typhoon.pressure_for_vmax`); a fixed pressure-wind formula
+  mislabelled storms by 10-24 % and cut EAL by ~2.8x.
+- **Petals surge bathtub floors at 1.83 m** for every wind >= 17.5 m/s (Xu 2010 intercept),
+  so weak storms still flood a low coast. Report it as an upper bound.
+- **Don't gate a hypothesis.** A test asserting which way an effect goes (e.g. "buildings
+  make water deeper") is a guess; gate conservation laws and analytical cases, and let
+  the simulation show the direction.
+- **Never add ruff per-file ignores** to silence long lines; wrap them.
+- **Tooling versions.** Use `uv sync --locked --all-extras`; CI pins ruff 0.15.18. A newer
+  ruff reformats Markdown code blocks — never commit changes to files outside your step.
+
+## Hard rules
+
+- **Pricing:** never re-implement damage arithmetic. Use
+  `climaterisk_worker.physical_risk.engine.calculate` / `registry` curves / `ImpactCalc`.
+  Keep the per-asset vs portfolio `aai_agg` check (rtol 1e-9).
+- **Data:** synthetic only. Do **not** use client survey data, real building registers, or
+  the Korean flood-risk map (공공누리 제4유형). No downloads or new installs without asking.
+- **Environment:** CLIMADA runs only in
+  `/Users/junsojin/Developer/climaterisk/.climada-env/bin/python`. Do not install into it
+  or create another CLIMADA env. `uv run` is for lint/format/type-check.
+- **Scope:** write only inside this worktree. Do not touch `~/Developer/climaterisk`
+  (the user's main checkout has uncommitted work), `~/.ssh`, or shell rc files.
+- **Git:** commit on `feat/city-digital-twin` with conventional commits. Do not push,
+  open PRs, merge, or force-push — the user reviews first.
+
+## Check before every commit
+
+```bash
+git add -A && ./check.sh
+```
+
+`check.sh` runs lint, format, type-check, both test suites and a city run, and refuses the
+commit if a **protected gate test** (listed in `.protected-tests`) changed. Gate tests are
+written by the reviewer before a step starts; make the code pass them, never edit them.
+If you think a gate test is wrong, stop and say why in your report.
+
+Report EAL % by asset kind after each step and say whether it moved in the expected
+direction (more defence → lower EAL; higher stage → higher EAL).
