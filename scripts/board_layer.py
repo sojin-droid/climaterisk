@@ -14,7 +14,7 @@ Runs in the CLIMADA worker environment::
 
 Outputs under ``<DATA_ROOT>/derived/board/``: ``<layer>.geojson`` (columns ``centroid``,
 ``code``, ``name``, ``area_km2``, ``rp<T>`` per kept return period in the hazard's units)
-``<layer>.board.json`` (compact file the API serves; coordinates rounded to 5 decimals)
+``<layer>.board.json`` (compact file the API serves; coordinates rounded to 4 decimals, about 10 m)
 and ``<layer>.meta.json`` (source, resolution, periods kept, max_supported, record_years,
 n_pieces, null vs 0 counts). A null value means no hazard data; 0 is a computed zero.
 """
@@ -46,7 +46,7 @@ def period_column(period: float) -> str:
     return f"rp{period:g}"
 
 
-COORD_DECIMALS = 5  # 1e-5 degree ~ 1 m: far below the 4.6 km hazard cell
+COORD_DECIMALS = 4  # 1e-4 degree ~ 10 m: far below the 4.6 km hazard cell
 
 
 def _ring(coords: Any) -> list[list[float]]:
@@ -89,6 +89,7 @@ def board_json_payload(pieces: Any, meta: dict[str, Any], spec: dict[str, Any]) 
     keep = (
         "layer", "units", "requested_periods", "periods_kept", "max_supported", "record_years",
         "resolution_arcsec", "cell_km_ns", "cell_km_ew", "hazard_source", "boundary_source",
+        "boundary_simplify_m",
     )  # fmt: skip
     out_meta = {k: meta[k] for k in keep}
     out_meta["use_tier"] = spec["use_tier"]
@@ -220,6 +221,15 @@ def run(layer: str, out_dir: Path | None) -> dict[str, Any]:
 
     shp = paths.municipality_sgis_dir() / f"bnd_sigungu_00_{spec['boundary_version']}.shp"
     regions = gpd.read_file(shp, encoding="utf-8")
+    simplify_m = float(spec.get("boundary_simplify_m", 0.0))
+    if simplify_m > 0:
+        # Display-size reduction only: each 시군구 outline is simplified on its own in metres
+        # (EPSG:5179), so neighbouring outlines may leave gaps/overlaps up to ~simplify_m.
+        # Hazard values are per 4.6 km cell and do not change; only which 시군구 label a
+        # point within ~simplify_m of a boundary gets can change. Recorded in the metadata.
+        regions = regions.to_crs(5179)
+        regions["geometry"] = regions.geometry.simplify(simplify_m, preserve_topology=True)
+        regions = regions.to_crs(4326)
     cells = board.grid_cells(lon, lat, res_deg)
     pieces = board.clip_pieces(
         cells, regions, spec["boundary_code_column"], spec["boundary_name_column"]
@@ -248,6 +258,7 @@ def run(layer: str, out_dir: Path | None) -> dict[str, Any]:
         units=str(hazard.units),
         requested=requested,
     )
+    meta["boundary_simplify_m"] = simplify_m
     meta["runtime_seconds"] = round(time.time() - t0, 1)
     board_file = out / f"{layer}.board.json"
     board_file.write_text(

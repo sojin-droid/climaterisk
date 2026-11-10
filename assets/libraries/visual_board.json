@@ -12,6 +12,7 @@
       "year_range": "1980_2000",
       "country_iso3": "KOR",
       "boundary_version": "2025_2Q",
+      "boundary_simplify_m": 50,
       "use_tier": "I",
       "use_tier_reason": "국내 실측 검증이 없고 ISIMIP 전지구 격자라 하천망·제방이 반영되지 않아, 상대 비교와 순위용입니다 (docs/SCOPE.md §3).",
       "boundary_code_column": "SIGUNGU_CD",
