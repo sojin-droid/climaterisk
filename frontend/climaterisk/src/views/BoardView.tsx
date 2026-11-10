@@ -80,6 +80,9 @@ export function BoardView() {
   const [layerName, setLayerName] = useState<string>("");
   const [key, setKey] = useState<string | null>(null);
   const [fc, setFc] = useState<BoardCollection | null>(null);
+  // which (layer, key) `fc` was fetched for: the map is drawn only when it matches the
+  // selection, so a new colour scale is never applied to the previous key's values
+  const [fcFor, setFcFor] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [picked, setPicked] = useState<BoardLookup | null>(null);
@@ -129,7 +132,11 @@ export function BoardView() {
     setLoading(true);
     setError(null);
     getBoardGeojson(meta.layer, key, meta.key_kind === "metric")
-      .then((c) => live && setFc(c))
+      .then((c) => {
+        if (!live) return;
+        setFc(c);
+        setFcFor(`${meta.layer}|${key}`);
+      })
       .catch((e: Error) => live && setError(e.message))
       .finally(() => live && setLoading(false));
     return () => {
@@ -195,8 +202,8 @@ export function BoardView() {
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
           )}
-          {fc && meta && key !== null && (
-            <GeoJSON key={`${meta.layer}|${key}`} data={fc as never} style={style as never} />
+          {fc && meta && key !== null && fcFor === `${meta.layer}|${key}` && (
+            <GeoJSON key={fcFor} data={fc as never} style={style as never} />
           )}
           {highlighted && (
             <GeoJSON
