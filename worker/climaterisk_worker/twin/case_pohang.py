@@ -1332,6 +1332,7 @@ def run_case(
         "name": spec["name"],
         "badge": spec["badge"],
         "n_assumptions": len(spec["assumptions"]),
+        "assumptions": list(spec["assumptions"]),
         "catchment_area_km2": round(area, 2),
         "catchment_ref_km2": spec["catchment_ref"]["area_km2"],
         "catchment_rel_diff": round(
