@@ -82,3 +82,85 @@ test("board: picker → return period → click → panel", async ({ page }) => 
 
   await expect(page.getByText("사례 트윈: 강남역 (미검증)")).toBeVisible();
 });
+
+const DROUGHT_META = {
+  layer: "drought_spei3_hist_kor",
+  key_kind: "metric",
+  keys: [
+    { key: "freq_ge1", label: "관심(SPEI-3 ≤ −1) 이상 발생 빈도 1991–2020", units: "연 비율", scale: "share" },
+    { key: "freq_ge2", label: "주의(SPEI-3 ≤ −1.5) 이상 발생 빈도 1991–2020", units: "연 비율", scale: "share" },
+    { key: "freq_ge3", label: "경계(SPEI-3 ≤ −2) 이상 발생 빈도 1991–2020", units: "연 비율", scale: "share" },
+    { key: "y2022", label: "2022년 5–9월 최소 SPEI-3", units: "-", scale: "spei" },
+  ],
+  units: "-",
+  resolution_arcsec: 150,
+  cell_km_ns: 4.64,
+  cell_km_ew: 3.76,
+  hazard_source: "TerraClimate v1.1 (fixture)",
+  boundary_source: "SGIS 시군구 2025_2Q (fixture)",
+  use_tier: "S",
+  use_tier_reason: "위험도 지표만, 피해함수 없음",
+  notes: ["논(관개)은 SPEI로 평가하지 않음 — 저수율 지표 필요", "가뭄지수와 노출 농지 면적이며 손실(피해액)이 아님", "빈도는 1991–2020 같은 기간으로 맞추고 센 값(in-sample)"],
+};
+
+test("board: drought layer → key selector, badges, exposure", async ({ page }) => {
+  const keys: string[] = [];
+  await page.route(/tile\.openstreetmap\.org/, (r) => r.abort());
+  await page.route("**/api/board/layers", (r) => r.fulfill({ json: [META, DROUGHT_META] }));
+  await page.route("**/api/board/layers/*/geojson?*", (r) => {
+    const q = new URL(r.request().url()).searchParams;
+    keys.push(q.get("key") ?? `rp${q.get("rp")}`);
+    return r.fulfill({
+      json: {
+        type: "FeatureCollection",
+        features: [
+          { type: "Feature", geometry: { type: "Polygon", coordinates: sq(127.5, 36, 1) },
+            properties: { id: 0, centroid: 0, code: "11220", name: "서초구", value: 0.2, exposure: null } },
+        ],
+      },
+    });
+  });
+  await page.route("**/api/board/layers/*/lookup?*", (r) =>
+    r.fulfill({
+      json: { id: 0, code: "11220", name: "서초구", centroid: 0, cell_km_ns: 4.64, cell_km_ew: 3.76,
+        key_kind: "metric",
+        values: { freq_ge1: 0.3, freq_ge2: 0.2, freq_ge3: 0, y2022: -1.7 },
+        exposure: { upland_ha: 10, orchard_ha: 2, rice_ha: 5, greenhouse_ha: 1 } },
+    }),
+  );
+  await page.route("**/api/board/layers/*/regions/*", (r) =>
+    r.fulfill({
+      json: { code: "11220", name: "서초구", n_pieces: 8, by_rp: {},
+        by_key: { freq_ge1: { min: 0.1, max: 0.3 }, freq_ge2: { min: 0, max: 0.2 }, freq_ge3: null, y2022: { min: -1.7, max: -0.3 } },
+        exposure_sum: { upland_ha: 11.5, orchard_ha: 2, rice_ha: 5, greenhouse_ha: 1 } },
+    }),
+  );
+
+  await page.goto("/?view=board");
+  await page.getByLabel("재해 층 · Layer").selectOption("drought_spei3_hist_kor");
+  await expect(page.getByTestId("badge-resolution")).toContainText("기상 격자 1/24° ≈ 4.6×3.8 km");
+  await expect(page.getByTestId("badge-tier")).toContainText("S — 위험도 지표만");
+  await expect(page.getByTestId("badge-notes")).toContainText("논(관개)은 SPEI로 평가하지 않음");
+  await expect(page.getByTestId("badge-notes")).toContainText("손실(피해액)이 아님");
+  await expect(page.getByTestId("badge-notes")).toContainText("in-sample");
+  await expect(page.getByRole("button", { name: /주의\(SPEI-3 ≤ −1.5\)/ })).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(() => keys).toContain("freq_ge2");
+
+  await page.getByLabel("연도별 · Single year").selectOption("y2022");
+  await expect.poll(() => keys).toContain("y2022");
+  await expect(page.getByText("경계 이상: SPEI-3 ≤ −2")).toBeVisible();
+
+  await page.locator(".leaflet-container").click({ position: { x: 400, y: 300 } });
+  const panel = page.getByTestId("pick-panel");
+  await expect(panel).toContainText("2022년 5–9월 최소 SPEI-3");
+  await expect(panel).toContainText("-1.70 · 주의");
+  await expect(panel.getByTestId("exposure")).toContainText("논");
+  await expect(panel.getByTestId("exposure")).toContainText("미평가(면적만)");
+
+  await page.getByRole("button", { name: "서초구 시군구 요약" }).click();
+  const region = page.getByTestId("region-panel");
+  await expect(region.getByTestId("exposure-sum")).toContainText("밭 합계");
+  await expect(region.getByTestId("exposure-sum")).toContainText("11.5 ha");
+  await expect(region).not.toContainText(/mean|평균 *[0-9]/);
+  await expect(page.getByText("사례 트윈: 강남역 (미검증)")).toBeVisible();
+});

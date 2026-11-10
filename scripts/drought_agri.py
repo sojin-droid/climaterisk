@@ -214,6 +214,90 @@ def compute_hazard(cfg: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# ------------------------------------------------------------------------------ board ---
+def _finite_or_none(x: Any, decimals: int) -> float | None:
+    """Rounded float, or ``None`` for NaN (no hazard data is never turned into 0)."""
+    v = float(x)
+    return None if math.isnan(v) else round(v, decimals)
+
+
+def board_payload(
+    pieces: Any,
+    freq: dict[int, Any],
+    spei_by_year: dict[int, Any],
+    farm_ha: dict[str, Any],
+    resolution: dict[str, Any],
+    cfg: dict[str, Any],
+) -> dict[str, Any]:
+    """``drought_spei3_hist_kor.board.json`` content (metric layer, board format).
+
+    Args:
+        pieces: GeoDataFrame ``id, centroid, code, name, geometry``.
+        freq: ``{k: array(n_pieces)}`` share of 1991-2020 years at stage >= k (NaN = no data).
+        spei_by_year: ``{year: array(n_pieces)}`` season-minimum SPEI-3 (NaN = no data).
+        farm_ha: ``{class_name: array(n_pieces)}`` farmland in ha.
+        resolution: ``meta["resolution"]`` (``deg``, ``cell_km_ns``, ``cell_km_ew``).
+        cfg: Drought config; the ``board`` block holds tier, labels and notes.
+
+    Returns:
+        ``{"meta", "pieces"}``; values keyed ``freq_ge<k>`` and ``y<year>``.
+    """
+    from board_layer import polygons_of
+
+    b = cfg["board"]
+    keys: list[dict[str, str]] = [
+        {"key": f["key"], "label": f["label"], "units": b["freq_units"], "scale": "share"}
+        for f in b["freq_keys"]
+    ]
+    keys += [
+        {
+            "key": f"y{y}",
+            "label": b["year_label"].format(year=y),
+            "units": b["year_units"],
+            "scale": "spei",
+        }
+        for y in spei_by_year
+    ]
+    meta = {
+        "layer": b["layer"],
+        "key_kind": "metric",
+        "keys": keys,
+        "units": b["year_units"],
+        "resolution_arcsec": round(resolution["deg"] * 3600.0, 1),
+        "cell_km_ns": resolution["cell_km_ns"],
+        "cell_km_ew": resolution["cell_km_ew"],
+        "hazard_source": b["hazard_source"],
+        "boundary_source": f"SGIS 시군구 {cfg['boundary_version']}",
+        "boundary_simplify_m": cfg["boundary_simplify_m"],
+        "use_tier": b["use_tier"],
+        "use_tier_reason": b["use_tier_reason"],
+        "notes": b["notes"],
+    }
+    rows = []
+    for i, (geom, cen, code, name) in enumerate(
+        zip(pieces.geometry, pieces["centroid"], pieces["code"], pieces["name"], strict=True)
+    ):
+        values: dict[str, float | None] = {}
+        for f in b["freq_keys"]:
+            values[f["key"]] = _finite_or_none(freq[f["stage"]][i], 4)
+        for y, arr in spei_by_year.items():
+            values[f"y{y}"] = _finite_or_none(arr[i], 2)
+        rows.append(
+            {
+                "id": int(pieces["id"].iloc[i]),
+                "centroid": int(cen),
+                "code": str(code),
+                "name": str(name),
+                "polygons": polygons_of(geom),
+                "values": values,
+                "exposure": {
+                    out: round(float(farm_ha[cls][i]), 2) for out, cls in b["exposure_keys"].items()
+                },
+            }
+        )
+    return {"meta": meta, "pieces": rows}
+
+
 # ------------------------------------------------------------------------------- main ---
 def run(workers: int, limit: int | None) -> dict[str, Any]:
     """Build every output; return the metadata."""
@@ -368,6 +452,33 @@ def run(workers: int, limit: int | None) -> dict[str, Any]:
     pd.concat(yr_rows, ignore_index=True).to_csv(
         out_dir / "sigungu_year_affected.csv", index=False, encoding="utf-8", float_format="%.3f"
     )
+
+    # ---- board layer (metric keys: long-run frequencies + one key per year)
+    km_ns_b = res_deg * _M_PER_DEG_LAT / 1000.0
+    board_file = paths.derived_board_dir() / f"{cfg['board']['layer']}.board.json"
+    board_file.parent.mkdir(parents=True, exist_ok=True)
+    board_file.write_text(
+        json.dumps(
+            board_payload(
+                pieces,
+                freq,
+                {int(years[yi]): spei_p[yi] for yi in np.flatnonzero(out_sel)},
+                {c: farm[c].to_numpy() / 1e4 for c in class_names},
+                {
+                    "deg": res_deg,
+                    "cell_km_ns": round(km_ns_b, 2),
+                    "cell_km_ew": round(
+                        km_ns_b * math.cos(math.radians(float(np.mean(hz["lat"])))), 2
+                    ),
+                },
+                cfg,
+            ),
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ),
+        encoding="utf-8",
+    )
+    print(f"      board layer: {board_file} ({board_file.stat().st_size / 1e6:.1f} MB)", flush=True)
 
     # ---- counts, sanity checks, metadata
     def total(key: str) -> Any:

@@ -32,11 +32,17 @@ def layer_meta(name: str) -> dict[str, Any]:
 
 
 @router.get("/layers/{name}/geojson")
-def layer_geojson(name: str, rp: float) -> dict[str, Any]:
-    """Pieces as GeoJSON with ``value`` at return period ``rp`` (400 if not computable)."""
+def layer_geojson(name: str, rp: float | None = None, key: str | None = None) -> dict[str, Any]:
+    """Pieces as GeoJSON with ``value`` for ``key`` (metric layers) or ``rp`` (return period).
+
+    400 if the key / return period is unknown or not computable, or neither is given.
+    """
     layer = _layer(name)
+    chosen: float | str | None = key if key is not None else rp
+    if chosen is None:
+        raise HTTPException(status_code=400, detail="give key=<k> (or rp=<years>)")
     try:
-        return store.geojson(layer, rp)
+        return store.geojson(layer, chosen)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
 
@@ -52,7 +58,7 @@ def layer_lookup(name: str, lon: float, lat: float) -> dict[str, Any]:
 
 @router.get("/layers/{name}/regions/{code}")
 def layer_region(name: str, code: str) -> dict[str, Any]:
-    """Piece count and min/max per return period of one 시군구 (no mean)."""
+    """Piece count and min/max per key (and exposure sums) of one 시군구 (no mean)."""
     try:
         return store.region(_layer(name), code)
     except KeyError:

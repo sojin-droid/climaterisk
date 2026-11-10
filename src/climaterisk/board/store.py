@@ -90,19 +90,51 @@ def period_key(rp: float) -> str:
     return f"{float(rp):g}"
 
 
-def geojson(layer: dict[str, Any], rp: float) -> dict[str, Any]:
-    """FeatureCollection of the pieces coloured by return period ``rp``.
+def is_metric(layer: dict[str, Any]) -> bool:
+    """True for a chronic metric layer (``meta.key_kind == "metric"``)."""
+    return bool(layer["meta"].get("key_kind", "return_period") == "metric")
+
+
+def layer_keys(layer: dict[str, Any]) -> list[str]:
+    """Value keys of a layer: metric keys in file order, or the kept return periods."""
+    meta = layer["meta"]
+    if is_metric(layer):
+        return [str(k["key"]) for k in meta["keys"]]
+    return [period_key(p) for p in meta["periods_kept"]]
+
+
+def _resolve_key(layer: dict[str, Any], key: float | str) -> str:
+    """Validated ``values`` key (metric: the string as is; return period: ``%g`` form).
 
     Raises:
-        ValueError: ``rp`` is not one of ``periods_kept`` (message names ``max_supported``).
+        ValueError: Unknown key (message lists the valid keys; return-period layers also
+            name ``max_supported``).
     """
     meta = layer["meta"]
-    key = period_key(rp)
-    if float(rp) not in [float(p) for p in meta["periods_kept"]]:
+    if is_metric(layer):
+        valid = layer_keys(layer)
+        if str(key) not in valid:
+            raise ValueError(f"unknown key {key!r}; valid keys {valid}")
+        return str(key)
+    try:
+        rp = float(key)
+    except (TypeError, ValueError):
+        raise ValueError(f"return period {key!r} is not a number") from None
+    if rp not in [float(p) for p in meta["periods_kept"]]:
         raise ValueError(
-            f"return period {key} y not available; kept {meta['periods_kept']}, "
+            f"return period {period_key(rp)} y not available; kept {meta['periods_kept']}, "
             f"max_supported {meta['max_supported']:g} y"
         )
+    return period_key(rp)
+
+
+def geojson(layer: dict[str, Any], key: float | str) -> dict[str, Any]:
+    """FeatureCollection of the pieces coloured by ``key`` (return period or metric key).
+
+    Raises:
+        ValueError: Unknown key (see ``_resolve_key``).
+    """
+    vkey = _resolve_key(layer, key)
     features = []
     for piece in layer["pieces"]:
         polys = piece["polygons"]
@@ -120,7 +152,8 @@ def geojson(layer: dict[str, Any], rp: float) -> dict[str, Any]:
                     "centroid": piece["centroid"],
                     "code": piece["code"],
                     "name": piece["name"],
-                    "value": piece["values"].get(key),
+                    "value": piece["values"].get(vkey),
+                    "exposure": piece.get("exposure"),
                 },
             }
         )
@@ -156,6 +189,8 @@ def lookup(layer: dict[str, Any], lon: float, lat: float) -> dict[str, Any] | No
                     "name": piece["name"],
                     "centroid": piece["centroid"],
                     "values": piece["values"],
+                    "exposure": piece.get("exposure"),
+                    "key_kind": meta.get("key_kind", "return_period"),
                     "cell_km_ns": meta["cell_km_ns"],
                     "cell_km_ew": meta["cell_km_ew"],
                 }
@@ -163,7 +198,10 @@ def lookup(layer: dict[str, Any], lon: float, lat: float) -> dict[str, Any] | No
 
 
 def region(layer: dict[str, Any], code: str) -> dict[str, Any]:
-    """Piece count and per-period min/max (nulls ignored; all null -> ``None``); no mean.
+    """Piece count, per-key min/max (nulls ignored; all null -> ``None``) and exposure sums.
+
+    Sums only for exposure (``exposure_sum``); there is no mean anywhere. ``by_rp`` and
+    ``by_key`` carry the same content.
 
     Raises:
         KeyError: No piece carries ``code``.
@@ -171,10 +209,20 @@ def region(layer: dict[str, Any], code: str) -> dict[str, Any]:
     pieces = [p for p in layer["pieces"] if p["code"] == code]
     if not pieces:
         raise KeyError(code)
-    by_rp: dict[str, dict[str, float] | None] = {}
-    for p in layer["meta"]["periods_kept"]:
-        key = period_key(p)
+    by_key: dict[str, dict[str, float] | None] = {}
+    for key in layer_keys(layer):
         vals = [pc["values"].get(key) for pc in pieces]
         vals = [v for v in vals if v is not None]
-        by_rp[key] = {"min": min(vals), "max": max(vals)} if vals else None
-    return {"code": code, "name": pieces[0]["name"], "n_pieces": len(pieces), "by_rp": by_rp}
+        by_key[key] = {"min": min(vals), "max": max(vals)} if vals else None
+    exposure_sum: dict[str, float] = {}
+    for pc in pieces:
+        for name, amount in (pc.get("exposure") or {}).items():
+            exposure_sum[name] = exposure_sum.get(name, 0.0) + float(amount)
+    return {
+        "code": code,
+        "name": pieces[0]["name"],
+        "n_pieces": len(pieces),
+        "by_rp": by_key,
+        "by_key": by_key,
+        "exposure_sum": exposure_sum,
+    }

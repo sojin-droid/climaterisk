@@ -74,5 +74,42 @@
     "distribution": "loglogistic",
     "top_n_years": 6,
     "warn_stage_disagreement_share": 0.1
+  },
+  "board": {
+    "layer": "drought_spei3_hist_kor",
+    "use_tier": "S",
+    "use_tier_reason": "가뭄은 위험도 지표(hazard index)만 제공하며 피해함수가 없고 국내 실측으로 검증되지 않았습니다 (docs/SCOPE.md).",
+    "freq_keys": [
+      {
+        "key": "freq_ge1",
+        "stage": 1,
+        "label": "관심(SPEI-3 ≤ −1) 이상 발생 빈도 1991–2020"
+      },
+      {
+        "key": "freq_ge2",
+        "stage": 2,
+        "label": "주의(SPEI-3 ≤ −1.5) 이상 발생 빈도 1991–2020"
+      },
+      {
+        "key": "freq_ge3",
+        "stage": 3,
+        "label": "경계(SPEI-3 ≤ −2) 이상 발생 빈도 1991–2020"
+      }
+    ],
+    "freq_units": "연 비율",
+    "year_label": "{year}년 5–9월 최소 SPEI-3",
+    "year_units": "-",
+    "hazard_source": "TerraClimate v1.1 ppt−pet (Penman-Monteith), SPEI-3, GEV by L-moments (Stagge et al. 2015); 보조 점검(log-logistic)은 drought_agri.meta.json에 기록",
+    "notes": [
+      "논(관개)은 SPEI로 평가하지 않음 — 저수율 지표 필요",
+      "가뭄지수와 노출 농지 면적이며 손실(피해액)이 아님",
+      "빈도는 1991–2020 같은 기간으로 맞추고 센 값(in-sample)"
+    ],
+    "exposure_keys": {
+      "upland_ha": "upland",
+      "orchard_ha": "orchard",
+      "rice_ha": "rice",
+      "greenhouse_ha": "greenhouse"
+    }
   }
 }
