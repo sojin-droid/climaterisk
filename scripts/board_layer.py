@@ -14,6 +14,7 @@ Runs in the CLIMADA worker environment::
 
 Outputs under ``<DATA_ROOT>/derived/board/``: ``<layer>.geojson`` (columns ``centroid``,
 ``code``, ``name``, ``area_km2``, ``rp<T>`` per kept return period in the hazard's units)
+``<layer>.board.json`` (compact file the API serves; coordinates rounded to 5 decimals)
 and ``<layer>.meta.json`` (source, resolution, periods kept, max_supported, record_years,
 n_pieces, null vs 0 counts). A null value means no hazard data; 0 is a computed zero.
 """
@@ -43,6 +44,74 @@ _M_PER_DEG_LAT = 111_320.0
 def period_column(period: float) -> str:
     """GeoJSON column name of a return period: ``rp2``, ``rp2.5``, ``rp100``."""
     return f"rp{period:g}"
+
+
+COORD_DECIMALS = 5  # 1e-5 degree ~ 1 m: far below the 4.6 km hazard cell
+
+
+def _ring(coords: Any) -> list[list[float]]:
+    """One ring as ``[[lon, lat], ...]`` rounded to ``COORD_DECIMALS``."""
+    return [
+        [round(float(x), COORD_DECIMALS), round(float(y), COORD_DECIMALS)] for x, y, *_ in coords
+    ]
+
+
+def polygons_of(geom: Any) -> list[list[list[list[float]]]]:
+    """Shapely (Multi)Polygon -> ``[[exterior, hole, ...], ...]`` with rounded coordinates."""
+    parts = list(geom.geoms) if hasattr(geom, "geoms") else [geom]
+    out = []
+    for part in parts:
+        if getattr(part, "is_empty", False) or not hasattr(part, "exterior"):
+            continue
+        out.append([_ring(part.exterior.coords)] + [_ring(r.coords) for r in part.interiors])
+    return out
+
+
+def period_key(period: float) -> str:
+    """Key of a return period in ``values`` (``"100"`` for 100.0, ``"2.5"``); the store
+    parses the request ``rp`` as float and formats it the same way."""
+    return f"{period:g}"
+
+
+def board_json_payload(pieces: Any, meta: dict[str, Any], spec: dict[str, Any]) -> dict[str, Any]:
+    """Compact ``<layer>.board.json`` content (pure given a pieces GeoDataFrame).
+
+    Args:
+        pieces: GeoDataFrame with ``centroid``, ``code``, ``name``, geometry and one
+            ``rp<T>`` column per kept period (NaN = no data -> null).
+        meta: Output of ``build_metadata``.
+        spec: The layer's block of ``visual_board.json`` (``use_tier``, ``use_tier_reason``).
+
+    Returns:
+        ``{"meta", "pieces"}`` as documented in ``tests/test_board_api.py``.
+    """
+    periods = [float(p) for p in meta["periods_kept"]]
+    keep = (
+        "layer", "units", "requested_periods", "periods_kept", "max_supported", "record_years",
+        "resolution_arcsec", "cell_km_ns", "cell_km_ew", "hazard_source", "boundary_source",
+    )  # fmt: skip
+    out_meta = {k: meta[k] for k in keep}
+    out_meta["use_tier"] = spec["use_tier"]
+    out_meta["use_tier_reason"] = spec["use_tier_reason"]
+    rows = []
+    for i, (geom, cen, code, name) in enumerate(
+        zip(pieces.geometry, pieces["centroid"], pieces["code"], pieces["name"], strict=True)
+    ):
+        values: dict[str, float | None] = {}
+        for p in periods:
+            v = float(pieces[period_column(p)].iloc[i])
+            values[period_key(p)] = None if math.isnan(v) else v
+        rows.append(
+            {
+                "id": i,
+                "centroid": int(cen),
+                "code": str(code),
+                "name": str(name),
+                "polygons": polygons_of(geom),
+                "values": values,
+            }
+        )
+    return {"meta": out_meta, "pieces": rows}
 
 
 def build_metadata(
@@ -180,6 +249,14 @@ def run(layer: str, out_dir: Path | None) -> dict[str, Any]:
         requested=requested,
     )
     meta["runtime_seconds"] = round(time.time() - t0, 1)
+    board_file = out / f"{layer}.board.json"
+    board_file.write_text(
+        json.dumps(
+            board_json_payload(pieces, meta, spec), ensure_ascii=False, separators=(",", ":")
+        ),
+        encoding="utf-8",
+    )
+    meta["board_json_bytes"] = board_file.stat().st_size
     (out / f"{layer}.meta.json").write_text(
         json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
     )
