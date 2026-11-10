@@ -1,7 +1,7 @@
 {
   "_meta": {
     "purpose": "Visual board national layers (docs/VISUAL_BOARD_KO.md): which hazard layer to build and which return periods to colour. Periods beyond half the event record are dropped at build time, not substituted. change_layers: ratio of two built layers (like-for-like). rp_check: sub-check tolerance.",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "updated": "2026-11-11"
   },
   "return_periods_years": [
@@ -180,6 +180,85 @@
       "use_tier_reason": "국내 실측 검증이 없고 바람 성분만(침수·강우 제외)이라 하한이며, 합성 경로 10개로 만든 사건 집합이라 상대 비교와 순위용입니다 (docs/SCOPE.md §3).",
       "climate_scenario": "rcp85",
       "ref_year": 2040
+    },
+    "coastal_flood_hist_kor": {
+      "label": "해안 침수 · 과거(Aqueduct 역사 해수면, 지반침하 반영) · 한국",
+      "peril": "coastal_flood",
+      "quantity": "water_depth_m",
+      "source": "aqueduct_inuncoast",
+      "aqueduct": {
+        "dataset": "aqueduct_inuncoast_historical_wtsub_hist",
+        "box": [
+          125.5,
+          33,
+          129.5,
+          38.5
+        ],
+        "note": "WRI Aqueduct Floods v2 inuncoast, 역사 해수면, 지반침하 반영(wtsub), 30 arcsec"
+      },
+      "climate_scenario": "historical",
+      "year_range": "hist",
+      "country_iso3": "KOR",
+      "boundary_version": "2025_2Q",
+      "boundary_simplify_m": 50,
+      "boundary_code_column": "SIGUNGU_CD",
+      "boundary_name_column": "SIGUNGU_NM",
+      "use_tier": "S",
+      "use_tier_reason": "WRI Aqueduct 해안 침수 지도는 방어시설(방조제·호안·배수시설) 미반영이라 매립지는 2년 빈도에도 수 m 침수로 나오고, 해수면 상승 백분위·지반침하 가정에 값이 좌우되므로 스크리닝용입니다 (docs/SCOPE.md §3).",
+      "notes": [
+        "방어시설(방조제·호안·배수시설) 미반영: 매립지는 2년 빈도에도 수 m 침수로 나옵니다. 절대 침수심이 아니라 방어가 없을 때의 상한 읽기입니다.",
+        "Aqueduct는 재현주기마다 지도 한 장(사건 집합 아님)입니다. 주 방법: 지도 9장을 사건 9개(빈도 1/T_i − 1/T_{i+1})로 만든 CLIMADA 하자드의 재현주기 읽기. 검사(진단 전용): 경험적 단계 규칙과 '재현주기가 길수록 깊이가 줄지 않는다'는 단조성, 원본 지도와의 일치. 기록 길이 1000년의 절반 규칙으로 500년까지만 씁니다.",
+        "캐시는 침수 없음(0)과 자료 없음을 구분하지 못합니다. 격자는 과거·미래 캐시 상자의 합집합이고, 한 층의 상자 밖(2030 층은 동경 126° 서쪽 섬, 과거 층은 129.5° 동쪽)은 값 없음(null)입니다. 울릉·독도·백령도는 두 상자 밖입니다."
+      ]
+    },
+    "coastal_flood_rcp85_2030_kor": {
+      "label": "해안 침수 · RCP8.5 2030(해수면 상승 50번째 백분위) · 한국",
+      "peril": "coastal_flood",
+      "quantity": "water_depth_m",
+      "source": "aqueduct_inuncoast",
+      "aqueduct": {
+        "dataset": "aqueduct_inuncoast_rcp8p5_wtsub_2030_0_perc_50",
+        "box": [
+          126,
+          33,
+          130,
+          38.5
+        ],
+        "note": "WRI Aqueduct Floods v2 inuncoast, RCP8.5 2030, 해수면 상승 50번째 백분위, 지반침하 반영(wtsub), 30 arcsec"
+      },
+      "climate_scenario": "rcp85",
+      "year_range": "2030",
+      "country_iso3": "KOR",
+      "boundary_version": "2025_2Q",
+      "boundary_simplify_m": 50,
+      "boundary_code_column": "SIGUNGU_CD",
+      "boundary_name_column": "SIGUNGU_NM",
+      "use_tier": "S",
+      "use_tier_reason": "WRI Aqueduct 해안 침수 지도는 방어시설(방조제·호안·배수시설) 미반영이라 매립지는 2년 빈도에도 수 m 침수로 나오고, 해수면 상승 백분위·지반침하 가정에 값이 좌우되므로 스크리닝용입니다 (docs/SCOPE.md §3).",
+      "notes": [
+        "방어시설(방조제·호안·배수시설) 미반영: 매립지는 2년 빈도에도 수 m 침수로 나옵니다. 절대 침수심이 아니라 방어가 없을 때의 상한 읽기입니다.",
+        "Aqueduct는 재현주기마다 지도 한 장(사건 집합 아님)입니다. 주 방법: 지도 9장을 사건 9개(빈도 1/T_i − 1/T_{i+1})로 만든 CLIMADA 하자드의 재현주기 읽기. 검사(진단 전용): 경험적 단계 규칙과 '재현주기가 길수록 깊이가 줄지 않는다'는 단조성, 원본 지도와의 일치. 기록 길이 1000년의 절반 규칙으로 500년까지만 씁니다.",
+        "캐시는 침수 없음(0)과 자료 없음을 구분하지 못합니다. 격자는 과거·미래 캐시 상자의 합집합이고, 한 층의 상자 밖(2030 층은 동경 126° 서쪽 섬, 과거 층은 129.5° 동쪽)은 값 없음(null)입니다. 울릉·독도·백령도는 두 상자 밖입니다."
+      ]
+    },
+    "wildfire_hist_kor": {
+      "label": "산불 강도 · 과거(2001–2020 시즌 20개) · 한국",
+      "peril": "wildfire",
+      "quantity": "fire_intensity_K",
+      "climate_scenario": "historical",
+      "year_range": "2001_2020",
+      "country_iso3": "KOR",
+      "boundary_version": "2025_2Q",
+      "boundary_simplify_m": 50,
+      "boundary_code_column": "SIGUNGU_CD",
+      "boundary_name_column": "SIGUNGU_NM",
+      "use_tier": "S",
+      "use_tier_reason": "시즌 20개(2001–2020) 기록이라 재현주기 상한이 약 10년이고, 같은 하자드에 쓰는 피해함수는 무임계 시그모이드·Lüthi 2021 보정 형태 미적용이라 저강도 시즌을 자릿수급 과대하므로 강도 참고용입니다 (docs/SCOPE.md §3).",
+      "notes": [
+        "CLIMADA Data API 산불 시즌 20개(2001–2020)의 밝기온도입니다. 기록이 20년이라 재현주기는 10년까지만 씁니다(2·5·10년).",
+        "주 방법: CLIMADA 재현주기 읽기. 검사(진단 전용): 경험적 단계 규칙. 자료가 시즌 20개뿐이라 2년 값은 두 방법이 갈릴 수 있어 meta.check에 기록합니다.",
+        "0 K는 불이 기록되지 않은 조각이며, 자료 없음(null)과 다릅니다."
+      ]
     }
   },
   "change_layers": {
@@ -224,6 +303,16 @@
       "label": "태풍 풍속 변화 · RCP8.5 2040 ÷ 과거(1980–2020 합성 경로 10개)",
       "use_tier": "I",
       "use_tier_reason": "시나리오 차이(같은 모형 사슬, 과거 합성 경로 집합 대비 2040)입니다. 변화 지도는 같은 모형 사슬의 시나리오 차이(배율 = 미래 ÷ 기준)라 절대값보다 오차가 덜 끼지만, 사용 등급은 두 층 중 낮은 쪽(I)을 따릅니다 (docs/SCOPE.md §3)."
+    },
+    "coastal_flood_change_rcp85_kor": {
+      "base": "coastal_flood_hist_kor",
+      "future": "coastal_flood_rcp85_2030_kor",
+      "label": "해안 침수 변화 · RCP8.5 2030 ÷ 과거 (해수면 상승 시나리오 차이)",
+      "use_tier": "S",
+      "use_tier_reason": "해수면 상승 시나리오 차이(같은 Aqueduct 모형 사슬·같은 격자, 과거 역사 해수면 대비 RCP8.5 2030의 50번째 백분위)입니다. 배율(미래 ÷ 기준)은 절대값보다 오차가 덜 끼지만 방어시설 미반영이라 사용 등급은 두 층 모두 S입니다 (docs/SCOPE.md §3).",
+      "notes": [
+        "미래 ÷ 과거(같은 재현주기). 과거 0 m에서 미래가 침수면 배율을 정의할 수 없어 '기준 0'으로 표시합니다. 변화량은 해수면 상승 시나리오(RCP8.5 2030, 50번째 백분위)와 지반침하 가정의 차이이며, 방어시설은 반영하지 않습니다."
+      ]
     }
   },
   "rp_check": {

@@ -130,6 +130,7 @@ def test_named_locations_live_under_the_data_root(
     assert paths.derived_drought_dir("a.csv") == isolated / "derived" / "drought" / "a.csv"
     assert paths.external_drought_dir() == isolated / "external" / "drought"
     assert paths.farmmap_dir("2025", "raw") == isolated / "external" / "farmmap" / "2025" / "raw"
+    assert paths.worldpop_dir("age_2024_1km") == isolated / "external" / "worldpop" / "age_2024_1km"
     assert paths.floodmap_dir() == isolated / "external" / "other" / "floodmap"
     assert paths.cache_dir() == isolated / "cache" and paths.evidence_dir() == isolated / "evidence"
     # none of the project's own data defaults to CLIMADA's directory

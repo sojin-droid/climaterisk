@@ -32,19 +32,52 @@ const fmt = (v: number | null | undefined, units: string) =>
 
 const LAYER_LABELS: Record<string, string> = {
   river_flood_hist_kor: "하천 홍수 · 과거(1980–2000) · 한국",
-  drought_spei3_hist_kor: "가뭄 · SPEI-3 · 과거(1991–2025) · 한국",
 };
 const layerLabel = (l: BoardMeta) => l.label ?? LAYER_LABELS[l.layer] ?? l.layer;
 
-const EXPOSURE_ROWS: { key: string; label: string; unassessed: boolean }[] = [
-  { key: "upland_ha", label: "밭", unassessed: false },
-  { key: "orchard_ha", label: "과수", unassessed: false },
-  { key: "rice_ha", label: "논", unassessed: true },
-  { key: "greenhouse_ha", label: "시설", unassessed: true },
+// The selector is grouped by kind (absolute / change) and then by peril, so ~25 layers stay scannable.
+const PERIL_LABELS: Record<string, string> = {
+  river_flood: "하천 홍수",
+  coastal_flood: "해안 침수",
+  tropical_cyclone: "태풍",
+  wildfire: "산불",
+  drought: "가뭄",
+  heatwave: "폭염",
+  heat_mortality: "폭염 건강",
+};
+const perilLabel = (p?: string) => (p && PERIL_LABELS[p]) || p || "기타";
+const ABSOLUTE_HEAD = "절대값 · Absolute";
+const CHANGE_HEAD = "변화 · Change (미래 ÷ 기준)";
+
+function layerGroups(layers: BoardMeta[]): { label: string; layers: BoardMeta[] }[] {
+  const groups = new Map<string, BoardMeta[]>();
+  for (const head of [ABSOLUTE_HEAD, CHANGE_HEAD]) {
+    for (const l of layers.filter((x) => isChangeLayer(x) === (head === CHANGE_HEAD))) {
+      const label = `${head} — ${perilLabel(l.peril)}`;
+      groups.set(label, [...(groups.get(label) ?? []), l]);
+    }
+  }
+  return [...groups].map(([label, ls]) => ({ label, layers: ls }));
+}
+
+const EXPOSURE_ROWS: { key: string; label: string; unit: string; digits: number; unassessed: boolean }[] = [
+  { key: "upland_ha", label: "밭", unit: "ha", digits: 1, unassessed: false },
+  { key: "orchard_ha", label: "과수", unit: "ha", digits: 1, unassessed: false },
+  { key: "rice_ha", label: "논", unit: "ha", digits: 1, unassessed: true },
+  { key: "greenhouse_ha", label: "시설", unit: "ha", digits: 1, unassessed: true },
+  { key: "pop_total", label: "인구", unit: "명", digits: 0, unassessed: false },
+  { key: "pop_65plus", label: "65세 이상 인구", unit: "명", digits: 0, unassessed: false },
 ];
 
-const fmtMetric = (v: number | null | undefined, k: BoardKey | undefined, spec: PaletteSpec | null) => {
+const fmtMetric = (
+  v: number | null | undefined,
+  k: BoardKey | undefined,
+  spec: PaletteSpec | null,
+  status?: BoardStatus | null,
+) => {
+  if (k?.quantity === "change") return fmtChange(spec, v, status);
   if (v === null || v === undefined) return "자료 없음";
+  if (k?.scale === "level") return `${v.toFixed(v >= 10 ? 1 : 2)} ${k.units}`;
   if (k?.scale === "share") return `${(v * 100).toFixed(0)} % (${v.toFixed(2)} ${k.units})`;
   if (k?.scale === "spei") return `${v.toFixed(2)} · ${spec ? speiStageName(spec, v) : ""}`;
   return String(v);
@@ -61,7 +94,7 @@ function ExposureTable({ exposure, sum }: { exposure: BoardExposure; sum?: boole
               {sum ? " 합계" : ""}
             </td>
             <td style={{ textAlign: "right" }}>
-              {exposure[r.key].toLocaleString("ko-KR", { maximumFractionDigits: 1 })} ha
+              {exposure[r.key].toLocaleString("ko-KR", { maximumFractionDigits: r.digits })} {r.unit}
               {r.unassessed ? " · 미평가(면적만)" : ""}
             </td>
           </tr>
@@ -113,8 +146,10 @@ export function BoardView() {
 
   const metric = meta?.key_kind === "metric";
   const metricKeys = useMemo<BoardKey[]>(() => (metric ? (meta?.keys ?? []) : []), [meta, metric]);
-  const freqKeys = metricKeys.filter((k) => k.scale === "share");
-  const yearKeys = metricKeys.filter((k) => k.scale !== "share");
+  // single-year SPEI keys go in a drop-down; every other key is a button
+  const freqKeys = metricKeys.filter((k) => k.scale !== "spei");
+  const yearKeys = metricKeys.filter((k) => k.scale === "spei");
+  const keyGroupLabel = freqKeys.every((k) => k.scale === "share") ? "장기 빈도 · Long-run frequency" : "표시 항목 · Metric";
   const activeKey = metricKeys.find((k) => k.key === key);
 
   // Default: return-period layer -> longest computable period ≤ 100 y (else the longest
@@ -210,7 +245,7 @@ export function BoardView() {
 
   const units = meta?.units ?? "";
   // key rows shown in the lookup / region panels: the long-run frequencies + the active year
-  const metricShown = metricKeys.filter((k) => k.scale === "share" || k.key === key);
+  const metricShown = metricKeys.filter((k) => k.scale !== "spei" || k.key === key);
 
   return (
     <div className="mapview" data-testid="board-view">
@@ -262,22 +297,15 @@ export function BoardView() {
             <div className="field">
               <label htmlFor="board-layer">재해 층 · Layer</label>
               <select id="board-layer" value={layerName} onChange={(e) => setLayerName(e.target.value)}>
-                <optgroup label="절대값 · Absolute">
-                  {layers?.filter((l) => !isChangeLayer(l)).map((l) => (
-                    <option key={l.layer} value={l.layer}>
-                      {layerLabel(l)}
-                    </option>
-                  ))}
-                </optgroup>
-                {layers?.some(isChangeLayer) && (
-                  <optgroup label="변화 · Change (미래 ÷ 기준)">
-                    {layers.filter(isChangeLayer).map((l) => (
+                {layerGroups(layers ?? []).map((g) => (
+                  <optgroup key={g.label} label={g.label}>
+                    {g.layers.map((l) => (
                       <option key={l.layer} value={l.layer}>
                         {layerLabel(l)}
                       </option>
                     ))}
                   </optgroup>
-                )}
+                ))}
               </select>
             </div>
 
@@ -309,8 +337,8 @@ export function BoardView() {
 
             {metric && (
               <div className="field">
-                <label>장기 빈도 · Long-run frequency</label>
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }} role="group" aria-label="장기 빈도">
+                <label>{keyGroupLabel}</label>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }} role="group" aria-label={freqKeys.every((k) => k.scale === "share") ? "장기 빈도" : "표시 항목"}>
                   {freqKeys.map((k) => {
                     const on = k.key === key;
                     return (
@@ -366,7 +394,7 @@ export function BoardView() {
               <div className="hint" data-testid="badge-tier">
                 <strong>{meta.use_tier} — {meta.use_tier_reason}</strong>
               </div>
-              {metric && (meta.notes?.length ?? 0) > 0 && (
+              {(meta.notes?.length ?? 0) > 0 && (
                 <ul className="hint" data-testid="badge-notes" style={{ margin: 0, paddingLeft: 18 }}>
                   {meta.notes?.map((n) => <li key={n}>{n}</li>)}
                 </ul>
@@ -447,7 +475,7 @@ export function BoardView() {
                           {metricShown.map((k) => (
                             <tr key={k.key}>
                               <td>{k.label}</td>
-                              <td style={{ textAlign: "right" }}>{fmtMetric(picked.values[k.key], k, palettes)}</td>
+                              <td style={{ textAlign: "right" }}>{fmtMetric(picked.values[k.key], k, palettes, picked.status?.[k.key])}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -490,7 +518,11 @@ export function BoardView() {
                                   <tr key={k.key}>
                                     <td>{k.label}</td>
                                     <td style={{ textAlign: "right" }}>
-                                      {r ? `${f(r.min)} – ${f(r.max)} ${k.units}` : "자료 없음"}
+                                      {r
+                                        ? k.quantity === "change"
+                                          ? `×${f(r.min)} – ×${f(r.max)}`
+                                          : `${f(r.min)} – ${f(r.max)} ${k.units}`
+                                        : "자료 없음"}
                                     </td>
                                   </tr>
                                 );

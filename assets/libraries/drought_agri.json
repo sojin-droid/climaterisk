@@ -112,7 +112,8 @@
       "orchard_ha": "orchard",
       "rice_ha": "rice",
       "greenhouse_ha": "greenhouse"
-    }
+    },
+    "label": "가뭄 · SPEI-3 · 과거(1991–2025) · 한국"
   },
   "future": {
     "_note": "TerraClimate +2C / +4C = a pseudo climate change experiment applied to the observed 1981-2025 months (file 'method' attribute); same months, shifted climate. Not a dated projection year. Standardised with the PRESENT fit (spei.reference_years), so frequencies are comparable with the present layer.",
@@ -163,7 +164,8 @@
         "배율은 현재 빈도가 0이면 정의되지 않습니다 (status: base_zero / both_zero)",
         "논(관개)은 SPEI로 평가하지 않음 (미평가) — 저수율 지표 필요",
         "가뭄지수와 노출 농지 면적이며 손실(피해액)이 아님"
-      ]
+      ],
+      "label": "가뭄 · SPEI-3 · +2 °C/+4 °C 가상 온난화 · 한국"
     }
   }
 }

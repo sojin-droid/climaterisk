@@ -48,19 +48,25 @@ for extra in (REPO / "worker", REPO / "src"):
         sys.path.insert(0, str(extra))
 
 _M_PER_DEG_LAT = 111_320.0
+AQUEDUCT_SOURCE = "aqueduct_inuncoast"
 log = logging.getLogger("board_layer")
 
 
 def hazard_properties(spec: dict[str, Any]) -> dict[str, str]:
     """CLIMADA Data API properties of a layer (same names as ``physical.py`` requests).
 
-    River flood: ``climate_scenario`` and ``year_range``. Tropical cyclone: ``event_type``,
+    Wildfire: country only. River flood: ``climate_scenario`` and ``year_range``. Tropical
+    cyclone: ``event_type``,
     ``model_name``, ``climate_scenario`` and, for a future set, ``ref_year`` (the historical
     set has none; the config's ``historical`` is the API's ``None``). Country coverage for
     both. ``nb_synth_tracks`` of the config is not sent: the current Data API versions (v2.1)
     carry no such property and a request with it matches the stale v2 sets; every KOR set here
     is the ``10synth_tracks`` one by name.
     """
+    if spec["peril"] == "wildfire":
+        # The Data API wildfire set is the one historical 2001-2020 record; it has no scenario
+        # property (``physical._run_wildfire`` requests it with the country only).
+        return {"spatial_coverage": "country", "country_iso3alpha": str(spec["country_iso3"])}
     props: dict[str, str] = {"climate_scenario": str(spec["climate_scenario"])}
     if spec["peril"] == "tropical_cyclone":
         if props["climate_scenario"] == "historical":
@@ -81,6 +87,19 @@ def _period_label(spec: dict[str, Any]) -> str:
     if spec.get("ref_year") is not None:
         return f"ref_year {spec['ref_year']}"
     return str(spec["year_range"])
+
+
+def hazard_source_text(spec: dict[str, Any]) -> str:
+    """Where a layer's hazard comes from (metadata / ``.board.json``)."""
+    if spec.get("source") == AQUEDUCT_SOURCE:
+        return (
+            f"{spec['aqueduct']['note']}; one depth map per return period "
+            f"(<DATA_ROOT>/cache/aqueduct, offline); no coastal defences represented"
+        )
+    return (
+        f"CLIMADA Data API {spec['peril']} {spec['climate_scenario']} "
+        f"{_period_label(spec)} {spec['country_iso3']} (local download cache, offline)"
+    )
 
 
 def period_column(period: float) -> str:
@@ -140,6 +159,8 @@ def board_json_payload(pieces: Any, meta: dict[str, Any], spec: dict[str, Any]) 
     out_meta["use_tier_reason"] = spec["use_tier_reason"]
     if spec.get("label"):
         out_meta["label"] = spec["label"]
+    if spec.get("notes"):
+        out_meta["notes"] = spec["notes"]
     if "check" in meta:
         out_meta["check"] = meta["check"]
     rows = []
@@ -161,6 +182,104 @@ def board_json_payload(pieces: Any, meta: dict[str, Any], spec: dict[str, Any]) 
             }
         )
     return {"meta": out_meta, "pieces": rows}
+
+
+def metric_board_payload(
+    pieces: Any,
+    *,
+    layer: str,
+    board_cfg: dict[str, Any],
+    values: dict[str, Any],
+    status: dict[str, Any] | None,
+    exposure: dict[str, Any] | None,
+    resolution: dict[str, float],
+    boundary_source: str,
+    boundary_simplify_m: float,
+    hazard_source: str | None = None,
+    check: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """``<layer>.board.json`` of a metric layer whose keys are not return periods or years.
+
+    Every key names its palette ``quantity`` (``assets/libraries/board_palettes.json``); the
+    key's units are read from that spec (``change``: a ratio). A NaN value is written as null
+    (no data), never as 0. Pieces keep their cell's value; nothing is averaged.
+
+    Args:
+        pieces: GeoDataFrame ``centroid, code, name, geometry`` (one row per piece).
+        layer: Layer name.
+        board_cfg: The config's ``board`` block (label, tier, notes, ``keys`` with ``key``,
+            ``label``, ``quantity``).
+        values: ``{key: array(n_pieces)}`` (NaN = no data).
+        status: ``{key: array(n_pieces) of "" / "base_zero" / "both_zero" / "null"}`` for
+            change keys, or ``None``.
+        exposure: ``{name: array(n_pieces)}`` summable amounts (persons), or ``None``.
+        resolution: ``{"deg", "cell_km_ns", "cell_km_ew"}``.
+        boundary_source: Boundary text for the source line.
+        boundary_simplify_m: Outline simplification in metres.
+        hazard_source: Override for ``board_cfg["hazard_source"]``.
+        check: Sub-check record to carry in the meta (diagnostic only).
+
+    Returns:
+        ``{"meta", "pieces"}``.
+    """
+    import numpy as np
+    from climaterisk_worker import board
+
+    spec = json.loads((board.board_config_path().parent / "board_palettes.json").read_text("utf-8"))
+    keys: list[dict[str, Any]] = []
+    for k in board_cfg["keys"]:
+        q = k["quantity"]
+        if q == "change":
+            units, scale = "배(미래 ÷ 기준)", "ratio"
+        else:
+            units, scale = spec["quantities"][q]["units"], "level"
+        keys.append({"key": k["key"], "label": k["label"], "units": units, "scale": scale,
+                     "quantity": q})  # fmt: skip
+    meta: dict[str, Any] = {
+        "layer": layer,
+        "peril": board_cfg["peril"],
+        "key_kind": "metric",
+        "default_key": board_cfg["default_key"],
+        "keys": keys,
+        "units": keys[0]["units"],
+        "label": board_cfg["label"],
+        "resolution_arcsec": round(resolution["deg"] * 3600.0, 1),
+        "cell_km_ns": resolution["cell_km_ns"],
+        "cell_km_ew": resolution["cell_km_ew"],
+        "hazard_source": hazard_source or board_cfg["hazard_source"],
+        "boundary_source": boundary_source,
+        "boundary_simplify_m": boundary_simplify_m,
+        "use_tier": board_cfg["use_tier"],
+        "use_tier_reason": board_cfg["use_tier_reason"],
+        "notes": board_cfg["notes"],
+    }
+    if check is not None:
+        meta["check"] = check
+    arrays = {k: np.asarray(v, dtype=float) for k, v in values.items()}
+    exp = {k: np.asarray(v, dtype=float) for k, v in (exposure or {}).items()}
+    rows = []
+    for i, (geom, cen, code, name) in enumerate(
+        zip(pieces.geometry, pieces["centroid"], pieces["code"], pieces["name"], strict=True)
+    ):
+        vals = {
+            k: None if math.isnan(float(a[i])) else round(float(a[i]), 4) for k, a in arrays.items()
+        }
+        row: dict[str, Any] = {
+            "id": i,
+            "centroid": int(cen),
+            "code": str(code),
+            "name": str(name),
+            "polygons": polygons_of(geom),
+            "values": vals,
+        }
+        if status:
+            st = {k: str(a[i]) for k, a in status.items() if str(a[i])}
+            if st:
+                row["status"] = st
+        if exp:
+            row["exposure"] = {k: round(float(a[i]), 2) for k, a in exp.items()}
+        rows.append(row)
+    return {"meta": meta, "pieces": rows}
 
 
 def build_metadata(
@@ -210,10 +329,7 @@ def build_metadata(
     return {
         "layer": layer,
         "built_utc": datetime.now(UTC).isoformat(timespec="seconds"),
-        "hazard_source": (
-            f"CLIMADA Data API {spec['peril']} {spec['climate_scenario']} "
-            f"{_period_label(spec)} {spec['country_iso3']} (local download cache, offline)"
-        ),
+        "hazard_source": hazard_source_text(spec),
         "boundary_source": f"SGIS 시군구 {spec['boundary_version']}",
         "units": units,
         "resolution_deg": res_deg,
@@ -230,6 +346,84 @@ def build_metadata(
         "n_regions_with_pieces": n_regions_with_pieces,
         "value_counts_over_pieces": counts,
         "columns": [period_column(p) for p in result["periods"]],
+    }
+
+
+def aqueduct_cache_file(spec: dict[str, Any]) -> Path:
+    """Cached Aqueduct stack of a layer (same name rule as the Models-tab adapter)."""
+    from climaterisk import paths
+
+    box = "_".join(f"{float(v):g}" for v in spec["aqueduct"]["box"])
+    return paths.cache_dir("aqueduct", f"{spec['aqueduct']['dataset']}__{box}.npz")
+
+
+def load_aqueduct(layer: str, cfg: dict[str, Any]) -> dict[str, Any]:
+    """Hazard of an Aqueduct coastal layer on the union grid of every coastal layer.
+
+    Every layer with ``source == "aqueduct_inuncoast"`` is read from its cache so they share
+    one wet-cell set (hence identical pieces, as ``change_payload`` requires); a cell outside
+    this layer's own box is null. Offline: a missing cache raises, nothing is downloaded.
+
+    Returns:
+        ``hazard``, ``lon``, ``lat``, ``res_deg``, ``rps`` (maps' periods), ``depth`` (this
+        layer's raw maps, NaN outside its box) and ``null_centroid`` (bool per centroid).
+    """
+    import numpy as np
+    from climaterisk_worker import board
+
+    stacks: dict[str, Any] = {}
+    for name, sp in cfg["layers"].items():
+        if sp.get("source") != AQUEDUCT_SOURCE:
+            continue
+        cache = aqueduct_cache_file(sp)
+        if not cache.exists():
+            raise FileNotFoundError(f"{cache} missing; Aqueduct maps are read from cache only")
+        with np.load(cache) as z:
+            stacks[name] = {k: z[k] for k in z.files}
+    union = board.aqueduct_union(stacks)
+    depth = union["depth"][layer]
+    log.info(
+        "%s: aqueduct union grid %d wet cells, %d periods %s",
+        layer, depth.shape[1], len(union["rps"]), union["rps"],
+    )  # fmt: skip
+    return {
+        "hazard": board.aqueduct_hazard(union["lat"], union["lon"], union["rps"], depth),
+        "lon": union["lon"],
+        "lat": union["lat"],
+        "res_deg": union["res_deg"],
+        "rps": union["rps"],
+        "depth": depth,
+        "null_centroid": np.isnan(depth).all(axis=0),
+    }
+
+
+def aqueduct_check(aq: dict[str, Any], result: dict[str, Any], rp_cfg: dict[str, Any]) -> dict:
+    """Extra sub-check entries for a one-map-per-period product (diagnostic only).
+
+    Main: CLIMADA ``local_exceedance_intensity`` on the nine-event hazard built from the maps
+    (incremental frequencies). Checks: (1) the empirical step rule (already in the block);
+    (2) the raw maps must be monotone in the return period; (3) the CLIMADA reading must equal
+    the raw map at each kept period (it does wherever (2) holds).
+    """
+    import numpy as np
+    from climaterisk_worker import board
+
+    keep = ~aq["null_centroid"]
+    mono = board.rp_monotone_check(aq["rps"], aq["depth"][:, keep])
+    mono["warning"] = mono["share_violating"] > float(rp_cfg["warn_share"])
+    idx = [aq["rps"].index(int(p)) for p in result["periods"]]
+    raw = aq["depth"][idx][:, keep]
+    main = np.asarray(result["intensity"], dtype=float)[:, keep]
+    diff = np.abs(main - raw)
+    tol = float(rp_cfg["rel_tol"])
+    differ = diff > tol * np.maximum(main, raw)
+    return {
+        "map_rule": "one depth map per return period; event i = map i, frequency 1/T_i - 1/T_i+1",
+        "monotone": mono,
+        "raw_map_vs_main": {
+            "max_abs_diff_m": float(diff.max()) if diff.size else 0.0,
+            "share_differ": float(differ.sum() / max(int((raw > 0).sum()), 1)),
+        },
     }
 
 
@@ -250,18 +444,28 @@ def run(layer: str, out_dir: Path | None) -> dict[str, Any]:
     requested = [float(p) for p in cfg["return_periods_years"]]
 
     t0 = time.time()
-    hazard = resilient_get_hazard(
-        make_client(),
-        spec["peril"],
-        properties=hazard_properties(spec),
-    )
-    lon = np.asarray(hazard.centroids.lon, dtype=float)
-    lat = np.asarray(hazard.centroids.lat, dtype=float)
-    meta_t = hazard.centroids.get_meta()["transform"]
-    res_deg = float(abs(meta_t.a))
+    aq: dict[str, Any] | None = None
+    if spec.get("source") == AQUEDUCT_SOURCE:
+        aq = load_aqueduct(layer, cfg)
+        hazard, lon, lat, res_deg = aq["hazard"], aq["lon"], aq["lat"], aq["res_deg"]
+    else:
+        hazard = resilient_get_hazard(
+            make_client(),
+            spec["peril"],
+            properties=hazard_properties(spec),
+        )
+        lon = np.asarray(hazard.centroids.lon, dtype=float)
+        lat = np.asarray(hazard.centroids.lat, dtype=float)
+        meta_t = hazard.centroids.get_meta()["transform"]
+        res_deg = float(abs(meta_t.a))
 
     result = board.rp_intensity(hazard, requested)
     check = board.rp_intensity_check(hazard, requested)
+    if aq is not None:
+        # Outside the layer's own cache box there is no data: null, not the 0 the hazard
+        # object needed to be built.
+        result["intensity"][:, aq["null_centroid"]] = np.nan
+        check["intensity"][:, aq["null_centroid"]] = np.nan
     rp_cfg = cfg["rp_check"]
     shares = board.rp_disagreement(result, check, float(rp_cfg["rel_tol"]))
     check_block = {
@@ -271,6 +475,9 @@ def run(layer: str, out_dir: Path | None) -> dict[str, Any]:
         "disagree_share_by_period": shares,
         "warning": any(v > float(rp_cfg["warn_share"]) for v in shares.values()),
     }
+    if aq is not None:
+        check_block.update(aqueduct_check(aq, result, rp_cfg))
+        check_block["warning"] = bool(check_block["warning"] or check_block["monotone"]["warning"])
     if check_block["warning"]:
         log.warning(
             "%s: return-period sub check disagrees (> %.0f%% of centroids, tol %.0f%%): %s",
@@ -422,6 +629,8 @@ def change_payload(
         use_tier_reason=ch["use_tier_reason"],
         status_counts_by_period=status_counts,
     )
+    if ch.get("notes"):
+        meta["notes"] = ch["notes"]
     return {"meta": meta, "pieces": rows}
 
 
@@ -467,6 +676,11 @@ def fetch(layers: list[str]) -> None:
     cfg = board.load_board_config()
     for layer in layers:
         spec = cfg["layers"][layer]
+        if spec.get("source") == AQUEDUCT_SOURCE:
+            log.info(
+                "%s: Aqueduct maps come from <DATA_ROOT>/cache/aqueduct, not fetched here", layer
+            )
+            continue
         props = hazard_properties(spec)
         os.environ["CLIMATERISK_OFFLINE"] = "1"
         try:

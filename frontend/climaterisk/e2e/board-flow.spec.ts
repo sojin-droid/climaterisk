@@ -268,3 +268,78 @@ test("board: change layer → grouped selector, ratio legend, status pieces, ×r
   await expect(panel).toContainText(PALETTES.shared.base_zero.label);
   await expect(panel).not.toContainText("Infinity");
 });
+
+const HEAT_META = {
+  layer: "heat_days_kor",
+  label: "폭염일수 (일 최고 ≥33 °C, 5–9월)",
+  peril: "heatwave",
+  key_kind: "metric",
+  default_key: "obs_2000_2019",
+  keys: [
+    { key: "obs_2000_2019", label: "폭염일수 · 관측 2000–2019", units: "일/년", scale: "level", quantity: "heat_days_per_year" },
+    { key: "ssp585_2051_2060_delta", label: "폭염일수 · SSP5-8.5 2051–2060 · 관측 + 모델 30년 변화량", units: "일/년", scale: "level", quantity: "heat_days_per_year" },
+    { key: "ssp585_ratio", label: "폭염일수 변화 · SSP5-8.5 ÷ 관측", units: "배(미래 ÷ 기준)", scale: "ratio", quantity: "change" },
+  ],
+  units: "일/년",
+  resolution_arcsec: 180,
+  cell_km_ns: 5.57,
+  cell_km_ew: 4.5,
+  hazard_source: "기상청 남한상세 TAMAX (fixture)",
+  boundary_source: "SGIS 시군구 2025_2Q (fixture)",
+  use_tier: "S",
+  use_tier_reason: "폭염 하자드, 기온 기준",
+  notes: ["미래 값은 관측 일자료에 모델의 월별 변화량을 더한 델타법입니다."],
+};
+
+test("board: metric layer with level + ratio keys, peril-grouped selector, persons exposure", async ({ page }) => {
+  const keys: string[] = [];
+  await routePalettes(page);
+  await page.route(/tile\.openstreetmap\.org/, (r) => r.abort());
+  await page.route("**/api/board/layers", (r) => r.fulfill({ json: [META, HEAT_META] }));
+  await page.route("**/api/board/layers/*/geojson?*", (r) => {
+    const q = new URL(r.request().url()).searchParams;
+    keys.push(q.get("key") ?? `rp${q.get("rp")}`);
+    const ratio = q.get("key") === "ssp585_ratio";
+    return r.fulfill({
+      json: {
+        type: "FeatureCollection",
+        features: [
+          { type: "Feature", geometry: { type: "Polygon", coordinates: sq(127.5, 36, 1) },
+            properties: { id: 0, centroid: 0, code: "11220", name: "서초구", value: ratio ? 1.8 : 12, status: null } },
+          { type: "Feature", geometry: { type: "Polygon", coordinates: sq(128.6, 36, 1) },
+            properties: { id: 1, centroid: 1, code: "11230", name: "강남구", value: null, status: ratio ? "base_zero" : null } },
+        ],
+      },
+    });
+  });
+  await page.route("**/api/board/layers/*/lookup?*", (r) =>
+    r.fulfill({
+      json: { id: 0, code: "11220", name: "서초구", centroid: 0, cell_km_ns: 5.57, cell_km_ew: 4.5, key_kind: "metric",
+        values: { obs_2000_2019: 12.3, ssp585_2051_2060_delta: 30.1, ssp585_ratio: null },
+        status: { ssp585_ratio: "base_zero" },
+        exposure: { pop_total: 123456, pop_65plus: 23456 } },
+    }),
+  );
+
+  await page.goto("/?view=board");
+  // selector: absolute layers grouped by peril
+  await expect(page.locator('#board-layer optgroup[label="절대값 · Absolute — 하천 홍수"]')).toHaveCount(1);
+  await expect(page.locator('#board-layer optgroup[label="절대값 · Absolute — 폭염"] option')).toHaveCount(1);
+  await page.getByLabel("재해 층 · Layer").selectOption("heat_days_kor");
+  await expect(page.getByTestId("badge-notes")).toContainText("델타법");
+  await expect.poll(() => keys).toContain("obs_2000_2019");
+  await expect(page.getByTestId("legend-title")).toContainText("폭염일수");
+  // level keys and the ratio key are all buttons; the ratio key switches to the change legend
+  await page.getByRole("button", { name: /변화 · SSP5-8.5|변화 · SSP5/ }).click();
+  await expect.poll(() => keys).toContain("ssp585_ratio");
+  await expect(page.getByTestId("legend-title")).toContainText(PALETTES.change.label);
+  await expect(page.getByTestId("legend")).toContainText(PALETTES.shared.base_zero.label);
+
+  await page.locator(".leaflet-container").click({ position: { x: 400, y: 300 } });
+  const panel = page.getByTestId("pick-panel");
+  await expect(panel.getByTestId("metric-values")).toContainText("12.3 일/년");
+  await expect(panel.getByTestId("metric-values")).toContainText(PALETTES.shared.base_zero.label);
+  await expect(panel.getByTestId("exposure")).toContainText("123,456 명");
+  await expect(panel.getByTestId("exposure")).toContainText("65세 이상 인구");
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});

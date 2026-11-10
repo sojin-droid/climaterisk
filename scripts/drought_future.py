@@ -328,6 +328,7 @@ def main() -> None:
     pm = present["meta"]
     meta = {
         "layer": fb["layer"],
+        "label": fb["label"],
         "peril": "drought",
         "key_kind": "metric",
         "default_key": fb["default_key"],

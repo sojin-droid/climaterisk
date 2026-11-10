@@ -209,6 +209,11 @@ def farmmap_dir(*parts: str) -> Path:
     return external_dir("farmmap", *parts)
 
 
+def worldpop_dir(*parts: str) -> Path:
+    """``<DATA_ROOT>/external/worldpop[/…]`` — WorldPop rasters (``age_2024_1km/`` age bands)."""
+    return external_dir("worldpop", *parts)
+
+
 def floodmap_dir() -> Path:
     """환경부 홍수위험지도 downloads (licence-blocked; the script is kept for the record)."""
     return external_dir("other", "floodmap")

@@ -268,6 +268,7 @@ def board_payload(
     ]
     meta = {
         "layer": b["layer"],
+        "label": b["label"],
         "peril": "drought",
         "key_kind": "metric",
         "default_key": b["default_key"],

@@ -1,7 +1,7 @@
 {
   "_meta": {
     "purpose": "Single colour authority for every map and legend of the visual board and the reports (docs/BOARD_COLORS_KO.md). Colour = peril family, darkness = magnitude. Class breaks are fixed per quantity and never derived from the data on screen, so a map never re-scales between return periods, years, scenarios or regions.",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "updated": "2026-11-11",
     "ramp_sources": "ColorBrewer 2.0 (Brewer, Harrower 2003; Blues, Reds, RdPu, BuGn, PiYG, PRGn purple arm, BrBG brown arm), first steps of dryness and ground darkened so the lightest class stays apart from the shared zero colour",
     "checks": "tests/test_board_palettes.py: lightness strictly falls along every ramp (OKLab L), families differ by >= 10 OKLab dE x100 at ramp steps 2-4, every class colour is a step of its family ramp in ramp order, the lightest class differs from zero by >= 8, breaks strictly increase, every peril in perils.json has a family.",
@@ -281,11 +281,11 @@
       "units": "명/10만/년",
       "label": "열 관련 초과사망률",
       "breaks": [
+        0.25,
         0.5,
         1,
         2,
-        5,
-        10
+        5
       ],
       "steps": [
         0,
@@ -295,8 +295,8 @@
         4,
         5
       ],
-      "basis": "자릿수 단위 구간(1-2-5 수열). 실제 전국 층을 만들 때 분포를 보고 한 번 확정하고, 그 뒤로는 바꾸지 않는다.",
-      "status": "provisional",
+      "basis": "2026-11-11 전국 층(heat_health_kor)을 처음 올리며 한 번 확정: 연평균(2000–2019) 조각 분포 p10 0.31·p50 0.54·p90 0.75, 2018년 p10 1.3·p50 2.7·p90 4.5·최대 8.9. 두 키가 모두 여러 칸에 퍼지도록 0.25·0.5·1·2·5. 이후 바꾸지 않는다.",
+      "status": "in_use",
       "zero_means_none": true
     },
     "spei_stage": {

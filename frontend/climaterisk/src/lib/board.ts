@@ -1,7 +1,8 @@
 // Visual board (docs/VISUAL_BOARD_KO.md): REST client + colour classes for the national
 // hazard pieces. Pieces keep their hazard-grid-cell value; nothing is averaged here.
 
-export type BoardScale = "share" | "spei";
+/** "share" 0..1 frequency, "spei" index value, "level" a physical quantity, "ratio" a future / base change. */
+export type BoardScale = "share" | "spei" | "level" | "ratio";
 
 export interface BoardKey {
   key: string;

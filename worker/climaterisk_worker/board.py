@@ -415,3 +415,154 @@ def region_summary(pieces: Any, values: Any) -> dict[str, dict[str, Any]]:
             "max": float(v.max()) if v.size else None,
         }
     return out
+
+
+# ---------------------------------------------------------------------------------------
+# Aqueduct coastal flood: one depth map per return period (not an event set)
+# ---------------------------------------------------------------------------------------
+def aqueduct_union(layers: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """Put cached Aqueduct depth stacks on one grid and keep the cells wet in any of them.
+
+    Each cached stack (``<DATA_ROOT>/cache/aqueduct/*.npz``) covers its own bounding box on
+    the same 30 arcsec grid. The union of the boxes is the board grid; a cell outside a
+    layer's own box is **NaN (no data) for that layer, never 0**. Inside its box the cache
+    stores nodata as 0, so a 0 there means "no flooding modelled"; the data cannot separate
+    dry land from nodata and that is stated in the layer notes.
+
+    Args:
+        layers: ``name -> {"lat", "lon", "rps", "depth"}`` with 1-D grid axes (cell centres,
+            latitude descending) and ``depth`` of shape ``(n_rp, n_lat, n_lon)`` in metres.
+            All layers share the spacing and the return-period list and are grid-aligned.
+
+    Returns:
+        ``{"lat", "lon", "res_deg", "rps", "depth"}``: ``lat``/``lon`` of the kept cells,
+        ``depth[name]`` of shape ``(n_rp, n_cells)`` (NaN outside the layer's box).
+
+    Raises:
+        ValueError: Layers differ in spacing, return periods, or grid alignment.
+    """
+    names = list(layers)
+    first = layers[names[0]]
+    step = float(abs(first["lat"][1] - first["lat"][0]))
+    rps = [int(r) for r in first["rps"]]
+    lat0 = max(float(layers[n]["lat"][0]) for n in names)
+    lon0 = min(float(layers[n]["lon"][0]) for n in names)
+    placed: dict[str, tuple[int, int]] = {}
+    n_lat = n_lon = 0
+    for n in names:
+        ly = layers[n]
+        if [int(r) for r in ly["rps"]] != rps:
+            raise ValueError(f"{n}: return periods differ from {names[0]}")
+        if abs(abs(float(ly["lat"][1] - ly["lat"][0])) - step) > 1e-6 * step:
+            raise ValueError(f"{n}: grid spacing differs")
+        fi, fj = (lat0 - float(ly["lat"][0])) / step, (float(ly["lon"][0]) - lon0) / step
+        if abs(fi - round(fi)) > 1e-3 or abs(fj - round(fj)) > 1e-3:
+            raise ValueError(f"{n}: grid not aligned with the other layers")
+        i0, j0 = round(fi), round(fj)
+        placed[n] = (i0, j0)
+        n_lat = max(n_lat, i0 + len(ly["lat"]))
+        n_lon = max(n_lon, j0 + len(ly["lon"]))
+    full: dict[str, Any] = {}
+    for n in names:
+        arr = np.full((len(rps), n_lat, n_lon), np.nan, dtype=np.float32)
+        i0, j0 = placed[n]
+        d = np.asarray(layers[n]["depth"], dtype=np.float32)
+        arr[:, i0 : i0 + d.shape[1], j0 : j0 + d.shape[2]] = d
+        full[n] = arr
+    with np.errstate(invalid="ignore"):
+        wet = np.zeros((n_lat, n_lon), dtype=bool)
+        for arr in full.values():
+            wet |= (arr > 0).any(axis=0)
+    ii, jj = np.nonzero(wet)
+    lat_c = lat0 - step * ii
+    lon_c = lon0 + step * jj
+    log.debug(
+        "aqueduct_union layers=%d grid=%s wet_cells=%d step=%.6f", len(names), (n_lat, n_lon),
+        ii.size, step,
+    )  # fmt: skip
+    return {
+        "lat": lat_c,
+        "lon": lon_c,
+        "res_deg": step,
+        "rps": rps,
+        "depth": {n: full[n][:, ii, jj].astype(float) for n in names},
+    }
+
+
+def aqueduct_hazard(lat: Any, lon: Any, rps: list[int], depth: Any) -> Any:
+    """CLIMADA ``Hazard`` (one event per return-period map) from Aqueduct depth maps.
+
+    Event $i$ is the map of return period $T_i$ with the incremental exceedance frequency
+    $f_i = 1/T_i - 1/T_{i+1}$ (the largest period keeps $1/T_n$), the rule of
+    ``ingest._incremental_frequency`` that the Models tab uses. Because the maps are nested
+    (depth grows with the period), the exceedance frequency of event $i$'s depth is
+    $\\sum_{k \\ge i} f_k = 1/T_i$, so ``board.rp_intensity`` returns the maps themselves
+    wherever they are monotone; where they are not, it returns the CLIMADA reading and the
+    difference is what the sub check reports.
+
+    Args:
+        lat: Cell-centre latitudes, shape ``(n_cells,)``.
+        lon: Cell-centre longitudes.
+        rps: Return periods in years of the maps (ascending).
+        depth: Depth in metres, ``(len(rps), n_cells)``; NaN is taken as 0 here.
+
+    Returns:
+        A checked ``Hazard`` with units ``m``.
+    """
+    from climada.hazard import Hazard
+    from scipy import sparse
+
+    from climaterisk_worker import ingest
+    from climaterisk_worker.hazard_convert import _centroids
+
+    inten = np.nan_to_num(np.asarray(depth, dtype=float), nan=0.0)
+    n_ev = len(rps)
+    haz = Hazard(
+        haz_type="CF",
+        units="m",
+        centroids=_centroids(np.asarray(lat, dtype=float), np.asarray(lon, dtype=float)),
+        event_id=np.arange(1, n_ev + 1),
+        event_name=[f"rp{int(rp)}" for rp in rps],
+        date=np.zeros(n_ev, dtype=int),
+        frequency=ingest._incremental_frequency([int(r) for r in rps]),
+        frequency_unit="1/year",
+        intensity=sparse.csr_matrix(inten),
+        fraction=sparse.csr_matrix((inten > 0).astype(float)),
+    )
+    haz.check()
+    log.debug("aqueduct_hazard events=%d centroids=%d", n_ev, inten.shape[1])
+    return haz
+
+
+def rp_monotone_check(rps: list[float], depth: Any, tol_m: float = 1e-6) -> dict[str, Any]:
+    """Sub check for a one-map-per-period product: depth must not fall as the period grows.
+
+    Algorithm:
+        For every cell $c$ with finite depths, a violation is any consecutive pair with
+        $d_c(T_{k+1}) < d_c(T_k) - \\epsilon$ ($d$ in m, $\\epsilon$ = ``tol_m``). The share is
+        the violating cells over the cells with any positive depth.
+
+        ASCII: violation if d(T_{k+1}) < d(T_k) - tol; share = violating / wet cells.
+
+    Args:
+        rps: Return periods (ascending).
+        depth: ``(len(rps), n_cells)`` depth in metres; NaN cells are skipped.
+        tol_m: Tolerance $\\epsilon$ in metres.
+
+    Returns:
+        ``{"n_cells", "n_violating", "share_violating", "max_drop_m"}``.
+    """
+    d = np.asarray(depth, dtype=float)
+    if d.shape[0] != len(rps):
+        raise ValueError(f"depth has {d.shape[0]} maps for {len(rps)} periods")
+    finite = np.isfinite(d).all(axis=0)
+    d = d[:, finite]
+    wet = (d > 0).any(axis=0)
+    drop = (d[:-1] - d[1:]).max(axis=0) if d.shape[0] > 1 else np.zeros(d.shape[1])
+    bad = wet & (drop > tol_m)
+    return {
+        "n_cells": int(wet.sum()),
+        "n_violating": int(bad.sum()),
+        "share_violating": float(bad.sum() / wet.sum()) if wet.any() else 0.0,
+        "max_drop_m": float(drop[wet].max()) if wet.any() else 0.0,
+    }
