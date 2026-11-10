@@ -112,7 +112,10 @@ def test_cells_pieces_lookup_and_summary() -> None:
     a = straddle.set_index("code")["area_km2"]
     assert a["A"] == pytest.approx(a["B"], rel=0.02)
     # pieces of a cell tile it: area sum = cell area
-    cell_area = float(board.grid_cells(np.array([127.05]), np.array([37.0]), 0.1).to_crs(5179).area.iloc[0]) / 1e6
+    cell_area = (
+        float(board.grid_cells(np.array([127.05]), np.array([37.0]), 0.1).to_crs(5179).area.iloc[0])
+        / 1e6
+    )
     assert float(a.sum()) == pytest.approx(cell_area, rel=1e-3)
 
     hit = board.lookup(pieces, 127.12, 37.01)
@@ -133,7 +136,9 @@ def test_lookup_matches_nearest_centroid() -> None:
     rng = np.random.default_rng(20261110)
     gx, gy = np.meshgrid(np.arange(126.95, 127.2, 0.05), np.arange(36.95, 37.2, 0.05))
     lon, lat = gx.ravel(), gy.ravel()
-    pieces = board.clip_pieces(board.grid_cells(lon, lat, 0.05), _regions(), "SIGUNGU_CD", "SIGUNGU_NM")
+    pieces = board.clip_pieces(
+        board.grid_cells(lon, lat, 0.05), _regions(), "SIGUNGU_CD", "SIGUNGU_NM"
+    )
     px = rng.uniform(126.93, 127.17, 200)
     py = rng.uniform(36.93, 37.17, 200)
     near = match_coordinates(np.column_stack([py, px]), np.column_stack([lat, lon]))
