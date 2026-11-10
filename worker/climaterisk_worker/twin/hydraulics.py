@@ -95,6 +95,7 @@ def step(
     stats: dict[str, float] | None = None,
     sink_fn: Any | None = None,
     sink_t: float = 0.0,
+    fr_max: float | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Advance the local-inertial solver by one explicit time step.
 
@@ -141,6 +142,9 @@ def step(
             continuity update and the infiltration sink; its result is clipped to
             ``[0, h_new]`` per cell and removed. ``t`` is ``sink_t`` (set by :func:`run`).
         sink_t: Time (s) passed to ``sink_fn``.
+        fr_max: Optional Froude limiter (opt-in, default ``None`` = off, results unchanged):
+            every face discharge is capped at $|q| \\le Fr_{max}\\,h_f\\sqrt{g h_f}$ (Bates et al.
+            2010, LISFLOOD-FP practice for the local-inertial scheme).
 
     Returns:
         ``(h_new, q_x_new, q_y_new)`` updated arrays.
@@ -167,6 +171,9 @@ def step(
         num = q_c - g * h_f_face * dt * S_w
         den = 1.0 + g * dt * manning_n**2 * np.abs(q_n) / (h_f_face ** (7.0 / 3.0))
         q_x_new[:, 1:-1] = np.where(wet, num / den, 0.0)
+        if fr_max is not None:
+            cap = fr_max * h_f_face * np.sqrt(g * h_f_face)
+            q_x_new[:, 1:-1] = np.clip(q_x_new[:, 1:-1], -cap, cap)
 
     # --- y-fluxes on internal faces 1..ny-1 ---
     q_y_new = np.zeros_like(q_y)
@@ -187,6 +194,9 @@ def step(
         num = q_c - g * h_f_face * dt * S_w
         den = 1.0 + g * dt * manning_n**2 * np.abs(q_n) / (h_f_face ** (7.0 / 3.0))
         q_y_new[1:-1, :] = np.where(wet, num / den, 0.0)
+        if fr_max is not None:
+            cap = fr_max * h_f_face * np.sqrt(g * h_f_face)
+            q_y_new[1:-1, :] = np.clip(q_y_new[1:-1, :], -cap, cap)
 
     if blocked is not None:
         # walls: a face next to a blocked cell carries nothing (before limiter and continuity)
@@ -332,6 +342,7 @@ def run(
     rain_fn: Any | None = None,
     open_edges: float | None = None,
     sink_fn: Any | None = None,
+    fr_max: float | None = None,
 ) -> dict[str, Any]:
     """Run the local-inertial solver from $t=0$ to $t_{\\text{end}}$.
 
@@ -372,6 +383,7 @@ def run(
             one, so a piecewise-constant rate is integrated exactly.
         open_edges: ``None`` (closed outer faces, default) or a bed slope $S_0$: water leaves
             through the outer faces at Manning normal flow (see :func:`step`).
+        fr_max: Optional Froude limiter passed to :func:`step` (default off).
         sink_fn: Optional callable ``(t, h, dt) -> depth raster (m)`` called once per step
             after the continuity update (``t`` the end of the step, ``h`` the updated depth);
             the result is clipped to ``[0, h]`` per cell and removed (see :func:`step`).
@@ -471,6 +483,7 @@ def run(
             stats=stats,
             sink_fn=sink_fn,
             sink_t=t,
+            fr_max=fr_max,
         )
         t += dt
         n_steps += 1

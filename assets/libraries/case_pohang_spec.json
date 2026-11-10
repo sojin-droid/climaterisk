@@ -1,0 +1,169 @@
+{
+  "_note": "Case twin of the Pohang Naengcheon flood, Typhoon Hinnamnor 2022-09-06 (docs/reports/twin_case_sites_mission_ko.md section A). Rain-on-grid 2D flood of the Naengcheon catchment on the Gangnam twin engine (twin/hydraulics.py local-inertial). A reconstruction with PUBLISHED rain, not a calibration: badge 'unverified'. No money is computed. Every assumption is in the 'assumptions' list and its count is printed with the results.",
+  "name": "포항 냉천 (태풍 힌남노, 2022-09-06)",
+  "badge": "미검증",
+  "outlet": {
+    "lon": 129.4238,
+    "lat": 36.0125,
+    "note": "냉천 mouth at the sea (영일만, beside the 포항제철소). Found in OSM (south-korea-261013.osm.pbf, layer lines): the way named 냉천 (waterway=stream, 97 nodes, flowing north-east) ends at lon 129.4236, lat 36.0108; the outlet is the D8 cell of the largest upstream area within 6 cells (180 m) of that end (cell centre 129.4238, 36.0125, ground 0 m = sea in GLO-30). The bridge 냉천교 (OSM way bridge:name=냉천교, Route 7, about 129.4015, 35.9936) lies 3.4 km upstream and is used as a report point, not as the outlet, because the reference area 79.4 km2 and the design floods are given at the mouth (NC00)."
+  },
+  "catchment_ref": {
+    "area_km2": 79.4,
+    "source": "Jung et al. 2025, 한국방재학회논문집 18(2), Table 2, station NC00 (Naengcheon mouth); https://cdn.apub.kr/journalsite/sites/ksds/2025-018-02/N0240180204/N0240180204.pdf"
+  },
+  "design_flood_m3s": {
+    "50": 743,
+    "80": 826,
+    "100": 866,
+    "200": 999,
+    "500": 1189,
+    "source": "Jung et al. 2025, 한국방재학회논문집 18(2), Table 2 (design floods at the Naengcheon mouth, NC00)"
+  },
+  "channel_capacity_m3s": 700,
+  "channel_capacity_source": "Jung et al. 2025, 한국방재학회논문집 18(2): channel conveyance capacity about 700 m3/s at 냉천교 (the deck of 냉천교 and 인덕교 were below the design flood level)",
+  "rain": {
+    "main": {
+      "depth_duration_mm": {
+        "60": 77.0,
+        "120": 147.9,
+        "180": 203.2,
+        "360": 314.5,
+        "720": 378.7
+      },
+      "dt_min": 10,
+      "source": "Pohang ASOS (station 138), maximum depth over each duration, 5-6 Sep 2022; Jung et al. 2025, 한국방재학회논문집 18(2), Table 1 (published values). Hyetograph = nested alternating-block built from these depths (twin/case_pohang.py)."
+    },
+    "check": {
+      "total_mm": 359.8,
+      "duration_min": 540,
+      "gauges": [
+        2401,
+        101,
+        2402
+      ],
+      "month": "2022-08",
+      "step_min": 10,
+      "source": "Shape: Seoul 2022-08-08 rain gauges 2401, 101, 2402 (서울시 강우량 정보, 서울 열린데이터광장 OA-1168, 공공누리 2유형, internal check only): the 540-min window of maximum area-mean rain, normalised to a cumulative fraction at run time and never stored. Total: Pohang ASOS 9-h depth 359.8 mm (Jung et al. 2025, Table 1). Diagnostic only."
+    },
+    "recession_min": 240,
+    "recession_min_note": "drain-down tail after the 720-min storm (check storm: same end time)"
+  },
+  "check": {
+    "warn_peak_rel": 0.3,
+    "note": "Diagnostic only: peak discharge of the check run against the main run. A relative difference above warn_peak_rel raises a warning in summary.check; the check is never shown as a second result."
+  },
+  "domain": {
+    "bbox": [
+      129.3,
+      35.8,
+      129.47,
+      36.03
+    ],
+    "bbox_note": "west, south, east, north (deg) that contains the delineated catchment with margin",
+    "cell_m": 30.0,
+    "floodplain_buffer_max_ground_m": 15.0,
+    "sea_level_m": 0.0,
+    "sea_ground_max_m": 0.05,
+    "floodplain_buffer_m": 1200.0,
+    "sea_open_radius_m": 450.0,
+    "fill_above_m": 15.0
+  },
+  "hydraulic": {
+    "manning_n": 0.05,
+    "alpha_cfl": 0.7,
+    "flood_depth_m": 0.3,
+    "low_ground_m": 20.0,
+    "froude_limit_sensitivity": 1.0
+  },
+  "landcover": {
+    "green_tags": {
+      "leisure": [
+        "park",
+        "garden",
+        "playground",
+        "pitch"
+      ],
+      "landuse": [
+        "grass",
+        "forest",
+        "meadow",
+        "recreation_ground",
+        "village_green",
+        "orchard",
+        "farmland"
+      ],
+      "natural": [
+        "wood",
+        "scrub",
+        "grassland"
+      ]
+    },
+    "cn_green": 74.0,
+    "cn_untagged": 85.0
+  },
+  "channel": {
+    "name_main": "냉천",
+    "names_always": [
+      "냉천",
+      "신광천"
+    ],
+    "waterways": [
+      "river",
+      "stream"
+    ],
+    "min_share_in_catchment": 0.5,
+    "width_coeff_m_per_km": 11.4,
+    "width_exponent": 0.5,
+    "capacity_exponent": 0.75,
+    "slope_window_cells": 5,
+    "slope_min": 0.0005,
+    "depth_min_m": 0.5,
+    "depth_max_m": 12.0
+  },
+  "points": {
+    "bridge_names": {
+      "냉천교": "냉천교",
+      "인덕교": "인덕교"
+    },
+    "posco_name": "포항제철소",
+    "apartments": {
+      "우방신세계타운1차": "우방신세계타운1차아파트",
+      "우방신세계타운2차": "우방신세계타운2차아파트"
+    }
+  },
+  "sources": {
+    "terrain": "Copernicus GLO-30 DSM (ESA, tiles N36_00_E129_00 and N35_00_E129_00, AWS copernicus-dem-30m, no login)",
+    "osm": "OpenStreetMap contributors (ODbL), Geofabrik south-korea extract of 2026-10-13: buildings, waterway lines, green land cover",
+    "rain_main": "Jung et al. 2025, 한국방재학회논문집 18(2), Table 1",
+    "damage": "Pohang house/shop flooding 8,500 / 3,550 (provisional, 2022-09-08 press); POSCO flooding 1-1.5 m (press, low confidence); overtopping about 06:00 (low confidence); car-park alert 06:30; contact lost 09:10; 7 dead in the 인덕동 apartment car park and 1 in 오천읍 (press reports)",
+    "apartment": "인덕동 우방신세계타운 (1차 as the reference point, 2차 alongside): identified by the OSM names 우방신세계타운1차아파트 and 우방신세계타운2차아파트 and by the press reports of the car-park deaths"
+  },
+  "assumptions": [
+    "A1 Rain is uniform in space: the Pohang ASOS (station 138) depth-duration values apply to every active cell of the domain (catchment, floodplain buffer and the land of POSCO inside it); no gauge or radar field is used (the AWS peaks of 110-116 mm/h and the 509.5 mm at 오천 show the real field was not uniform).",
+    "A2 The storm is the nested alternating-block hyetograph of the published maximum depths per duration: peak block in the middle, blocks alternating to the right and left. This is the worst-case arrangement for every listed duration at once, not the observed time order of the rain.",
+    "A3 Depth between the listed durations is interpolated log-log; below 60 min the 60-min depth (77.0 mm) is spread uniformly over the hour, so the first hour has no sub-hourly peak (the AWS peaks of 110-116 mm/h are not reproduced).",
+    "A4 The rain start time is unknown, so every time is hours after the start of the 12-h storm window; the 06:00 overtopping of the press cannot be compared in clock time.",
+    "A5 Rain losses use NRCS curve numbers (TR-55, AMC II, antecedent moisture normal): 74 on OSM green polygons (open space or wood in good condition, hydrologic soil group C), 85 on every cell outside a green polygon (untagged cells mix built-up, farmland and unmapped wood; soil group C/D). No soil map or land-cover map is used and no antecedent rain (the days before 5 Sep) is added.",
+    "A6 OSM green coverage is incomplete; untagged forest is given CN 85, which probably overstates runoff on forested slopes.",
+    "A7 One Manning n = 0.05 s m^-1/3 for the whole domain (the Gangnam floodplain value): the solver takes one scalar n, so channel, slope, road and paddy have the same friction. Real channel n is about 0.03 and hillslope sheet flow is rougher.",
+    "A8 Buildings are not resolved at 30 m: they are removed from the surface model (bare earth) and are neither walls nor extra roughness; urban storage and obstruction are not represented.",
+    "A9 The ground is the Copernicus GLO-30 surface model (30 m, vertical error several metres) with OSM building footprints masked and the ground interpolated beneath, as in the Gangnam twin; trees, embankments, road fills, bridges and culverts stay in it as artefacts.",
+    "A10 Catchment = D8 delineation of the pit-filled bare-earth ground (priority flood, epsilon 1e-4 m per cell) from the mouth cell; the divides follow the DSM, not the surveyed basin boundary (83.4 km2 against 79.4 km2 published). The outlet cell is the cell of largest D8 area within 180 m of the end of the OSM way 냉천; on the DSM that flow line runs over sea cells to the way's end, which lies out in the bay. The model domain is the catchment plus a 1.2 km floodplain buffer (ground below 15 m); the same rain falls on the whole domain. The catchment-only rain run is kept as a delineation diagnostic. Ground outside the domain is a wall, so the 형산강 side and the rest of POSCO are not in the model.",
+    "A11 Resolution is 30 m everywhere. The 10 m refinement of the lower reach (POSCO, 인덕동, 오천) was not made: the solver works on one uniform raster, so a nest needs a second run driven by the discharge of the 30 m run at its boundary (one-way coupling), which is not implemented; at 10 m the lower 25 km2 would be about 250 000 cells with a time step near 0.7 s, about 25 min per storm on top of the 30 m run.",
+    "A12 The channel is burnt into the ground along the OSM waterway lines (river, stream) of the catchment, as a rectangular section: width W = 11.4 sqrt(A) m (A in km2, hydraulic-geometry exponent 0.5, W about 100 m at the mouth, painted as a cross of whole cells, at least one cell), bed = running minimum of the ground downstream minus the burn depth. The real cross-section, the 고향의 강 widening and the bridge piers are not known.",
+    "A13 Burn depth: Manning normal flow of the solver's wide-channel law, d = (Q_bf n / (W sqrt(S)))^(3/5), with Q_bf = 700 (A/A_ref)^0.75 m3/s (A_ref = area at 냉천교; regional exponent 0.75 assumed) and S the local slope of the running-minimum ground (floor 0.0005); at 냉천교 W = 90 m, S = 0.0013, d = 4.1 m, which carries 700 m3/s at normal depth. 700 m3/s is the published conveyance capacity; the section is ours and is not tuned further. The effective capacity in the 2D model is lower (staircase 4-connected channel, backwater from the sea, bank heights of the 30 m DSM): the discharge at which the channel first spills is reported in the results.",
+    "A14 The sea is a fixed level of 0 m (the GLO-30 datum; the tide at landfall, the storm surge and the wave set-up of Hinnamnor are not included) on the sea cells of the floodplain buffer, flat at datum. The sea cells within 450 m of the last channel cell are as deep as the last channel section (an estuary), because on a 30 m grid a dry sea cell at datum would act as a 0 m sill that holds the river back. Water leaves the model only through the sea cells.",
+    "A15 The outlet hydrograph is the flow through the faces between the land and the sea cells within 450 m of the last channel cell that touches the sea (channel plus overland); it is compared with the design floods that are defined at the mouth. Its peak is the maximum of the 10-min running mean of 1-min samples; the baseline noise of the pinned sea cells is about 10 m3/s.",
+    "A16 Overtopping time = first time the water surface in the channel cell nearest to the bridge exceeds the bank ground of that cell. The deck level of 냉천교 and 인덕교 is not in the data; the bridges are not modelled.",
+    "A17 No reservoir: the operation of 오어지 (discharge, detention) is not modelled, nor the sediment and debris that narrowed the 신광천 and 냉천 sections.",
+    "A18 No sewer or storm drain: all rain excess stays on the surface (the real drainage of 포항 city and the 포항제철소 pumps are not included), so urban depths are overstated where drains worked and understated where they backed up.",
+    "A19 No dikes, levees, embankments or tide gates other than what the 30 m DSM shows; POSCO's own wall and drainage are not in the data.",
+    "A20 'Flooded' = non-channel land cell with maximum depth above 0.3 m; hillslope sheet flow can exceed this, so the area is also given for ground below 20 m.",
+    "A21 The 인덕동 apartment complex is 우방신세계타운 (1차 is the reference point, 2차 is reported alongside), identified by the OSM names 우방신세계타운1차아파트 and 우방신세계타운2차아파트 and by the press reports of the car-park deaths. The entrance of the underground car park is not in the data: the surface depth is given at the lowest ground cell inside each polygon as a stand-in for the ramp. No basement is modelled and no inflow into the car park.",
+    "A22 The POSCO point is the centroid of the OSM landuse=industrial polygon named 포항제철소; one cell stands for a site of several km2.",
+    "A23 The initial water level is the sea level (0 m) in every cell below it; everywhere else the ground is dry (no base flow in the stream before the rain).",
+    "A24 Seoul gauges are used only for the check shape: the 540-min window of maximum area-mean rain of 2022-08, normalised and scaled to 359.8 mm at run time; neither the rain values nor the shape are stored.",
+    "A25 The ground that the solver uses is the bare-earth DSM, but above 15 m the pit-filled ground (priority flood) is used: the 30 m DSM has many one-cell depressions (trees, DSM noise) on the slopes that otherwise hold a large part of the rain; real ponds, paddies and 오어지 above 15 m are filled to their spill level. Below 15 m the raw bare earth is kept, with its artefacts.",
+    "A26 The local-inertial scheme drops advection and is valid for Froude numbers below about 0.5; on the steep upland and at the channel head the Froude number is above 1, and the sea cells near the mouth add numerical noise. The share of wet cells with Froude above 1 at the peak discharge is in the summary, split into channel, floodplain below 20 m and upland. An opt-in Froude limiter (cap at 1) is run as a sensitivity only; the result is without it."
+  ]
+}
