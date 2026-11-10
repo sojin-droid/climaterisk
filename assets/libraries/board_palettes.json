@@ -306,13 +306,13 @@
       "stages": [
         {
           "leq": -2.0,
-          "step": 5,
+          "step": 4,
           "name": "경계 이상",
           "label": "경계 이상: SPEI-3 ≤ −2"
         },
         {
           "leq": -1.5,
-          "step": 3,
+          "step": 2,
           "name": "주의",
           "label": "주의: −2 < SPEI-3 ≤ −1.5"
         },
@@ -328,7 +328,7 @@
         "name": "없음",
         "label": "없음: SPEI-3 > −1"
       },
-      "basis": "docs/DROUGHT_AGRI_KO.md 단계(McKee 1993 구분과 같은 −1/−1.5/−2).",
+      "basis": "docs/DROUGHT_AGRI_KO.md 단계(McKee 1993 구분과 같은 −1/−1.5/−2). 단계 색은 갈색 단계 1·2·4(가장 진한 5는 지도 위에서 검정처럼 보여 쓰지 않음).",
       "status": "in_use"
     },
     "share_of_years": {

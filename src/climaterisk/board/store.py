@@ -128,6 +128,29 @@ def _resolve_key(layer: dict[str, Any], key: float | str) -> str:
     return period_key(rp)
 
 
+def key_quantity(layer: dict[str, Any], key: float | str) -> str:
+    """Quantity (key of ``board_palettes.json`` ``quantities``) that colours ``key``.
+
+    Metric layers: ``meta.keys[i].quantity``; return-period layers: ``meta.quantity``. There
+    is no fallback from units or scale.
+
+    Raises:
+        ValueError: Unknown key, or the file does not name a quantity (re-export the layer).
+    """
+    vkey = _resolve_key(layer, key)
+    meta = layer["meta"]
+    quantity = None
+    if is_metric(layer):
+        quantity = next((k.get("quantity") for k in meta["keys"] if str(k["key"]) == vkey), None)
+    else:
+        quantity = meta.get("quantity")
+    if not quantity:
+        raise ValueError(
+            f"layer {meta.get('layer')!r} key {vkey!r} names no quantity; re-export the layer"
+        )
+    return str(quantity)
+
+
 def geojson(layer: dict[str, Any], key: float | str) -> dict[str, Any]:
     """FeatureCollection of the pieces coloured by ``key`` (return period or metric key).
 

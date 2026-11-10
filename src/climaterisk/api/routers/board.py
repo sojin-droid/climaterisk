@@ -6,7 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
-from climaterisk.board import store
+from climaterisk.board import palette, store
 
 router = APIRouter(prefix="/board", tags=["board"])
 
@@ -16,6 +16,12 @@ def _layer(name: str) -> dict[str, Any]:
         return store.load_layer(name)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"unknown board layer {name!r}") from None
+
+
+@router.get("/palettes")
+def palettes() -> dict[str, Any]:
+    """The colour spec (``assets/libraries/board_palettes.json``) unchanged."""
+    return palette.load_palettes()
 
 
 @router.get("/layers")

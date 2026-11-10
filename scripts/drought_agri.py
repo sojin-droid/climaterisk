@@ -245,8 +245,15 @@ def board_payload(
     from board_layer import polygons_of
 
     b = cfg["board"]
-    keys: list[dict[str, str]] = [
-        {"key": f["key"], "label": f["label"], "units": b["freq_units"], "scale": "share"}
+    keys: list[dict[str, Any]] = [
+        {
+            "key": f["key"],
+            "label": f["label"],
+            "units": b["freq_units"],
+            "scale": "share",
+            "quantity": "share_of_years",
+            "comparable_across_regions": False,
+        }
         for f in b["freq_keys"]
     ]
     keys += [
@@ -255,12 +262,15 @@ def board_payload(
             "label": b["year_label"].format(year=y),
             "units": b["year_units"],
             "scale": "spei",
+            "quantity": "spei_stage",
         }
         for y in spei_by_year
     ]
     meta = {
         "layer": b["layer"],
+        "peril": "drought",
         "key_kind": "metric",
+        "default_key": b["default_key"],
         "keys": keys,
         "units": b["year_units"],
         "resolution_arcsec": round(resolution["deg"] * 3600.0, 1),

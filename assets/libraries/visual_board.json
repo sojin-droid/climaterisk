@@ -8,6 +8,7 @@
   "layers": {
     "river_flood_hist_kor": {
       "peril": "river_flood",
+      "quantity": "water_depth_m",
       "climate_scenario": "historical",
       "year_range": "1980_2000",
       "country_iso3": "KOR",

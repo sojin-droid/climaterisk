@@ -2,19 +2,17 @@ import { useEffect, useMemo, useState } from "react";
 import { GeoJSON, MapContainer, TileLayer, useMapEvents } from "react-leaflet";
 import type { PolylineOptions } from "leaflet";
 import {
-  NULL_COLOR,
-  POSITIVE_CLASSES,
-  SHARE_CLASSES,
-  SHARE_ZERO_COLOR,
-  SPEI_STAGES,
-  ZERO_COLOR,
   getBoardGeojson,
   getBoardLayers,
   getBoardLookup,
+  getBoardPalettes,
   getBoardRegion,
+  keyQuantity,
+  paletteClasses,
+  paletteColor,
   rpKey,
-  scaleColor,
-  speiStage,
+  speiStageName,
+  type PaletteSpec,
   type BoardCollection,
   type BoardExposure,
   type BoardFeature,
@@ -41,10 +39,10 @@ const EXPOSURE_ROWS: { key: string; label: string; unassessed: boolean }[] = [
   { key: "greenhouse_ha", label: "시설", unassessed: true },
 ];
 
-const fmtMetric = (v: number | null | undefined, k: BoardKey | undefined) => {
+const fmtMetric = (v: number | null | undefined, k: BoardKey | undefined, spec: PaletteSpec | null) => {
   if (v === null || v === undefined) return "자료 없음";
   if (k?.scale === "share") return `${(v * 100).toFixed(0)} % (${v.toFixed(2)} ${k.units})`;
-  if (k?.scale === "spei") return `${v.toFixed(2)} · ${speiStage(v).name}`;
+  if (k?.scale === "spei") return `${v.toFixed(2)} · ${spec ? speiStageName(spec, v) : ""}`;
   return String(v);
 };
 
@@ -76,6 +74,7 @@ function ClickLookup({ onPick }: { onPick: (lon: number, lat: number) => void })
 
 export function BoardView() {
   const offline = useOffline();
+  const [palettes, setPalettes] = useState<PaletteSpec | null>(null);
   const [layers, setLayers] = useState<BoardMeta[] | null>(null);
   const [layerName, setLayerName] = useState<string>("");
   const [key, setKey] = useState<string | null>(null);
@@ -88,6 +87,12 @@ export function BoardView() {
   const [picked, setPicked] = useState<BoardLookup | null>(null);
   const [outside, setOutside] = useState(false);
   const [region, setRegion] = useState<BoardRegion | null>(null);
+
+  useEffect(() => {
+    getBoardPalettes()
+      .then(setPalettes)
+      .catch((e: Error) => setError(e.message));
+  }, []);
 
   useEffect(() => {
     getBoardLayers()
@@ -107,12 +112,12 @@ export function BoardView() {
   const activeKey = metricKeys.find((k) => k.key === key);
 
   // Default: return-period layer -> longest computable period ≤ 100 y (else the longest
-  // kept); metric layer -> freq_ge2 (else the first key).
+  // kept); metric layer -> meta.default_key if valid (else the first key).
   useEffect(() => {
     if (!meta) return;
     if (meta.key_kind === "metric") {
       const ks = (meta.keys ?? []).map((k) => k.key);
-      setKey((cur) => (cur !== null && ks.includes(cur) ? cur : ks.includes("freq_ge2") ? "freq_ge2" : (ks[0] ?? null)));
+      setKey((cur) => (cur !== null && ks.includes(cur) ? cur : meta.default_key !== undefined && ks.includes(meta.default_key) ? meta.default_key : (ks[0] ?? null)));
     } else {
       const kept = meta.periods_kept;
       setKey((cur) => {
@@ -169,14 +174,25 @@ export function BoardView() {
       .catch((e: Error) => setError(e.message));
   };
 
-  const style = (f?: { properties?: { value?: number | null } }): PolylineOptions => ({
-    fillColor: scaleColor(metric ? activeKey?.scale : undefined, f?.properties?.value),
-    fillOpacity: 0.85,
-    color: "#1b2733",
-    weight: 0.4,
-    opacity: 0.7,
-    smoothFactor: 0, // no simplification: crisp grid edges
-  });
+  // colour = the active key's quantity (spec), never the layer's units or scale
+  const quantity = meta ? keyQuantity(meta, key) : null;
+  const family = quantity === "loss_ratio" && palettes && meta?.peril ? palettes.perils[meta.peril] : undefined;
+  const legendClasses = useMemo(
+    () => (palettes && quantity ? paletteClasses(palettes, quantity, family) : []),
+    [palettes, quantity, family],
+  );
+
+  const style = (f?: { properties?: { value?: number | null } }): PolylineOptions => {
+    if (!palettes || !quantity) return {};
+    return {
+      fillColor: paletteColor(palettes, quantity, f?.properties?.value, family),
+      fillOpacity: palettes.shared.fill_opacity,
+      color: palettes.shared.piece_outline.color,
+      weight: palettes.shared.piece_outline.weight,
+      opacity: 1,
+      smoothFactor: 0, // no simplification: crisp grid edges
+    };
+  };
 
   const highlighted: BoardFeature | undefined = useMemo(
     () => (picked && fc ? fc.features.find((f) => f.properties.id === picked.id) : undefined),
@@ -202,14 +218,20 @@ export function BoardView() {
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
           )}
-          {fc && meta && key !== null && fcFor === `${meta.layer}|${key}` && (
-            <GeoJSON key={fcFor} data={fc as never} style={style as never} />
+          {fc && meta && palettes && quantity && key !== null && fcFor === `${meta.layer}|${key}` && (
+            <GeoJSON key={`${fcFor}|${quantity}`} data={fc as never} style={style as never} />
           )}
-          {highlighted && (
+          {highlighted && palettes && (
             <GeoJSON
               key={`hl-${picked?.id}`}
               data={highlighted as never}
-              style={() => ({ fill: false, color: "#ffd24a", weight: 3, opacity: 1, smoothFactor: 0 })}
+              style={() => ({
+                fill: false,
+                color: palettes?.shared.selected_outline.color,
+                weight: palettes?.shared.selected_outline.weight,
+                opacity: 1,
+                smoothFactor: 0,
+              })}
               interactive={false}
             />
           )}
@@ -280,10 +302,20 @@ export function BoardView() {
                         onClick={() => setKey(k.key)}
                       >
                         {k.label}
+                        {k.comparable_across_regions === false && (
+                          <span className="hint" data-testid="not-comparable-tag" style={{ marginLeft: 6, border: "1px solid var(--border)", borderRadius: 4, padding: "0 4px", fontSize: 11 }}>
+                            지역 비교용 아님
+                          </span>
+                        )}
                       </button>
                     );
                   })}
                 </div>
+                {activeKey?.comparable_across_regions === false && (
+                  <div className="hint" data-testid="freq-hint" style={{ marginTop: 6 }}>
+                    {meta.notes?.find((n) => n.includes("지역 비교용이 아닙니다")) ?? "지역 비교용이 아닙니다."}
+                  </div>
+                )}
                 {yearKeys.length > 0 && (
                   <>
                     <label htmlFor="board-year" style={{ marginTop: 8 }}>연도별 · Single year</label>
@@ -325,28 +357,38 @@ export function BoardView() {
             </div>
 
             <div>
-              <div className="section-title">범례 · Legend ({metric ? (activeKey?.units ?? units) : units})</div>
-              <div className="legend" style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 6 }}>
-                <LegendRow color={NULL_COLOR} label="자료 없음 (null)" />
-                {!metric && (
-                  <>
-                    <LegendRow color={ZERO_COLOR} label="0 (침수 없음)" />
-                    {POSITIVE_CLASSES.map((c) => (
-                      <LegendRow key={c.color} color={c.color} label={`${c.label} ${units}`} />
-                    ))}
-                  </>
-                )}
-                {metric && activeKey?.scale === "share" && (
-                  <>
-                    <LegendRow color={SHARE_ZERO_COLOR} label="0 (해당 단계 발생 없음)" />
-                    {SHARE_CLASSES.map((c) => (
-                      <LegendRow key={c.color} color={c.color} label={`${c.label} (연 비율)`} />
-                    ))}
-                  </>
-                )}
-                {metric && activeKey?.scale === "spei" &&
-                  [...SPEI_STAGES].reverse().map((c) => <LegendRow key={c.color} color={c.color} label={c.label} />)}
+              <div className="section-title" data-testid="legend-title">
+                범례 · Legend{quantity && palettes?.quantities[quantity] ? ` — ${palettes.quantities[quantity].label} (${palettes.quantities[quantity].units})` : ""}
               </div>
+              <div className="legend" data-testid="legend" style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 6 }}>
+                {palettes && (
+                  <>
+                    <LegendRow color={palettes.shared.null.color} label={palettes.shared.null.label} />
+                    {/* zero swatch only where 0 means "none"; stage quantities show it as their own last class */}
+                    {quantity && palettes.quantities[quantity]?.zero_means_none && (
+                      <LegendRow color={palettes.shared.zero.color} label={palettes.shared.zero.label} />
+                    )}
+                  </>
+                )}
+                {palettes && quantity && !palettes.quantities[quantity] && (
+                  <div className="hint" role="alert">알 수 없는 색 기준: {quantity}</div>
+                )}
+                {palettes && !quantity && (
+                  <div className="hint" role="alert">이 층 파일에 색 기준(quantity)이 없습니다. 층을 다시 내보내세요.</div>
+                )}
+                {legendClasses.map((c) => (
+                  <LegendRow
+                    key={`${c.color}|${c.label}`}
+                    color={c.color}
+                    label={quantity && palettes?.quantities[quantity]?.stages ? c.label : `${c.label} ${palettes?.quantities[quantity ?? ""]?.units ?? ""}`}
+                  />
+                ))}
+              </div>
+              {quantity && palettes?.quantities[quantity]?.basis && (
+                <div className="hint" data-testid="legend-basis" style={{ marginTop: 4, fontSize: 11 }}>
+                  {palettes.quantities[quantity].basis}
+                </div>
+              )}
               <div className="hint" style={{ marginTop: 4 }}>
                 격자 값 그대로 칠하며 평균하지 않습니다. 시군구 경계에 걸친 칸은 조각으로 나뉘고 값은 같습니다.
               </div>
@@ -368,7 +410,7 @@ export function BoardView() {
                           {metricShown.map((k) => (
                             <tr key={k.key}>
                               <td>{k.label}</td>
-                              <td style={{ textAlign: "right" }}>{fmtMetric(picked.values[k.key], k)}</td>
+                              <td style={{ textAlign: "right" }}>{fmtMetric(picked.values[k.key], k, palettes)}</td>
                             </tr>
                           ))}
                         </tbody>

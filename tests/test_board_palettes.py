@@ -60,7 +60,7 @@ FAM = SPEC["families"]
 def test_ramps_light_to_dark_and_families_apart() -> None:
     for name, fam in FAM.items():
         L = [_oklab(c)[0] for c in fam["ramp"]]
-        assert all(a > b for a, b in zip(L, L[1:])), name
+        assert all(a > b for a, b in itertools.pairwise(L)), name
         assert _de(SPEC["shared"]["zero"]["color"], fam["ramp"][0]) >= 8, name
     for a, b in itertools.combinations(FAM, 2):
         d = min(_de(FAM[a]["ramp"][i], FAM[b]["ramp"][i]) for i in (2, 3, 4))
@@ -76,7 +76,7 @@ def test_every_peril_has_a_family_and_quantities_are_well_formed() -> None:
         assert q["status"] in {"in_use", "provisional"} and q.get("basis"), name
         if "breaks" in q:
             br = q["breaks"]
-            assert all(a < b for a, b in zip(br, br[1:])), name
+            assert all(a < b for a, b in itertools.pairwise(br)), name
             assert len(q["steps"]) == len(br) + 1, name
             assert q["steps"] == sorted(set(q["steps"])), name
             assert isinstance(q["zero_means_none"], bool), name
@@ -103,8 +103,8 @@ def test_color_rule() -> None:
     assert palette.color("share_of_years", 0.05) == FAM["dryness"]["ramp"][1]
     assert palette.color("share_of_years", 0.0) == zero
     dry = FAM["dryness"]["ramp"]
-    assert palette.color("spei_stage", -2.11) == dry[5]
-    assert palette.color("spei_stage", -1.7) == dry[3]
+    assert palette.color("spei_stage", -2.11) == dry[4]
+    assert palette.color("spei_stage", -1.7) == dry[2]
     assert palette.color("spei_stage", -1.0) == dry[1]
     assert palette.color("spei_stage", -0.3) == zero
     assert palette.color("change", 1.0) == SPEC["change"]["colors"][3]
@@ -114,7 +114,7 @@ def test_color_rule() -> None:
     cl = palette.classes("water_depth_m")
     assert [c["color"] for c in cl] == ramp and cl[-1]["up_to"] is None and cl[0]["up_to"] == 0.25
     st = palette.classes("spei_stage")
-    assert [c["color"] for c in st] == [dry[5], dry[3], dry[1], zero]
+    assert [c["color"] for c in st] == [dry[4], dry[2], dry[1], zero]
 
 
 def _sq(x0: float, y0: float, s: float) -> list[list[float]]:
@@ -122,7 +122,14 @@ def _sq(x0: float, y0: float, s: float) -> list[list[float]]:
 
 
 def _piece(values: dict) -> dict:
-    return {"id": 0, "centroid": 0, "code": "A", "name": "a", "polygons": [[_sq(127, 37, 0.05)]], "values": values}
+    return {
+        "id": 0,
+        "centroid": 0,
+        "code": "A",
+        "name": "a",
+        "polygons": [[_sq(127, 37, 0.05)]],
+        "values": values,
+    }
 
 
 BASE = {
@@ -139,13 +146,28 @@ BASE = {
 
 @pytest.fixture
 def board_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    rp = {"meta": {**BASE, "layer": "rp_q", "quantity": "water_depth_m", "periods_kept": [10.0]}, "pieces": [_piece({"10": 1.0})]}
-    rp_bare = {"meta": {**BASE, "layer": "rp_bare", "periods_kept": [10.0]}, "pieces": [_piece({"10": 1.0})]}
+    rp = {
+        "meta": {**BASE, "layer": "rp_q", "quantity": "water_depth_m", "periods_kept": [10.0]},
+        "pieces": [_piece({"10": 1.0})],
+    }
+    rp_bare = {
+        "meta": {**BASE, "layer": "rp_bare", "periods_kept": [10.0]},
+        "pieces": [_piece({"10": 1.0})],
+    }
     keys = [
-        {"key": "freq_ge2", "label": "f", "units": "연 비율", "scale": "share", "quantity": "share_of_years"},
+        {
+            "key": "freq_ge2",
+            "label": "f",
+            "units": "연 비율",
+            "scale": "share",
+            "quantity": "share_of_years",
+        },
         {"key": "y2022", "label": "y", "units": "-", "scale": "spei", "quantity": "spei_stage"},
     ]
-    mt = {"meta": {**BASE, "layer": "mt_q", "key_kind": "metric", "keys": keys}, "pieces": [_piece({"freq_ge2": 0.2, "y2022": -2.1})]}
+    mt = {
+        "meta": {**BASE, "layer": "mt_q", "key_kind": "metric", "keys": keys},
+        "pieces": [_piece({"freq_ge2": 0.2, "y2022": -2.1})],
+    }
     for d in (rp, rp_bare, mt):
         (tmp_path / f"{d['meta']['layer']}.board.json").write_text(json.dumps(d), encoding="utf-8")
     monkeypatch.setattr(store, "board_dir", lambda: tmp_path)
@@ -162,7 +184,9 @@ def test_store_names_the_quantity(board_dir: Path, client: TestClient) -> None:
     assert resp.status_code == 200 and resp.json() == SPEC
 
 
-@pytest.mark.skipif(not store.board_dir().exists(), reason="no exported board layers on this machine")
+@pytest.mark.skipif(
+    not store.board_dir().exists(), reason="no exported board layers on this machine"
+)
 def test_exported_layers_name_known_quantities() -> None:
     for meta in store.list_layers():
         layer = store.load_layer(meta["layer"])

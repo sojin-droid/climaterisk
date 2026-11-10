@@ -92,6 +92,8 @@ def board_json_payload(pieces: Any, meta: dict[str, Any], spec: dict[str, Any]) 
         "boundary_simplify_m",
     )  # fmt: skip
     out_meta = {k: meta[k] for k in keep}
+    out_meta["peril"] = spec["peril"]
+    out_meta["quantity"] = spec["quantity"]
     out_meta["use_tier"] = spec["use_tier"]
     out_meta["use_tier_reason"] = spec["use_tier_reason"]
     rows = []

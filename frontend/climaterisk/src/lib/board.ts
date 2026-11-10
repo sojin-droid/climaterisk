@@ -8,11 +8,20 @@ export interface BoardKey {
   label: string;
   units: string;
   scale: BoardScale;
+  /** Key of the palette spec's `quantities` that colours this key. */
+  quantity: string;
+  /** false: the values cannot be compared between regions (long-run standardised-index frequencies). */
+  comparable_across_regions?: boolean;
 }
 
 export interface BoardMeta {
   layer: string;
   label?: string;
+  peril?: string;
+  /** Return-period layers: quantity colouring every key. */
+  quantity?: string;
+  /** Metric layers: key shown first. */
+  default_key?: string;
   /** "metric" = chronic layer with named keys (drought); default return-period layer. */
   key_kind?: "return_period" | "metric";
   keys?: BoardKey[];
@@ -113,72 +122,136 @@ export function getBoardGeojson(
 /** Key of a return period in ``values`` — the same ``%g`` form the backend writes ("100"). */
 export const rpKey = (rp: number): string => String(rp);
 
-// Sequential single-hue (blue) classes; 0 and null each keep their own colour.
-export const NULL_COLOR = "#8a8f98";
-export const ZERO_COLOR = "#f7fbff";
-export interface ValueClass {
-  /** Upper bound (inclusive) in hazard units; Infinity for the last class. */
-  upTo: number;
+// ---- colours: one authority, assets/libraries/board_palettes.json (GET /api/board/palettes) ----
+// No colour is written in this file. The rule below is the spec's `_meta.class_rule`:
+//   null/NaN -> shared.null; 0 with zero_means_none -> shared.zero; value <= breaks[0] ->
+//   class 0; breaks[i-1] < value <= breaks[i] -> class i; value > breaks[-1] -> last class;
+//   class i uses family ramp[steps[i]]. spei_stage: first stage (driest first) with
+//   value <= leq, else shared.zero. change: same break rule on the ratio with change.colors.
+
+export interface PaletteQuantity {
+  family: string;
+  units: string;
+  label: string;
+  basis: string;
+  status: string;
+  breaks?: number[];
+  steps?: number[];
+  zero_means_none?: boolean;
+  stages?: { leq: number; step: number; name: string; label: string }[];
+  above_last?: { use: string; name: string; label: string };
+}
+
+export interface PaletteSpec {
+  shared: {
+    null: { color: string; label: string; meaning: string };
+    zero: { color: string; label: string; meaning: string };
+    piece_outline: { color: string; weight: number };
+    region_outline: { color: string; weight: number };
+    selected_outline: { color: string; weight: number };
+    fill_opacity: number;
+  };
+  families: Record<string, { label: string; ramp: string[] }>;
+  perils: Record<string, string>;
+  quantities: Record<string, PaletteQuantity>;
+  change: { breaks: number[]; colors: string[]; labels: string[] };
+}
+
+export interface PaletteClass {
+  /** Upper bound (inclusive); null for the open last class. */
+  upTo: number | null;
   color: string;
   label: string;
 }
-export const POSITIVE_CLASSES: ValueClass[] = [
-  { upTo: 0.25, color: "#c6dbef", label: "> 0 – 0.25" },
-  { upTo: 0.5, color: "#9ecae1", label: "0.25 – 0.5" },
-  { upTo: 1, color: "#6baed6", label: "0.5 – 1" },
-  { upTo: 2, color: "#3182bd", label: "1 – 2" },
-  { upTo: 4, color: "#08519c", label: "2 – 4" },
-  { upTo: Infinity, color: "#08306b", label: "> 4" },
-];
 
-export function valueColor(value: number | null | undefined): string {
-  if (value === null || value === undefined || Number.isNaN(value)) return NULL_COLOR;
-  if (value === 0) return ZERO_COLOR;
-  return (POSITIVE_CLASSES.find((c) => value <= c.upTo) ?? POSITIVE_CLASSES[POSITIVE_CLASSES.length - 1])
-    .color;
+let palettePromise: Promise<PaletteSpec> | null = null;
+
+/** The palette spec, fetched once; a failed fetch is forgotten so a retry is possible. */
+export function getBoardPalettes(): Promise<PaletteSpec> {
+  if (!palettePromise) {
+    palettePromise = getJson<PaletteSpec>("/api/board/palettes");
+    palettePromise.catch(() => {
+      palettePromise = null;
+    });
+  }
+  return palettePromise;
 }
 
-// ---- chronic metric layers (drought): share and SPEI palettes ---------------------------
-// Share of years (0..1): single-hue brown/orange; 0 is its own lightest class, null grey.
-export const SHARE_ZERO_COLOR = "#fff7ec";
-export const SHARE_CLASSES: ValueClass[] = [
-  { upTo: 0.1, color: "#fdd49e", label: "> 0 – 0.1" },
-  { upTo: 0.2, color: "#fdbb84", label: "0.1 – 0.2" },
-  { upTo: 0.3, color: "#fc8d59", label: "0.2 – 0.3" },
-  { upTo: 0.4, color: "#d94801", label: "0.3 – 0.4" },
-  { upTo: Infinity, color: "#7f2704", label: "> 0.4" },
-];
+const isNull = (v: number | null | undefined): v is null | undefined =>
+  v === null || v === undefined || Number.isNaN(v);
 
-export function shareColor(value: number | null | undefined): string {
-  if (value === null || value === undefined || Number.isNaN(value)) return NULL_COLOR;
-  if (value === 0) return SHARE_ZERO_COLOR;
-  return (SHARE_CLASSES.find((c) => value <= c.upTo) ?? SHARE_CLASSES[SHARE_CLASSES.length - 1]).color;
+function classIndex(breaks: number[], value: number): number {
+  const i = breaks.findIndex((b) => value <= b);
+  return i === -1 ? breaks.length : i;
 }
 
-// SPEI-3 stage classes (docs/DROUGHT_AGRI_KO.md): drier = darker brown.
-export interface SpeiStage {
-  /** Stage applies when SPEI ≤ `leq` (checked from the driest class down). */
-  leq: number;
-  color: string;
-  name: string;
-  label: string;
-}
-export const SPEI_STAGES: SpeiStage[] = [
-  { leq: -2, color: "#7f2704", name: "경계 이상", label: "경계 이상: SPEI-3 ≤ −2" },
-  { leq: -1.5, color: "#d94801", name: "주의", label: "주의: −2 < SPEI-3 ≤ −1.5" },
-  { leq: -1, color: "#fdbb84", name: "관심", label: "관심: −1.5 < SPEI-3 ≤ −1" },
-  { leq: Infinity, color: "#fff7ec", name: "없음", label: "없음: SPEI-3 > −1" },
-];
-
-export function speiStage(value: number): SpeiStage {
-  return SPEI_STAGES.find((s) => value <= s.leq) ?? SPEI_STAGES[SPEI_STAGES.length - 1];
+function quantityOf(spec: PaletteSpec, quantity: string): PaletteQuantity {
+  const q = spec.quantities[quantity];
+  if (!q) throw new Error(`unknown colour quantity ${quantity}`);
+  return q;
 }
 
-export function speiColor(value: number | null | undefined): string {
-  if (value === null || value === undefined || Number.isNaN(value)) return NULL_COLOR;
-  return speiStage(value).color;
+/** `family` only for `loss_ratio`, whose own family is "peril" (the hazard's family). */
+function rampOf(spec: PaletteSpec, q: PaletteQuantity, family?: string): string[] {
+  const f = spec.families[family ?? q.family];
+  if (!f) throw new Error(`unknown colour family ${family ?? q.family}`);
+  return f.ramp;
 }
 
-export function scaleColor(scale: BoardScale | undefined, value: number | null | undefined): string {
-  return scale === "share" ? shareColor(value) : scale === "spei" ? speiColor(value) : valueColor(value);
+const num = (x: number) => String(x);
+
+/** Legend classes of a quantity in class order (spei_stage: driest first, then "없음"). */
+export function paletteClasses(spec: PaletteSpec, quantity: string, family?: string): PaletteClass[] {
+  if (quantity === "change") {
+    const ch = spec.change;
+    return ch.colors.map((color, i) => ({ upTo: ch.breaks[i] ?? null, color, label: ch.labels[i] }));
+  }
+  const q = quantityOf(spec, quantity);
+  if (q.stages) {
+    const ramp = rampOf(spec, q);
+    const out: PaletteClass[] = q.stages.map((s) => ({ upTo: s.leq, color: ramp[s.step], label: s.label }));
+    out.push({ upTo: null, color: spec.shared.zero.color, label: q.above_last?.label ?? "" });
+    return out;
+  }
+  const ramp = rampOf(spec, q, family);
+  const breaks = q.breaks ?? [];
+  return (q.steps ?? []).map((step, i) => ({
+    upTo: i < breaks.length ? breaks[i] : null,
+    color: ramp[step],
+    label: i === 0 ? `≤ ${num(breaks[0])}` : i < breaks.length ? `${num(breaks[i - 1])} – ${num(breaks[i])}` : `> ${num(breaks[breaks.length - 1])}`,
+  }));
+}
+
+/** Hex colour of a value (the identical rule to `climaterisk.board.palette.color`). */
+export function paletteColor(
+  spec: PaletteSpec,
+  quantity: string,
+  value: number | null | undefined,
+  family?: string,
+): string {
+  if (quantity === "change") {
+    if (isNull(value)) return spec.shared.null.color;
+    return spec.change.colors[classIndex(spec.change.breaks, value)];
+  }
+  const q = quantityOf(spec, quantity);
+  if (isNull(value)) return spec.shared.null.color;
+  if (q.stages) {
+    const ramp = rampOf(spec, q);
+    const hit = q.stages.find((s) => value <= s.leq);
+    return hit ? ramp[hit.step] : spec.shared.zero.color;
+  }
+  if (value === 0 && q.zero_means_none) return spec.shared.zero.color;
+  return rampOf(spec, q, family)[(q.steps ?? [])[classIndex(q.breaks ?? [], value)]];
+}
+
+/** Stage name of a SPEI value (spec `stages[].name`, `above_last.name`). */
+export function speiStageName(spec: PaletteSpec, value: number): string {
+  const q = quantityOf(spec, "spei_stage");
+  return q.stages?.find((s) => value <= s.leq)?.name ?? q.above_last?.name ?? "";
+}
+
+/** Quantity colouring `key`: the key's own (metric layers) or `meta.quantity` (return period). */
+export function keyQuantity(meta: BoardMeta, key: string | null): string | null {
+  if (meta.key_kind === "metric") return meta.keys?.find((k) => k.key === key)?.quantity ?? null;
+  return meta.quantity ?? null;
 }

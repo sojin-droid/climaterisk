@@ -77,6 +77,7 @@
   },
   "board": {
     "layer": "drought_spei3_hist_kor",
+    "default_key": "y2022",
     "use_tier": "S",
     "use_tier_reason": "가뭄은 위험도 지표(hazard index)만 제공하며 피해함수가 없고 국내 실측으로 검증되지 않았습니다 (docs/SCOPE.md).",
     "freq_keys": [
@@ -103,7 +104,8 @@
     "notes": [
       "논(관개)은 SPEI로 평가하지 않음 — 저수율 지표 필요",
       "가뭄지수와 노출 농지 면적이며 손실(피해액)이 아님",
-      "빈도는 1991–2020 같은 기간으로 맞추고 센 값(in-sample)"
+      "빈도는 1991–2020 같은 기간으로 맞추고 센 값(in-sample)",
+    "장기 빈도는 격자마다 표준화한 지수의 같은 기간 빈도라 어디서나 비슷하게 나옵니다 — 지역 비교용이 아닙니다. 지역 비교는 연도별 지도로 하세요."
     ],
     "exposure_keys": {
       "upland_ha": "upland",
