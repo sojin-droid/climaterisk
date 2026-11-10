@@ -4,6 +4,7 @@ import { OfflineContext } from "./lib/offline";
 import { useResults } from "./lib/useResults";
 import type { Libraries, Portfolio } from "./types";
 import { ActivityBar, VIEW_IDS, type ViewId } from "./layout/ActivityBar";
+import { BoardView } from "./views/BoardView";
 import { MapView } from "./views/MapView";
 import { ScenariosView } from "./views/ScenariosView";
 import { ResultsView } from "./views/ResultsView";
@@ -141,6 +142,7 @@ export function App() {
               onRunLitpop={results.runLitpop}
             />
           )}
+          {view === "board" && <BoardView />}
           {view === "scenarios" && (
             <ScenariosView model={model} libraries={libraries} patchModel={patchModel} />
           )}
