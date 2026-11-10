@@ -302,6 +302,50 @@ def spei(
     return out[:, 0] if one_d else out.reshape(arr.shape)
 
 
+def compare_rankings(
+    main_by_year: dict[int, float], check_by_year: dict[int, float], top_n: int
+) -> dict[str, Any]:
+    """Do the main and the check method rank the same years as the worst?
+
+    Args:
+        main_by_year: Year -> affected area (ha) from the main method.
+        check_by_year: Year -> affected area (ha) from the check method.
+        top_n: How many top years to compare.
+
+    Returns:
+        ``main_top`` / ``check_top`` (years, descending), ``same_set`` and ``same_order``.
+    """
+
+    def top(d: dict[int, float]) -> list[int]:
+        return [int(y) for y, _ in sorted(d.items(), key=lambda kv: (-kv[1], kv[0]))[:top_n]]
+
+    a, b = top(main_by_year), top(check_by_year)
+    return {"main_top": a, "check_top": b, "same_set": set(a) == set(b), "same_order": a == b}
+
+
+def stage_disagreement(stage_main: Any, stage_check: Any) -> dict[str, Any]:
+    """Share of (year, cell) values where both methods give a stage and the stages differ.
+
+    Args:
+        stage_main: Stage array from :func:`stage` (``-1`` = no value).
+        stage_check: Same shape, from the check method.
+
+    Returns:
+        ``n_both`` (both defined), ``n_check_undefined`` (main defined, check not) and
+        ``share_differ`` (NaN when ``n_both`` is 0).
+    """
+    m = np.asarray(stage_main)
+    c = np.asarray(stage_check)
+    both = (m >= 0) & (c >= 0)
+    n_both = int(both.sum())
+    differ = int((both & (m != c)).sum())
+    return {
+        "n_both": n_both,
+        "n_check_undefined": int(((m >= 0) & (c < 0)).sum()),
+        "share_differ": differ / n_both if n_both else float("nan"),
+    }
+
+
 def stage(s: Any, thresholds: Any = None) -> np.ndarray:
     """Drought stage from SPEI.
 

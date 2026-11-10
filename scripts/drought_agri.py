@@ -174,16 +174,27 @@ def compute_hazard(cfg: dict[str, Any]) -> dict[str, Any]:
     ref = (years >= ref_lo) & (years <= ref_hi)
     scale = int(cfg["spei"]["scale_months"])
     diagnostics: dict[str, int] = {}
+    check_diag: dict[str, int] = {}
     s = da.spei(d, months, scale, ref, diagnostics=diagnostics)
+    # sub check (never a result): the same index with the check distribution
+    s_check = da.spei(
+        d, months, scale, ref, distribution=str(cfg["check"]["distribution"]),
+        diagnostics=check_diag,
+    )  # fmt: skip
     season = np.isin(months, cfg["spei"]["season_end_months"])
     year_list = np.unique(years)
-    yr_min = np.full((year_list.size, nlat * nlon), np.nan)
-    for i, y in enumerate(year_list):
-        sel = (years == y) & season
-        block = s[sel]
-        with np.errstate(all="ignore"):
-            ok = np.isfinite(block).all(axis=0)
-            yr_min[i] = np.where(ok, block.min(axis=0), np.nan)
+
+    def season_min(x: Any) -> Any:
+        out = np.full((year_list.size, nlat * nlon), np.nan)
+        for i, y in enumerate(year_list):
+            block = x[(years == y) & season]
+            with np.errstate(all="ignore"):
+                ok = np.isfinite(block).all(axis=0)
+                out[i] = np.where(ok, block.min(axis=0), np.nan)
+        return out
+
+    yr_min = season_min(s)
+    yr_min_check = season_min(s_check)
     res_deg = float(abs(lon[1] - lon[0]))
     return {
         "lon": np.tile(lon, nlat),
@@ -196,6 +207,8 @@ def compute_hazard(cfg: dict[str, Any]) -> dict[str, Any]:
             "terraclimate_version": str(ppt.attrs.get("version", "")),
         },
         "spei_fit_diagnostics": diagnostics,
+        "check_stage": da.stage(yr_min_check),
+        "check_fit_diagnostics": check_diag,
         "n_cells": nlat * nlon,
         "n_cells_nan_all_years": int(np.isnan(yr_min).all(axis=0).sum()),
     }
@@ -367,6 +380,40 @@ def run(workers: int, limit: int | None) -> dict[str, Any]:
             excluded[code] = excluded.get(code, 0) + n
     assigned_ha = {c: float(farm[c].sum() / 1e4) for c in class_names}
     top = sorted(nat.items(), key=lambda kv: kv[1], reverse=True)[:6]
+    # ---- sub check: same yearly area with the check distribution (diagnostic only)
+    chk_cfg = cfg["check"]
+    check_stage_p = hz["check_stage"][:, pieces["centroid"].to_numpy()]
+    nat_check: dict[int, float] = {}
+    for yi in np.flatnonzero(out_sel):
+        hit = (check_stage_p[yi] >= eval_stage) & has_hazard
+        nat_check[int(years[yi])] = float(eval_m2[hit].sum() / 1e4)
+    ranking = da.compare_rankings(nat, nat_check, int(chk_cfg["top_n_years"]))
+    agree = da.stage_disagreement(hz["stage"], hz["check_stage"])
+    warnings: list[str] = []
+    if not ranking["same_set"]:
+        warnings.append(
+            f"top-{chk_cfg['top_n_years']} drought years differ: main {ranking['main_top']} "
+            f"vs check {ranking['check_top']}"
+        )
+    if agree["share_differ"] > float(chk_cfg["warn_stage_disagreement_share"]):
+        warnings.append(
+            f"stage differs in {agree['share_differ']:.1%} of (year, cell) values where both "
+            f"methods are defined (warn above {chk_cfg['warn_stage_disagreement_share']:.0%})"
+        )
+    check_block = {
+        "role": "sub check only — never a reported result, never averaged with the main",
+        "main_distribution": cfg["spei"]["distribution"],
+        "check_distribution": chk_cfg["distribution"],
+        "check_fit_diagnostics": hz["check_fit_diagnostics"],
+        "check_fit_undefined_share": (
+            hz["check_fit_diagnostics"]["undefined"]
+            / max(hz["check_fit_diagnostics"]["series_months"], 1)
+        ),
+        "stage_agreement": agree,
+        "ranking": ranking,
+        "national_upland_orchard_stage_ge2_ha_by_year_check": nat_check,
+        "warnings": warnings,
+    }
     mean_lat = float(np.mean(hz["lat"]))
     km_ns = res_deg * _M_PER_DEG_LAT / 1000.0
     survey = {r["task"]["folder"]: r["task"]["survey_year"] for r in ok}
@@ -379,8 +426,9 @@ def run(workers: int, limit: int | None) -> dict[str, Any]:
             f"{cfg['boundary_simplify_m']} m",
             "exposure": f"팜맵 {FARMMAP_YEAR} 시도별 SHP (data.go.kr 15104481-15104491), "
             "external/farmmap/2025/manifest.json",
-            "method": "docs/DROUGHT_AGRI_KO.md; Vicente-Serrano, Begueria & Lopez-Moreno 2010, "
-            "J. Climate 23:1696-1718",
+            "method": "docs/DROUGHT_AGRI_KO.md; SPEI (Vicente-Serrano, Begueria & Lopez-Moreno "
+            "2010, J. Climate 23:1696-1718) with GEV by L-moments (Stagge et al. 2015, Int. J. "
+            "Climatol. 35:4027-4040); sub check: log-logistic",
         },
         "config": cfg,
         "resolution": {
@@ -416,6 +464,7 @@ def run(workers: int, limit: int | None) -> dict[str, Any]:
             "area_ha_assigned": assigned_ha,
         },
         "national_upland_orchard_stage_ge2_ha_by_year": nat,
+        "check": check_block,
         "assumptions": [
             "Parcel assignment by representative point (point_on_surface): a parcel crossing a "
             "cell or 시군구 edge goes wholly to one piece; no area splitting.",
@@ -456,6 +505,14 @@ def run(workers: int, limit: int | None) -> dict[str, Any]:
           total("outside"), excluded)  # fmt: skip
     print("top years, national upland+orchard stage>=2 (ha):",
           [(y, round(v)) for y, v in top])  # fmt: skip
+    print(
+        f"sub check ({chk_cfg['distribution']}): undefined fits "
+        f"{check_block['check_fit_undefined_share']:.1%}, stage differs "
+        f"{agree['share_differ']:.1%} where both defined, top years same set: "
+        f"{ranking['same_set']} (check {ranking['check_top']})"
+    )
+    for w in warnings:
+        print("WARNING (sub check):", w)
     if failed:
         print("FAILED files:", [r["task"]["folder"] for r in failed])
     return meta

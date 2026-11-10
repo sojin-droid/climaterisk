@@ -138,3 +138,41 @@ def test_output_schema_if_built() -> None:
     by = pieces.groupby("code")["upland_m2"].sum() / 1e4
     got = summ.set_index("code")["upland_ha"]
     np.testing.assert_allclose(got.reindex(by.index).to_numpy(), by.to_numpy(), rtol=1e-9)
+
+
+def test_sub_check_config_and_comparisons() -> None:
+    """Main method + mandatory sub check (user rule 2026-11-10): config and comparisons."""
+    cfg = da.load_config()
+    assert cfg["spei"]["distribution"] == "gev"
+    assert cfg["check"]["distribution"] != cfg["spei"]["distribution"]
+    main = {2001: 9.0, 2017: 10.0, 1994: 8.0, 2010: 1.0}
+    same = da.compare_rankings(main, {2001: 8.5, 2017: 9.0, 1994: 7.0, 2010: 2.0}, 3)
+    assert same == {
+        "main_top": [2017, 2001, 1994],
+        "check_top": [2017, 2001, 1994],
+        "same_set": True,
+        "same_order": True,
+    }
+    swapped = da.compare_rankings(main, {2001: 9.5, 2017: 9.0, 1994: 7.0, 2010: 2.0}, 3)
+    assert swapped["same_set"] and not swapped["same_order"]
+    other = da.compare_rankings(main, {2001: 1.0, 2017: 9.0, 1994: 7.0, 2010: 8.0}, 3)
+    assert not other["same_set"]  # -> the CLI records a warning
+    m = np.array([[0, 1, 2, -1], [3, 0, 1, 2]])
+    c = np.array([[0, 2, 2, 1], [3, -1, 1, 0]])
+    out = da.stage_disagreement(m, c)
+    assert out["n_both"] == 6 and out["n_check_undefined"] == 1
+    assert out["share_differ"] == pytest.approx(2 / 6)
+
+
+def test_real_outputs_carry_the_sub_check() -> None:
+    import json
+    import os
+
+    base = os.environ.get("DROUGHT_AGRI_CHECK_DIR")
+    if not base:
+        pytest.skip("set DROUGHT_AGRI_CHECK_DIR to check the built outputs")
+    meta = json.loads((Path(base) / "drought_agri.meta.json").read_text(encoding="utf-8"))
+    chk = meta["check"]
+    assert chk["main_distribution"] == "gev" and chk["check_distribution"] == "loglogistic"
+    assert "never" in chk["role"]
+    assert {"ranking", "stage_agreement", "warnings", "check_fit_undefined_share"} <= set(chk)

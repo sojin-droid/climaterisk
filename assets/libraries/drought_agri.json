@@ -68,5 +68,11 @@
   "terraclimate_files": {
     "ppt": "terraclimate_ppt_monthly_korea_1981_2025.nc",
     "pet": "terraclimate_pet_monthly_korea_1981_2025.nc"
+  },
+  "check": {
+    "_note": "Sub check method (user rule 2026-11-10): one main method chosen for the hazard's characteristics plus a mandatory check that is recorded in metadata only and warns on disagreement; never a parallel result.",
+    "distribution": "loglogistic",
+    "top_n_years": 6,
+    "warn_stage_disagreement_share": 0.1
   }
 }
