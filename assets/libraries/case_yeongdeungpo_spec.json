@@ -1,0 +1,124 @@
+{
+  "_note": "Yeongdeungpo 쪽방촌 street-heat case twin. Gate: tests/test_case_yeongdeungpo.py. Mission: docs/reports/twin_case_sites_mission_ko.md section B.",
+  "site": {
+    "name": "영등포 쪽방촌 (영등포역 동·북동쪽, 영등포동 4가 일대)",
+    "bbox": [
+      126.9035,
+      37.5125,
+      126.914,
+      37.5215
+    ],
+    "cell_m": 5.0,
+    "domain_buffer_m": 150.0,
+    "location_method": "Approximate box (about 0.9 x 1.0 km) centred 300 m north-east of 영등포역 (37.5155 N, 126.9076 E in OSM). Evidence: news places the 쪽방촌 a few steps into the alleys off 영등포역 exit 6 / 롯데백화점, in 영등포동 4가 (영신로, 영등포로34길, 경인로), designated as a public-housing district in 2020 (FnNews, Medigate, Metro Seoul); OSM has no 쪽방 tag, the 요셉의원 point (37.5153, 126.9049) and the 영등포동 address cluster lie on its west edge; the box also takes in the S-DoT sensor at 영등포로46길 4 (77 m from its centre). The exact parcel boundary was not found in a public source and is NOT used: the box is the study area, not the 쪽방촌 outline."
+  },
+  "sdot": {
+    "locations_file": "sdot_locations_20260310.xlsx",
+    "files_glob": "S_DOT_ENV_2026.*.csv",
+    "radius_m": 1000,
+    "ring_inner_m": 1000,
+    "ring_outer_m": 3000,
+    "min_ring_sensors": 15,
+    "source": "서울 열린데이터광장 OA-22833 (S-DoT 도시데이터 센서)",
+    "licence": "공공누리 제1유형"
+  },
+  "days": [
+    "2026-08-06",
+    "2026-08-07",
+    "2026-08-05",
+    "2026-08-03",
+    "2026-08-08"
+  ],
+  "days_rule": "Chosen from S-DoT before any modelling: for each date 2026-05-25..2026-09-06, take the median over the S-DoT sensors in the 1-3 km ring around the site centre (site sensors within 1 km excluded, at least 15 ring sensors reporting in the hour) of the hourly mean air temperature; the daily maximum of that median over local hours 10-17 ranks the days; the 5 hottest dates are used (ring-median daily max 39.7, 38.6, 38.4, 38.1, 38.0 degC). The hour of that maximum is the modelling hour. Model fit played no part.",
+  "n_days": 5,
+  "daylight_hours": [
+    10,
+    17
+  ],
+  "height_policy": "osm_only",
+  "floor_to_floor_m": 3.3,
+  "check": {
+    "min_spearman": 0.5
+  },
+  "landcover": {
+    "green_tags": {
+      "leisure": [
+        "park",
+        "garden",
+        "playground",
+        "pitch"
+      ],
+      "landuse": [
+        "grass",
+        "forest",
+        "meadow",
+        "recreation_ground",
+        "village_green"
+      ],
+      "natural": [
+        "wood",
+        "scrub",
+        "grassland"
+      ]
+    }
+  },
+  "road_widths_m": {
+    "primary": 20,
+    "secondary": 16,
+    "tertiary": 12,
+    "residential": 6,
+    "unclassified": 6,
+    "service": 4,
+    "pedestrian": 5,
+    "living_street": 5,
+    "trunk": 24
+  },
+  "model": {
+    "shade_reach_m": 150.0,
+    "sensor_search_radius_m": 10.0,
+    "wind_10m_ms": 1.0,
+    "diffuse_fraction": 0.2,
+    "abs_short": 0.7,
+    "abs_long": 0.97,
+    "emissivity_surface": 0.95,
+    "wall_excess_c": 4.0,
+    "offset_radius_m": 100.0,
+    "t_air_offset_per_built_fraction_c": 0.0,
+    "t_air_offset_per_green_fraction_c": 0.0,
+    "surface": {
+      "road": {
+        "albedo": 0.1,
+        "dT_sun_c": 20.0,
+        "dT_shade_c": 3.0
+      },
+      "other": {
+        "albedo": 0.25,
+        "dT_sun_c": 14.0,
+        "dT_shade_c": 2.0
+      },
+      "green": {
+        "albedo": 0.2,
+        "dT_sun_c": 5.0,
+        "dT_shade_c": 1.0
+      }
+    }
+  },
+  "assumptions": [
+    "Building height policy osm_only: OSM height tag, else building:levels x floor_to_floor_m = 3.3 m (storey height is an assumption, typical 3.0-3.6 m for Korean buildings); otherwise the height is unknown (None). No default storey count is ever applied. Unknown buildings are an explicit footprint-only obstacle with no shadow in the main run; low (1 storey = floor_to_floor) and high (90th percentile of the known OSM heights in the site) are sensitivity runs, not results.",
+    "Terrain is flat: the Copernicus GLO-30 ground relief (a few metres across the site) is ignored; shade and SVF use building heights above a level ground.",
+    "Site box is an approximate study area around 영등포역 east/north-east (OSM + news), not the surveyed 쪽방촌 boundary. Sensors within 1000 m of the box centre are the 'site' sensors; most are therefore neighbourhood sensors, not alley sensors.",
+    "Background air temperature and humidity at the chosen hour = median of the S-DoT sensors in a 1-3 km ring around the site (site sensors excluded). This is a method choice: KMA 1 km TAMAX is local only to 2019 and as an SSP mean, so it cannot give summer 2026. The ring is itself S-DoT (urban, ~3 m high, reads about 1-1.15 degC above AWS), so absolute values carry that bias.",
+    "S-DoT timestamps (HH:07, assumed KST, assumed to label the hour) are used as the observation hour; solar position is computed at HH:07 KST. A one-hour error in this convention would shift the sun by up to about 15 degrees of hour angle.",
+    "Air-temperature offset from local built/green fraction is 0 degC per unit fraction: no Seoul S-DoT/UHI regression coefficient could be cited here, so the spatial signal in the main output is radiative (shade, SVF, surface type) only; the model reproduces none of the observed air-temperature difference by construction.",
+    "Clear sky: Haurwitz (1945) global irradiance with a fixed diffuse share of 0.2; no clouds, no aerosol. The chosen days are the hottest of the summer, which makes clear sky plausible but it is not checked against S-DoT illuminance or KMA radiation.",
+    "Wind at 10 m is 1.0 m/s everywhere (S-DoT wind is mostly missing and a street-canyon wind field is not modelled); UTCI is valid for 0.5-17 m/s.",
+    "Relative humidity is the ring median at the chosen hour, uniform over the site.",
+    "Surface classes are OSM green polygons (grass, park, wood, pitch), roads (OSM highway lines buffered by an assumed class width), and everything else; untagged ground is treated as impervious 'other'. Albedo (road 0.10, other 0.25, green 0.20) and surface-minus-air temperature excess in sun (road 20, other 14, green 5 K) and shade (3, 2, 1 K) are assumed constants, not measured.",
+    "Wall surface temperature for long-wave exchange is air temperature + 4 K, constant; wall albedo equals the ground albedo of the cell. Radiation balance uses the Lindberg et al. (2008) standing-person weights (projected area factor, half sky / half ground) in a simplified, non-iterative form.",
+    "Open structures (building = roof, carport, canopy, bridge) and underground buildings are excluded from the footprints, so awnings and canopies provide no shade in the model.",
+    "Sensor comparison samples the mean over open cells within 10 m of the S-DoT coordinate; sensors mounted on poles at about 3 m near walls may read differently from a pedestrian-height cell. Observation = hourly mean air temperature of the chosen hour, values outside 5-50 degC dropped.",
+    "The sub check compares modelled UTCI with observed air temperature minus the ring median (not UTCI vs UTCI): S-DoT has no mean radiant temperature, and with a zero air-temperature offset the modelled air temperature is constant so cannot be rank-checked. The check is diagnostic only and never changes the result.",
+    "Indoor temperature is not modelled; the 쪽방 indoor reports in the news are context only. Heat illness counts exist only at 구 level, so they select the site but do not validate the street result.",
+    "Tall buildings or sensors outside the 150 m skirt of the model domain are ignored for shade and SVF (shade reach 150 m)."
+  ]
+}
