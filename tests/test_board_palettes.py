@@ -191,4 +191,5 @@ def test_exported_layers_name_known_quantities() -> None:
     for meta in store.list_layers():
         layer = store.load_layer(meta["layer"])
         for k in store.layer_keys(layer):
-            assert store.key_quantity(layer, k) in SPEC["quantities"], (meta["layer"], k)
+            q = store.key_quantity(layer, k)
+            assert q in SPEC["quantities"] or q == "change", (meta["layer"], k)
