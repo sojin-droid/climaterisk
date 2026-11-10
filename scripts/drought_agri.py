@@ -383,11 +383,21 @@ def run(workers: int, limit: int | None) -> dict[str, Any]:
     # ---- sub check: same yearly area with the check distribution (diagnostic only)
     chk_cfg = cfg["check"]
     check_stage_p = hz["check_stage"][:, pieces["centroid"].to_numpy()]
+    # compare like with like: only (year, piece) where BOTH methods give a stage; the
+    # log-logistic is undefined on most dry-tailed cell-months, so its national totals on
+    # their own cover a different (smaller) area than the main
     nat_check: dict[int, float] = {}
+    nat_main_common: dict[int, float] = {}
+    common_share: dict[int, float] = {}
+    main_stage_p = stage_p
     for yi in np.flatnonzero(out_sel):
-        hit = (check_stage_p[yi] >= eval_stage) & has_hazard
-        nat_check[int(years[yi])] = float(eval_m2[hit].sum() / 1e4)
-    ranking = da.compare_rankings(nat, nat_check, int(chk_cfg["top_n_years"]))
+        both = (check_stage_p[yi] >= 0) & (main_stage_p[yi] >= 0) & has_hazard
+        y = int(years[yi])
+        nat_check[y] = float(eval_m2[both & (check_stage_p[yi] >= eval_stage)].sum() / 1e4)
+        nat_main_common[y] = float(eval_m2[both & (main_stage_p[yi] >= eval_stage)].sum() / 1e4)
+        tot = float(eval_m2[has_hazard].sum())
+        common_share[y] = float(eval_m2[both].sum()) / tot if tot else float("nan")
+    ranking = da.compare_rankings(nat_main_common, nat_check, int(chk_cfg["top_n_years"]))
     agree = da.stage_disagreement(hz["stage"], hz["check_stage"])
     warnings: list[str] = []
     if not ranking["same_set"]:
@@ -411,7 +421,10 @@ def run(workers: int, limit: int | None) -> dict[str, Any]:
         ),
         "stage_agreement": agree,
         "ranking": ranking,
+        "comparison_basis": "only (year, piece) where both methods give a stage",
         "national_upland_orchard_stage_ge2_ha_by_year_check": nat_check,
+        "national_upland_orchard_stage_ge2_ha_by_year_main_on_common": nat_main_common,
+        "common_area_share_by_year": common_share,
         "warnings": warnings,
     }
     mean_lat = float(np.mean(hz["lat"]))
