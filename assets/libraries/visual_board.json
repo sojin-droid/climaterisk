@@ -1,0 +1,19 @@
+{
+  "_meta": {
+    "purpose": "Visual board national layers (docs/VISUAL_BOARD_KO.md): which hazard layer to build and which return periods to colour. Periods beyond half the event record are dropped at build time, not substituted.",
+    "version": "1.0.0",
+    "updated": "2026-11-10"
+  },
+  "return_periods_years": [2, 5, 10, 25, 50, 100, 250, 500],
+  "layers": {
+    "river_flood_hist_kor": {
+      "peril": "river_flood",
+      "climate_scenario": "historical",
+      "year_range": "1980_2000",
+      "country_iso3": "KOR",
+      "boundary_version": "2025_2Q",
+      "boundary_code_column": "SIGUNGU_CD",
+      "boundary_name_column": "SIGUNGU_NM"
+    }
+  }
+}

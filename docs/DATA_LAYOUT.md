@@ -27,6 +27,7 @@ backend, the CLIMADA worker, the scripts and the tests). No other code builds a 
     hazard_db/                        local hazard catalogue: catalog.json + HDF5
     calibrations/                     persisted impact-function calibrations (next to hazard_db)
     municipality/                     derived municipality products (V0.3 office points)
+    board/                            visual-board national layers (<layer>.geojson + <layer>.meta.json; scripts/board_layer.py)
   cache/                              regenerable caches
     climada_conf/climada.conf         project-scoped CLIMADA config (generated)
   evidence/                           large reproducibility artefacts

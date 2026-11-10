@@ -124,6 +124,8 @@ def test_named_locations_live_under_the_data_root(
     assert paths.municipality_source_dir() == isolated / "external" / "municipality" / "source"
     assert paths.municipality_office_dir() == isolated / "external" / "municipality" / "office"
     assert paths.derived_municipality_dir() == isolated / "derived" / "municipality"
+    assert paths.derived_board_dir() == isolated / "derived" / "board"
+    assert paths.derived_board_dir("x.geojson") == isolated / "derived" / "board" / "x.geojson"
     assert paths.floodmap_dir() == isolated / "external" / "other" / "floodmap"
     assert paths.cache_dir() == isolated / "cache" and paths.evidence_dir() == isolated / "evidence"
     # none of the project's own data defaults to CLIMADA's directory
