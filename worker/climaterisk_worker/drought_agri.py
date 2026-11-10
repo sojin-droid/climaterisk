@@ -43,7 +43,8 @@ def load_config(path: Path | None = None) -> dict[str, Any]:
         Parsed JSON. Raises ``ValueError`` when the SPEI scale is not a positive integer, the
         reference period or output years are not ``[first, last]`` with first <= last, the
         season months are not in 1..12, the stage thresholds are not strictly decreasing
-        negative numbers with stages numbered 1..n, or a farmland class code is missing.
+        negative numbers with stages numbered 1..n, a farmland class code is missing, or
+        ``future.reference_years`` differs from the present reference period.
     """
     cfg = json.loads((path or config_path()).read_text(encoding="utf-8"))
     spei_cfg = cfg.get("spei", {})
@@ -68,6 +69,12 @@ def load_config(path: Path | None = None) -> dict[str, Any]:
     classes = cfg.get("farmland_classes", {})
     if set(classes.values()) != {"rice", "upland", "orchard", "greenhouse"}:
         raise ValueError("drought_agri.json: farmland_classes must map to the four classes")
+    fut = cfg.get("future")
+    if fut is not None:
+        if fut.get("reference_years") != spei_cfg.get("reference_years"):
+            raise ValueError("drought_agri.json: future.reference_years must equal the present's")
+        if not fut.get("scenarios") or not fut.get("source"):
+            raise ValueError("drought_agri.json: future needs scenarios and source")
     return cfg
 
 
@@ -251,6 +258,53 @@ def spei(
     Returns:
         SPEI with the shape of ``d``; NaN where the accumulation is NaN or the fit failed.
     """
+    return spei_against_reference(d, d, months, scale, ref_mask, clip, distribution, diagnostics)
+
+
+def spei_against_reference(
+    d_ref: Any,
+    d_target: Any,
+    months: Any,
+    scale: int,
+    ref_mask: Any,
+    clip: float | None = None,
+    distribution: str | None = None,
+    diagnostics: dict[str, int] | None = None,
+) -> np.ndarray:
+    """SPEI of a target series standardised with the distribution fitted to a reference series.
+
+    Used for scenario series (e.g. TerraClimate +2 C / +4 C): the fit comes from the PRESENT
+    water balance, so the stage frequencies of the target are comparable with the present
+    ones. :func:`spei` is the special case ``d_target = d_ref``; the fitting is shared.
+
+    Algorithm:
+        Per calendar month $m$, fit the chosen law $F_m$ (GEV by L-moments or log-logistic by
+        PWMs, as in :func:`spei`) to the accumulated reference values
+        $D^{(k)}_{\\mathrm{ref},t}$ with $t$ in the reference period; then
+
+        $$\\mathrm{SPEI}_t = \\Phi^{-1}\\left(F_{m(t)}\\left(D^{(k)}_{\\mathrm{tgt},t}\\right)
+        \\right),\\quad \\text{clipped to } [-c_{\\max}, c_{\\max}]$$
+
+        $D$ in mm/month, accumulated over $k$ months; SPEI dimensionless. A target drier than
+        the reference gives a lower SPEI because $F_m$ is monotonic increasing.
+
+        ASCII: SPEI[t] = PhiInv(F_m(accum(D_tgt)[t])), F_m fitted on accum(D_ref) in the
+        reference period; clipped.
+
+    Args:
+        d_ref: Reference-climate monthly water balance, ``(T,)`` or ``(T, N)``, time first.
+        d_target: Target water balance, same shape and time axis as ``d_ref``.
+        months: ``(T,)`` calendar month 1..12 of each step.
+        scale: Accumulation length $k$ in months.
+        ref_mask: ``(T,)`` bool, True on the reference-period steps used for the fit.
+        clip: Clip magnitude; defaults to ``spei.clip`` of ``drought_agri.json``.
+        distribution: ``"gev"`` or ``"loglogistic"``; defaults to ``spei.distribution``.
+        diagnostics: Optional dict filled as in :func:`spei`.
+
+    Returns:
+        SPEI of ``d_target`` with its shape; NaN where the target accumulation is NaN or the
+        reference fit failed.
+    """
     from scipy.stats import norm
 
     sp = load_config()["spei"] if clip is None or distribution is None else {}
@@ -258,13 +312,18 @@ def spei(
     dist = str(sp.get("distribution", "gev")) if distribution is None else distribution
     if dist not in ("gev", "loglogistic"):
         raise ValueError(f"unknown SPEI distribution {dist!r}")
-    arr = np.asarray(d, dtype=float)
+    arr_ref = np.asarray(d_ref, dtype=float)
+    arr = np.asarray(d_target, dtype=float)
+    if arr_ref.shape != arr.shape:
+        raise ValueError("d_ref and d_target must have the same shape")
     one_d = arr.ndim == 1
+    flat_ref = arr_ref.reshape(arr_ref.shape[0], -1)
     flat = arr.reshape(arr.shape[0], -1)
     mon = np.asarray(months, dtype=int)
     ref = np.asarray(ref_mask, dtype=bool)
     if mon.shape != (flat.shape[0],) or ref.shape != mon.shape:
         raise ValueError("months and ref_mask must have one entry per time step")
+    acc_ref = accumulate(flat_ref, scale)
     acc = accumulate(flat, scale)
     out = np.full(acc.shape, np.nan)
     diag = {"series_months": 0, "fitted": 0, "undefined": 0, "beyond_bound": 0}
@@ -273,7 +332,7 @@ def spei(
         sel = mon == m
         if not sel.any():
             continue
-        ref_vals = acc[sel & ref]
+        ref_vals = acc_ref[sel & ref]
         n = np.isfinite(ref_vals).sum(axis=0)
         x = acc[sel]
         srt = np.sort(ref_vals, axis=0)

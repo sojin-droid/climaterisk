@@ -256,3 +256,21 @@ CHC 서버(data.chc.ucsb.edu)는 2026-11-10 17:53 KST부터 요청을 거부했�
 2. 사과·배 $K_y$: FAO 계열에는 없다. 국내 관수 시험(농촌진흥청) 문헌이나 재해보험 피해율 곡선으로 대체할지 정해야 한다.
 3. 논 피해율 $f(R)$의 형태: 검증 표본(통계집)이 확보돼야 정할 수 있다.
 4. 생산량 기준 손실(t)만 낼지, 금액(원)까지 낼지: 단가 출처(U9)에 달렸다.
+
+---
+
+## 10. 미래 가뭄 — TerraClimate +2 °C / +4 °C (`drought_spei3_future_kor`)
+
+**무엇인가.** TerraClimate v1.1이 관측 1981–2025년 월 자료에 "pseudo climate change experiment"를 적용해 만든 +2C / +4C 시나리오 자료다. 파일 속성 `method`는 "These change layers were created by applying a pseudo climate change experiment for +2C warming scenario to the TerraClimate dataset."이고, `summary`는 "These datasets preserve the observed variability during 1950-2025 but adjust individual climate variables monthly using ensemble median changes derived from CMIP6."이라고 적는다. 즉 **관측한 같은 달들을 CMIP6 앙상블 중앙값의 월별 변화로 옮긴 가상 온난화**이며 특정 연도의 전망이 아니다(CMIP5가 아니라 CMIP6). 연 변동성은 관측과 같고 평균 기후만 이동한다. 무엇 대비 +2 °C인지(기준 기간)는 파일이 밝히지 않는다. 출처는 `TERRACLIMATE_ALL/data_plus2C|data_plus4C`(THREDDS NCSS, bbox 124.5–130.0E, 33.0–38.7N), CC0이며 격자·시간축은 현재 파일과 같다(138×133, 스크립트가 완전 일치를 검사). 폴더별 `manifest.json`에 URL 틀·바이트·sha256·라이선스·인용을 기록했다.
+
+**방법.** 시나리오 $D=\mathrm{ppt}-\mathrm{pet}$ (mm/월)의 3개월 누적값을 **현재** $D$의 1991–2020 달력월별 GEV(L-moments) 적합으로 표준화한다(`spei_against_reference`; `spei`와 적합 코드를 공유하며 `spei(d, d)`와 같다). 5–9월 최소 SPEI-3와 단계 기준 −1/−1.5/−2는 현재와 같고, 빈도는 현재와 같은 1991–2020년 달들을 온난화 기후로 옮겨 센다. 같은 기준 적합이므로 현재 빈도와 직접 비교할 수 있다. 현재 빈도는 표준화 때문에 어디서나 비슷하므로 정보는 **변화 배율**에 있다.
+
+$$r = f_{\mathrm{scenario}} / f_{\mathrm{present}}$$
+
+현재 빈도가 0이면 정의되지 않으며 `base_zero` / `both_zero` 상태로 표시한다.
+
+**보조 점검(log-logistic).** 주 방법과 같은 방식으로 시나리오에도 계산하고, 두 방법이 모두 단계를 내는 (연, 격자) 공통 영역에서 단계 불일치 비율과 변화 배율을 `drought_future.meta.json`에 기록한다(진단 전용, 불일치가 10%를 넘으면 경고).
+
+**읽는 법과 한계.**
+- 이 시나리오에서는 여름철 강수가 PET보다 더 늘어(1991–2020 연 합계: +2C 강수 +5%, PET +4%; +4C 강수 +14%, PET +10%) 수분수지 $D$가 현재보다 커진다. 그래서 가뭄 빈도가 **줄어드는** 방향의 결과가 나온다. 이는 TerraClimate 시나리오(CMIP6 중앙값의 강수 증가, Penman-Monteith PET의 완만한 증가)의 성질이며 월 총량 변화만 담는다. 강수 변동성이나 건기 길이의 변화는 반영되지 않는다.
+- 사용 등급은 S(상대 비교용)이고, 논은 미평가다.

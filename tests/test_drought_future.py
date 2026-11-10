@@ -46,6 +46,7 @@ def _series() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
 
 
 def test_identity_and_drier_shift() -> None:
+    pytest.importorskip("scipy")
     da = pytest.importorskip("climaterisk_worker.drought_agri")
     d, months, ref = _series()
     a = da.spei_against_reference(d, d, months, 3, ref)
