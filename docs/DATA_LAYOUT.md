@@ -19,6 +19,8 @@ backend, the CLIMADA worker, the scripts and the tests). No other code builds a 
       sgis/                           SGIS boundary package (raw government download)
       source/                         official office-address sources (V0.3 input, raw)
       office/                         office layers built from them (V0.3)
+    drought/                          TerraClimate / CHIRPS / KRC / exposure inputs (manifest.json per source)
+    farmmap/<year>/raw/               팜맵 province SHP archives (user copy from data.go.kr; manifest.json)
     climada/                          CLIMADA's data directory (CLIMATERISK_CLIMADA_DATA_DIR):
                                       Data API cache hazard/ + .downloads.db + .apicache,
                                       MRIOT, OSM, E-OBS, IBTrACS, WorldPop, CLIMADA system files
@@ -28,6 +30,7 @@ backend, the CLIMADA worker, the scripts and the tests). No other code builds a 
     calibrations/                     persisted impact-function calibrations (next to hazard_db)
     municipality/                     derived municipality products (V0.3 office points)
     board/                            visual-board national layers (<layer>.geojson + <layer>.meta.json; scripts/board_layer.py)
+    drought/                          agricultural drought v0 (pieces, per-year SPEI stage, 시군구 summary; scripts/drought_agri.py)
   cache/                              regenerable caches
     climada_conf/climada.conf         project-scoped CLIMADA config (generated)
   evidence/                           large reproducibility artefacts

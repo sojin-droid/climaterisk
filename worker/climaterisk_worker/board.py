@@ -187,6 +187,27 @@ def clip_pieces(cells: Any, regions: Any, code_col: str, name_col: str) -> Any:
     return out[["centroid", "code", "name", "area_km2", "geometry"]]
 
 
+def simplify_regions(regions: Any, simplify_m: float) -> Any:
+    """Display-size reduction of region outlines (same rule as ``scripts/board_layer.py``).
+
+    Each outline is simplified on its own in metres (EPSG:5179), so neighbouring outlines may
+    leave gaps or overlaps up to about ``simplify_m``; only which region label a point within
+    that distance of a boundary gets can change.
+
+    Args:
+        regions: Region polygons in any CRS.
+        simplify_m: Douglas-Peucker tolerance in metres; ``<= 0`` returns ``regions`` unchanged.
+
+    Returns:
+        GeoDataFrame in EPSG:4326 (unchanged object when ``simplify_m <= 0``).
+    """
+    if simplify_m <= 0:
+        return regions
+    out = regions.to_crs(KOREA_TM)
+    out["geometry"] = out.geometry.simplify(simplify_m, preserve_topology=True)
+    return out.to_crs(WGS84)
+
+
 def lookup(pieces: Any, lon: float, lat: float) -> dict[str, Any] | None:
     """The piece containing a point.
 
