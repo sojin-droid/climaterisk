@@ -424,14 +424,13 @@ def run(workers: int, limit: int | None) -> dict[str, Any]:
             "farmmap.survey_year_by_sigun.",
             "Piece boundaries use 시군구 outlines simplified 50 m; parcels within about 50 m of a "
             "시군구 boundary may take the neighbouring 시군구 label.",
-            "SPEI-3 from TerraClimate ppt - pet, reference 1991-2020, log-logistic by unbiased "
-            "PWM per cell and calendar month; annual indicator = minimum SPEI-3 over end months "
-            "May-Sep; stage -1/-1.5/-2; a year is NaN if any of those months is NaN.",
-            "Where the reference sample of a cell-month is negatively skewed the log-logistic "
-            "fit is undefined (beta < 0); then the log-logistic is fitted to -x (mirrored), an "
-            "extension beyond Vicente-Serrano et al. 2010 "
-            "(config spei.reflect_when_fit_undefined). "
-            "Counts in spei_fit_diagnostics.",
+            "SPEI-3 from TerraClimate ppt - pet, reference 1991-2020, GEV fitted by L-moments "
+            "per cell and calendar month (Stagge et al. 2015; config spei.distribution); annual "
+            "indicator = minimum SPEI-3 over end months May-Sep; stage -1/-1.5/-2; a year is NaN "
+            "if any of those months is NaN.",
+            "Frequencies are in-sample: the GEV is fitted on 1991-2020 and the stage frequencies "
+            "are counted on the same years. Values beyond the fitted law's bound are clipped to "
+            "+-3 (count in spei_fit_diagnostics.beyond_bound).",
             "TerraClimate 1/24 deg (about 4.6 x 3.7 km) cells are far coarser than parcels: all "
             "parcels in a piece share one SPEI value; no downscaling.",
             "논 (rice) reported as area only, not evaluated: 관개 논은 저수율 지표 필요 "

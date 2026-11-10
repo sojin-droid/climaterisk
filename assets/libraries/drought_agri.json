@@ -1,22 +1,47 @@
 {
   "_meta": {
     "purpose": "Agricultural drought v0 (docs/DROUGHT_AGRI_KO.md): SPEI parameters, season, reference period, stage thresholds and farmland classes. Nothing here is tuned to observed losses.",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "updated": "2026-11-10"
   },
   "spei": {
     "scale_months": 3,
-    "reference_years": [1991, 2020],
-    "season_end_months": [5, 6, 7, 8, 9],
+    "reference_years": [
+      1991,
+      2020
+    ],
+    "season_end_months": [
+      5,
+      6,
+      7,
+      8,
+      9
+    ],
     "clip": 3.0,
-    "reflect_when_fit_undefined": true,
-    "plotting_position": "unbiased PWM (Singh et al. 1993), Vicente-Serrano et al. 2010 eqs. 6-10"
+    "plotting_position": "unbiased PWMs -> L-moments",
+    "distribution": "gev",
+    "distribution_note": "GEV by L-moments (Hosking & Wallis 1997), recommended for SPEI by Stagge et al. 2015 (Int. J. Climatol. 35:4027); the log-logistic (Vicente-Serrano 2010) is undefined for negatively skewed samples (44% of May and 66% of September cells in 1991-2020). 'loglogistic' kept for comparison."
   },
-  "output_years": [1991, 2025],
+  "output_years": [
+    1991,
+    2025
+  ],
   "stages": [
-    {"stage": 1, "name": "관심", "spei_le": -1.0},
-    {"stage": 2, "name": "주의", "spei_le": -1.5},
-    {"stage": 3, "name": "경계 이상", "spei_le": -2.0}
+    {
+      "stage": 1,
+      "name": "관심",
+      "spei_le": -1.0
+    },
+    {
+      "stage": 2,
+      "name": "주의",
+      "spei_le": -1.5
+    },
+    {
+      "stage": 3,
+      "name": "경계 이상",
+      "spei_le": -2.0
+    }
   ],
   "evaluated_stage_for_yearly_area": 2,
   "farmland_classes": {
@@ -25,8 +50,13 @@
     "03": "orchard",
     "04": "greenhouse"
   },
-  "excluded_classes": {"06": "비경지"},
-  "spei_evaluated_classes": ["upland", "orchard"],
+  "excluded_classes": {
+    "06": "비경지"
+  },
+  "spei_evaluated_classes": [
+    "upland",
+    "orchard"
+  ],
   "unevaluated_classes": {
     "rice": "미평가: 관개 논은 저수율 지표 필요 (docs/DROUGHT_AGRI_KO.md)",
     "greenhouse": "미평가: 시설(시설재배)은 강수 의존이 아니라 SPEI 대상이 아님 (면적만 보고)"

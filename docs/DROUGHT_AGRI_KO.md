@@ -48,7 +48,7 @@ CHC 제품은 접근이 회복되면 교차 확인용으로 쓴다. 정의는 �
 
 $$D_{i,m}^{(k)} = \sum_{j=0}^{k-1}\left(P_{i,m-j} - ET_{0,i,m-j}\right), \qquad \mathrm{SPEI}_{i,m}^{(k)} = \Phi^{-1}\!\left(F_{\mathrm{LL3}}\!\left(D_{i,m}^{(k)};\,\theta_{i,\mathrm{month}(m)}\right)\right)$$
 
-ASCII: `D_k = sum_{j<k}(P - ET0)[m-j];  SPEI_k = PhiInv( F_loglogistic3(D_k; params fitted per cell & calendar month over the reference period) )`
+ASCII: `D_k = sum_{j<k}(P - ET0)[m-j];  SPEI_k = PhiInv( F_GEV(D_k; L-moment fit per cell & calendar month over the reference period) )  (2026-11-10: GEV per Stagge et al. 2015 replaces the log-logistic, which is undefined for negatively skewed samples)`
 
 - $P$: 월 강수 (mm/월), $ET_0$: 기준증발산 (mm/월; TerraClimate Penman–Monteith. 정확한 기준면 정의는 TerraClimate 문서에서 확인해야 한다 **[미확인]**)
 - $k$: 누적 개월 수 (3 또는 6), $i$: 격자, $m$: 종료월

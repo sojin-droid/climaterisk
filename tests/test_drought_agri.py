@@ -8,10 +8,12 @@ Module ``worker/climaterisk_worker/drought_agri.py`` (worker env). Method:
 - ``spei(d, months, scale, ref_mask)`` -> SPEI (Vicente-Serrano et al. 2010): ``d`` = monthly
   climatic water balance P - PET (mm, shape (T,) or (T, N)), ``months`` (T,) calendar month
   1..12 of each step, ``ref_mask`` (T,) bool selecting the reference period. For each
-  calendar month separately: accumulate over ``scale`` months, fit a three-parameter
-  log-logistic distribution by unbiased probability-weighted moments on the reference
+  calendar month separately: accumulate over ``scale`` months, fit a GEV by L-moments
+  (Hosking & Wallis 1997; recommended for SPEI by Stagge et al. 2015) on the reference
   steps only, transform through its CDF to the standard normal quantile. Values are
-  clipped to [-3, 3]; NaN where the accumulation is NaN.
+  clipped to [-3, 3]; NaN where the accumulation is NaN. (Revised 2026-11-10 by the
+  reviewer: the log-logistic of Vicente-Serrano et al. 2010 is undefined for negatively
+  skewed samples, 44 % of May and 66 % of September cells in Korea 1991-2020.)
 - ``stage(s)`` -> int array: 0 if s > -1, 1 if -1.5 < s <= -1 (관심), 2 if -2 < s <= -1.5
   (주의), 3 if s <= -2 (경계 이상); NaN -> -1.
 - ``farm_area_by_piece(parcels, pieces)`` -> DataFrame indexed by piece ``id`` with
@@ -51,31 +53,31 @@ def test_accumulate() -> None:
     np.testing.assert_allclose(two[1:, 1], 2 * (x[1:] + x[:-1]))
 
 
-def _loglogistic(rng: np.random.Generator, n: int, alpha: float, beta: float, gamma: float):
+def _gev(rng: np.random.Generator, n: int, xi: float, alpha: float, k: float) -> np.ndarray:
+    """GEV sample, Hosking sign (k > 0 bounded above: long dry tail for a water balance)."""
     u = rng.uniform(1e-6, 1 - 1e-6, n)
-    return gamma + alpha * (u / (1 - u)) ** (1 / beta)
+    return xi + alpha * (1.0 - (-np.log(u)) ** k) / k
 
 
-def test_spei_is_standard_normal_on_loglogistic_data() -> None:
+def test_spei_is_standard_normal_for_either_tail() -> None:
     rng = np.random.default_rng(20261110)
     years = 600
     months = np.tile(np.arange(1, 13), years)
-    # scale 1: each calendar month's d is drawn from its own log-logistic
-    d = np.empty(months.size)
-    for m in range(1, 13):
-        sel = months == m
-        d[sel] = _loglogistic(rng, int(sel.sum()), alpha=30.0 + m, beta=4.0, gamma=-100.0 + 5 * m)
-    s = da.spei(d, months, 1, np.ones(months.size, bool))
-    assert s.shape == d.shape
-    for m in (1, 7):
-        sm = s[months == m]
-        assert abs(float(np.mean(sm))) < 0.1
-        assert abs(float(np.std(sm)) - 1.0) < 0.1
-    # monotone in d within a calendar month
-    sel = months == 4
-    order = np.argsort(d[sel])
-    assert np.all(np.diff(s[sel][order]) >= -1e-9)
-    assert float(np.max(np.abs(s))) <= 3.0
+    for k in (-0.2, 0.25):  # long wet tail / long dry tail
+        d = np.empty(months.size)
+        for m in range(1, 13):
+            sel = months == m
+            d[sel] = _gev(rng, int(sel.sum()), xi=-50.0 + 10 * m, alpha=30.0 + m, k=k)
+        s = da.spei(d, months, 1, np.ones(months.size, bool))
+        assert s.shape == d.shape and np.isfinite(s).all()
+        for m in (1, 7):
+            sm = s[months == m]
+            assert abs(float(np.mean(sm))) < 0.1
+            assert abs(float(np.std(sm)) - 1.0) < 0.1
+        sel = months == 4
+        order = np.argsort(d[sel])
+        assert np.all(np.diff(s[sel][order]) >= -1e-9)
+        assert float(np.max(np.abs(s))) <= 3.0
 
 
 def test_spei_reference_period_and_shape() -> None:

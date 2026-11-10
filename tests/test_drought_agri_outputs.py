@@ -1,4 +1,4 @@
-"""Agricultural drought v0: configuration, mirrored-fit extension and output schema.
+"""Agricultural drought v0: configuration, distribution choice and output schema.
 
 Not the reviewer's gate (``tests/test_drought_agri.py``). The output-schema test reads the
 built files named by ``DROUGHT_AGRI_CHECK_DIR`` and skips when it is unset.
@@ -65,23 +65,21 @@ def test_stage_follows_config_thresholds() -> None:
     np.testing.assert_array_equal(da.stage(s, thresholds=[-0.5]), [1, 1, 1, 1, 1, -1])
 
 
-def test_mirrored_fit_only_where_direct_fit_is_undefined() -> None:
+def test_dry_tail_loglogistic_undefined_gev_fitted() -> None:
+    """A long dry tail (negative skew) breaks the log-logistic; the GEV fits it."""
     rng = np.random.default_rng(11)
     years = 200
     months = np.tile(np.arange(1, 13), years)
-    # negatively skewed balance: mirror image of a log-logistic
     u = rng.uniform(1e-6, 1 - 1e-6, months.size)
-    d = 50.0 - 30.0 * (u / (1 - u)) ** (1 / 5.0)
+    d = 50.0 - 30.0 * (u / (1 - u)) ** (1 / 5.0)  # mirror image of a log-logistic
     ref = np.ones(months.size, bool)
-    strict: dict[str, int] = {}
-    s_strict = da.spei(d, months, 1, ref, reflect=False, diagnostics=strict)
-    assert strict["undefined"] == 12 and strict["reflected"] == 0
-    assert np.isnan(s_strict).all()
-    diag: dict[str, int] = {}
-    s = da.spei(d, months, 1, ref, reflect=True, diagnostics=diag)
-    assert diag["reflected"] == 12 and diag["undefined"] == 0
-    assert abs(float(np.mean(s))) < 0.1 and abs(float(np.std(s)) - 1.0) < 0.1
-    # monotone: a larger balance never gives a lower SPEI
+    ll: dict[str, int] = {}
+    s_ll = da.spei(d, months, 1, ref, distribution="loglogistic", diagnostics=ll)
+    assert ll["undefined"] == 12 and np.isnan(s_ll).all()
+    gv: dict[str, int] = {}
+    s = da.spei(d, months, 1, ref, distribution="gev", diagnostics=gv)
+    assert gv["fitted"] == 12 and gv["undefined"] == 0 and np.isfinite(s).all()
+    assert abs(float(np.mean(s))) < 0.1 and abs(float(np.std(s)) - 1.0) < 0.15
     order = np.argsort(d[months == 3])
     assert np.all(np.diff(s[months == 3][order]) >= -1e-9)
 

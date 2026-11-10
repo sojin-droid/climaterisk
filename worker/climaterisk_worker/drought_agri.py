@@ -136,57 +136,105 @@ def _fit_loglogistic_pwm(sorted_x: np.ndarray, n: np.ndarray) -> tuple[Any, Any,
     )
 
 
+def _fit_gev_lmom(sorted_x: np.ndarray, n: np.ndarray) -> tuple[Any, Any, Any]:
+    """GEV fit by L-moments (Hosking 1990; Hosking & Wallis 1997) for many series at once.
+
+    Args:
+        sorted_x: ``(n_max, N)`` ascending along axis 0, NaN last.
+        n: ``(N,)`` number of finite values per series.
+
+    Returns:
+        ``(xi, alpha, k)`` each ``(N,)`` (Hosking sign: ``k > 0`` bounded above, ``k < 0``
+        bounded below, ``k = 0`` Gumbel); NaN where the fit is undefined (fewer than 4
+        values, non-positive L-scale, non-finite moments).
+    """
+    from scipy.special import gamma as gamma_fn
+
+    rows = np.arange(1, sorted_x.shape[0] + 1, dtype=float)[:, None]
+    nn = n.astype(float)[None, :]
+    valid = rows <= nn
+    x = np.where(valid, sorted_x, 0.0)
+    with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
+        # unbiased PWMs b_r = (1/N) sum_i [C(i-1, r) / C(N-1, r)] x_(i)
+        b0 = np.where(valid, 1.0 / nn, 0.0)
+        b1 = np.where(valid, (rows - 1.0) / (nn - 1.0) / nn, 0.0)
+        b2 = np.where(valid, (rows - 1.0) * (rows - 2.0) / ((nn - 1.0) * (nn - 2.0)) / nn, 0.0)
+        p0 = (b0 * x).sum(axis=0)
+        p1 = (b1 * x).sum(axis=0)
+        p2 = (b2 * x).sum(axis=0)
+        l1 = p0
+        l2 = 2.0 * p1 - p0
+        l3 = 6.0 * p2 - 6.0 * p1 + p0
+        t3 = l3 / l2
+        c = 2.0 / (3.0 + t3) - np.log(2.0) / np.log(3.0)
+        k = 7.8590 * c + 2.9554 * c * c
+        small = np.abs(k) < 1e-6
+        ks = np.where(small, 1.0, k)
+        g = gamma_fn(1.0 + ks)
+        alpha = np.where(small, l2 / np.log(2.0), l2 * ks / ((1.0 - 2.0 ** (-ks)) * g))
+        xi = np.where(small, l1 - 0.5772156649015329 * alpha, l1 - alpha * (1.0 - g) / ks)
+        k = np.where(small, 0.0, k)
+    ok = (n >= 4) & np.isfinite(alpha) & (alpha > 0) & np.isfinite(xi) & np.isfinite(k)
+    return np.where(ok, xi, np.nan), np.where(ok, alpha, np.nan), np.where(ok, k, np.nan)
+
+
+def _gev_cdf(x: Any, xi: Any, alpha: Any, k: Any) -> Any:
+    """GEV CDF (Hosking sign); 0 below a lower bound, 1 above an upper bound."""
+    with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
+        z = (x - xi) / alpha
+        arg = 1.0 - k * z
+        safe_k = np.where(k == 0, 1.0, k)
+        y = np.where(k == 0, z, -np.log(np.where(arg > 0, arg, np.nan)) / safe_k)
+        f = np.exp(-np.exp(-y))
+        outside = (k != 0) & ~(arg > 0)
+        bound = np.where(k > 0, 1.0, 0.0)  # k > 0: above the upper bound; k < 0: below lower
+        return np.where(outside, bound, f)
+
+
 def spei(
     d: Any,
     months: Any,
     scale: int,
     ref_mask: Any,
     clip: float | None = None,
-    reflect: bool | None = None,
+    distribution: str | None = None,
     diagnostics: dict[str, int] | None = None,
 ) -> np.ndarray:
     """Standardised Precipitation-Evapotranspiration Index (Vicente-Serrano et al. 2010).
 
-    Reference: S. M. Vicente-Serrano, S. Begueria, J. I. Lopez-Moreno, 2010, "A multiscalar
-    drought index sensitive to global warming: the Standardized Precipitation
-    Evapotranspiration Index", J. Climate 23, 1696-1718, section 2b; probability-weighted
-    moment forms of the log-logistic after Singh, Guo & Yu (1993), Stoch. Hydrol. Hydraul. 7.
+    References: S. M. Vicente-Serrano, S. Begueria, J. I. Lopez-Moreno, 2010, J. Climate 23,
+    1696-1718 (index definition, log-logistic); J. H. Stagge, L. M. Tallaksen, L. Gudmundsson,
+    A. F. Van Loon, K. Stahl, 2015, "Candidate distributions for climatological drought
+    indices (SPI and SPEI)", Int. J. Climatol. 35, 4027-4040 (recommend GEV for SPEI);
+    J. R. M. Hosking & J. R. Wallis, 1997, Regional Frequency Analysis (GEV by L-moments).
 
     Algorithm:
         The climatic water balance $D$ (mm/month, precipitation minus reference
         evapotranspiration) is accumulated over $k$ months, $D^{(k)}_t = \\sum_{j<k} D_{t-j}$.
-        For each calendar month separately the reference-period values, sorted ascending
-        $x_{(1)} \\le \\dots \\le x_{(N)}$, give the unbiased probability-weighted moments
+        For each calendar month separately the reference-period values give the sample
+        L-moments $\\lambda_1, \\lambda_2$ and L-skewness $\\tau_3 = \\lambda_3/\\lambda_2$
+        (from unbiased PWMs). Default ``distribution="gev"``:
 
-        $$w_s = \\frac{1}{N}\\sum_{i=1}^{N}\\frac{\\binom{N-i}{s}}{\\binom{N-1}{s}}\\,x_{(i)},
-        \\quad s = 0, 1, 2$$
+        $$c = \\frac{2}{3+\\tau_3} - \\frac{\\ln 2}{\\ln 3},\\quad \\kappa = 7.8590c + 2.9554c^2,
+        \\quad \\alpha = \\frac{\\lambda_2 \\kappa}{(1-2^{-\\kappa})\\Gamma(1+\\kappa)},\\quad
+        \\xi = \\lambda_1 - \\frac{\\alpha\\,(1-\\Gamma(1+\\kappa))}{\\kappa}$$
 
-        and the three-parameter log-logistic parameters
+        $$F(x) = \\exp\\left[-\\left(1 - \\kappa\\frac{x-\\xi}{\\alpha}\\right)^{1/\\kappa}
+        \\right]$$
 
-        $$\\beta = \\frac{2 w_1 - w_0}{6 w_1 - w_0 - 6 w_2},\\quad
-        \\alpha = \\frac{(w_0 - 2 w_1)\\,\\beta}{\\Gamma(1+1/\\beta)\\,\\Gamma(1-1/\\beta)},\\quad
-        \\gamma = w_0 - \\alpha\\,\\Gamma(1+1/\\beta)\\,\\Gamma(1-1/\\beta)$$
+        ($\\kappa = 0$: Gumbel, $\\alpha = \\lambda_2/\\ln 2$,
+        $\\xi = \\lambda_1 - 0.5772\\alpha$). The shape $\\kappa$ takes either
+        sign, so a sample with a long DRY tail (negative skew) is fitted by the same law as
+        one with a long wet tail; the log-logistic is undefined there.
+        $\\mathrm{SPEI} = \\Phi^{-1}(F(D^{(k)}))$, clipped to $[-c_{\\max}, c_{\\max}]$; values
+        beyond a bound of the fitted law get $F = 0$ or $1$ and so the clip value.
+        ``distribution="loglogistic"`` keeps the original three-parameter log-logistic (PWM
+        fit) for comparison; it is NaN wherever its shape is undefined. Symbols: $D$ mm/month;
+        $\\xi$ location (mm), $\\alpha$ scale (mm), $\\kappa$ shape (-); SPEI dimensionless.
 
-        with cumulative distribution
-
-        $$F(x) = \\left[1 + \\left(\\frac{\\alpha}{x - \\gamma}\\right)^{\\beta}\\right]^{-1}$$
-
-        and $\\mathrm{SPEI} = \\Phi^{-1}(F(D^{(k)}))$ (standard normal quantile), clipped to
-        $[-c, c]$. Symbols: $D$ mm/month; $x_{(i)}$ mm (accumulated); $N$ reference years;
-        $\\alpha$ scale (mm), $\\beta$ shape (-), $\\gamma$ origin (mm); SPEI dimensionless.
-
-        ASCII: w_s = (1/N) sum_i [C(N-i,s)/C(N-1,s)] x_(i); beta = (2 w1 - w0)/(6 w1 - w0 - 6 w2);
-        alpha = (w0 - 2 w1) beta / (G(1+1/beta) G(1-1/beta)); gamma = w0 - alpha G(1+1/beta)
-        G(1-1/beta); F(x) = 1/(1 + (alpha/(x-gamma))^beta); SPEI = PhiInv(F), clip +-c.
-
-        $x \\le \\gamma$ gives $F = 0$, which clips to $-c$.
-
-        The log-logistic is right-skewed; a reference sample with negative skew gives
-        $\\beta < 0$ and the fit is undefined (also $\\beta \\le 1$, fewer than 4 reference
-        values, non-finite moments). Extension beyond the paper, switched by ``reflect``:
-        such a series is fitted to $-x$ instead and $\\mathrm{SPEI} = -\\Phi^{-1}(F_{-x}(-D))$,
-        i.e. a mirrored log-logistic (left tail heavy). Without it, or when the mirrored fit
-        also fails, the value is NaN. ASCII: SPEI = -PhiInv(F_fit(-D)) with the fit on -x.
+        ASCII: c = 2/(3+t3) - ln2/ln3; k = 7.8590 c + 2.9554 c^2;
+        alpha = l2 k / ((1-2^-k) G(1+k)); xi = l1 - alpha (1 - G(1+k))/k;
+        F = exp(-(1 - k (x-xi)/alpha)^(1/k)); SPEI = PhiInv(F), clipped.
 
     Args:
         d: Monthly water balance, shape ``(T,)`` or ``(T, N)``, time first, consecutive
@@ -194,21 +242,22 @@ def spei(
         months: ``(T,)`` calendar month 1..12 of each step.
         scale: Accumulation length $k$ in months.
         ref_mask: ``(T,)`` bool, True on the reference-period steps used for the fit.
-        clip: Clip magnitude $c$; defaults to ``spei.clip`` of ``drought_agri.json``.
-        reflect: Use the mirrored fit where the direct fit is undefined; defaults to
-            ``spei.reflect_when_fit_undefined`` of ``drought_agri.json``.
-        diagnostics: Optional dict filled with ``series_months`` (series x calendar months with
-            a usable reference sample), ``direct``, ``reflected`` and ``undefined`` counts.
+        clip: Clip magnitude; defaults to ``spei.clip`` of ``drought_agri.json``.
+        distribution: ``"gev"`` or ``"loglogistic"``; defaults to ``spei.distribution``.
+        diagnostics: Optional dict filled with ``series_months`` (series x calendar months
+            with a usable reference sample), ``fitted``, ``undefined`` and
+            ``beyond_bound`` (values that fell outside the fitted law's support).
 
     Returns:
         SPEI with the shape of ``d``; NaN where the accumulation is NaN or the fit failed.
     """
     from scipy.stats import norm
 
-    if clip is None or reflect is None:
-        sp = load_config()["spei"]
-        clip = float(sp["clip"]) if clip is None else clip
-        reflect = bool(sp.get("reflect_when_fit_undefined", False)) if reflect is None else reflect
+    sp = load_config()["spei"] if clip is None or distribution is None else {}
+    clip = float(sp["clip"]) if clip is None else clip
+    dist = str(sp.get("distribution", "gev")) if distribution is None else distribution
+    if dist not in ("gev", "loglogistic"):
+        raise ValueError(f"unknown SPEI distribution {dist!r}")
     arr = np.asarray(d, dtype=float)
     one_d = arr.ndim == 1
     flat = arr.reshape(arr.shape[0], -1)
@@ -218,12 +267,7 @@ def spei(
         raise ValueError("months and ref_mask must have one entry per time step")
     acc = accumulate(flat, scale)
     out = np.full(acc.shape, np.nan)
-    diag = {"series_months": 0, "direct": 0, "reflected": 0, "undefined": 0}
-
-    def _z(x: Any, alpha: Any, beta: Any, gamma: Any) -> Any:
-        with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
-            ratio = np.where(x > gamma, alpha / (x - gamma), np.inf)
-            return norm.ppf(1.0 / (1.0 + ratio**beta))
+    diag = {"series_months": 0, "fitted": 0, "undefined": 0, "beyond_bound": 0}
 
     for m in range(1, 13):
         sel = mon == m
@@ -231,26 +275,28 @@ def spei(
             continue
         ref_vals = acc[sel & ref]
         n = np.isfinite(ref_vals).sum(axis=0)
-        alpha, beta, gamma = _fit_loglogistic_pwm(np.sort(ref_vals, axis=0), n)
         x = acc[sel]
-        z = _z(x, alpha, beta, gamma)
-        direct = np.isfinite(beta)
-        if reflect:
-            ra, rb, rg = _fit_loglogistic_pwm(np.sort(-ref_vals, axis=0), n)
-            zr = -_z(-x, ra, rb, rg)
-            use_ref = ~direct & np.isfinite(rb)
-            z = np.where(use_ref, zr, z)
+        srt = np.sort(ref_vals, axis=0)
+        if dist == "gev":
+            xi, alpha, k = _fit_gev_lmom(srt, n)
+            f = _gev_cdf(x, xi, alpha, k)
+            usable = np.isfinite(k)
         else:
-            use_ref = np.zeros_like(direct)
-        usable = direct | use_ref
-        z = np.clip(z, -clip, clip)
-        out[sel] = np.where(np.isfinite(x) & usable[None, :], z, np.nan)
+            a, b, g = _fit_loglogistic_pwm(srt, n)
+            with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
+                ratio = np.where(x > g, a / (x - g), np.inf)
+                f = 1.0 / (1.0 + ratio**b)
+            usable = np.isfinite(b)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            z = np.clip(norm.ppf(f), -clip, clip)
+        good = np.isfinite(x) & usable[None, :]
+        out[sel] = np.where(good, z, np.nan)
         has_ref = n > 0
         diag["series_months"] += int(has_ref.sum())
-        diag["direct"] += int((direct & has_ref).sum())
-        diag["reflected"] += int((use_ref & has_ref).sum())
+        diag["fitted"] += int((usable & has_ref).sum())
         diag["undefined"] += int((~usable & has_ref).sum())
-    log.debug("spei shape=%s scale=%d %s", out.shape, scale, diag)
+        diag["beyond_bound"] += int((good & ((f <= 0.0) | (f >= 1.0))).sum())
+    log.debug("spei shape=%s scale=%d dist=%s %s", out.shape, scale, dist, diag)
     if diagnostics is not None:
         diagnostics.update(diag)
     return out[:, 0] if one_d else out.reshape(arr.shape)
