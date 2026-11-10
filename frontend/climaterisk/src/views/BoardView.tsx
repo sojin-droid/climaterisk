@@ -7,6 +7,9 @@ import {
   getBoardLookup,
   getBoardPalettes,
   getBoardRegion,
+  changePieceStyle,
+  fmtChange,
+  isChangeLayer,
   keyQuantity,
   paletteClasses,
   paletteColor,
@@ -20,6 +23,7 @@ import {
   type BoardLookup,
   type BoardMeta,
   type BoardRegion,
+  type BoardStatus,
 } from "../lib/board";
 import { OFFLINE_MAP_NOTE, useOffline } from "../lib/offline";
 
@@ -98,7 +102,9 @@ export function BoardView() {
     getBoardLayers()
       .then((ls) => {
         setLayers(ls);
-        if (ls.length > 0) setLayerName(ls[0].layer);
+        // open on an absolute layer; the change layers are the second group of the selector
+        const first = ls.find((l) => !isChangeLayer(l)) ?? ls[0];
+        if (first) setLayerName(first.layer);
       })
       .catch((e: Error) => setError(e.message));
   }, []);
@@ -182,12 +188,15 @@ export function BoardView() {
     [palettes, quantity, family],
   );
 
-  const style = (f?: { properties?: { value?: number | null } }): PolylineOptions => {
+  const change = quantity === "change";
+
+  const style = (f?: { properties?: { value?: number | null; status?: BoardStatus | null } }): PolylineOptions => {
     if (!palettes || !quantity) return {};
+    const chg = change ? changePieceStyle(palettes, f?.properties?.value, f?.properties?.status) : null;
     return {
-      fillColor: paletteColor(palettes, quantity, f?.properties?.value, family),
+      fillColor: chg ? chg.fill : paletteColor(palettes, quantity, f?.properties?.value, family),
       fillOpacity: palettes.shared.fill_opacity,
-      color: palettes.shared.piece_outline.color,
+      color: chg?.outline ?? palettes.shared.piece_outline.color,
       weight: palettes.shared.piece_outline.weight,
       opacity: 1,
       smoothFactor: 0, // no simplification: crisp grid edges
@@ -253,11 +262,22 @@ export function BoardView() {
             <div className="field">
               <label htmlFor="board-layer">재해 층 · Layer</label>
               <select id="board-layer" value={layerName} onChange={(e) => setLayerName(e.target.value)}>
-                {layers?.map((l) => (
-                  <option key={l.layer} value={l.layer}>
-                    {layerLabel(l)}
-                  </option>
-                ))}
+                <optgroup label="절대값 · Absolute">
+                  {layers?.filter((l) => !isChangeLayer(l)).map((l) => (
+                    <option key={l.layer} value={l.layer}>
+                      {layerLabel(l)}
+                    </option>
+                  ))}
+                </optgroup>
+                {layers?.some(isChangeLayer) && (
+                  <optgroup label="변화 · Change (미래 ÷ 기준)">
+                    {layers.filter(isChangeLayer).map((l) => (
+                      <option key={l.layer} value={l.layer}>
+                        {layerLabel(l)}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
             </div>
 
@@ -358,19 +378,31 @@ export function BoardView() {
 
             <div>
               <div className="section-title" data-testid="legend-title">
-                범례 · Legend{quantity && palettes?.quantities[quantity] ? ` — ${palettes.quantities[quantity].label} (${palettes.quantities[quantity].units})` : ""}
+                범례 · Legend
+                {change && palettes
+                  ? ` — ${palettes.change.label}`
+                  : quantity && palettes?.quantities[quantity]
+                    ? ` — ${palettes.quantities[quantity].label} (${palettes.quantities[quantity].units})`
+                    : ""}
               </div>
               <div className="legend" data-testid="legend" style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 6 }}>
                 {palettes && (
                   <>
                     <LegendRow color={palettes.shared.null.color} label={palettes.shared.null.label} />
                     {/* zero swatch only where 0 means "none"; stage quantities show it as their own last class */}
-                    {quantity && palettes.quantities[quantity]?.zero_means_none && (
+                    {((quantity && palettes.quantities[quantity]?.zero_means_none) || change) && (
                       <LegendRow color={palettes.shared.zero.color} label={palettes.shared.zero.label} />
+                    )}
+                    {change && (
+                      <LegendRow
+                        color={palettes.shared.base_zero.color}
+                        outline={palettes.shared.base_zero.outline}
+                        label={palettes.shared.base_zero.label}
+                      />
                     )}
                   </>
                 )}
-                {palettes && quantity && !palettes.quantities[quantity] && (
+                {palettes && quantity && !change && !palettes.quantities[quantity] && (
                   <div className="hint" role="alert">알 수 없는 색 기준: {quantity}</div>
                 )}
                 {palettes && !quantity && (
@@ -380,11 +412,16 @@ export function BoardView() {
                   <LegendRow
                     key={`${c.color}|${c.label}`}
                     color={c.color}
-                    label={quantity && palettes?.quantities[quantity]?.stages ? c.label : `${c.label} ${palettes?.quantities[quantity ?? ""]?.units ?? ""}`}
+                    label={change || (quantity && palettes?.quantities[quantity]?.stages) ? c.label : `${c.label} ${palettes?.quantities[quantity ?? ""]?.units ?? ""}`}
                   />
                 ))}
               </div>
-              {quantity && palettes?.quantities[quantity]?.basis && (
+              {change && palettes && (
+                <div className="hint" data-testid="legend-basis" style={{ marginTop: 4, fontSize: 11 }}>
+                  {palettes.change.basis}
+                </div>
+              )}
+              {!change && quantity && palettes?.quantities[quantity]?.basis && (
                 <div className="hint" data-testid="legend-basis" style={{ marginTop: 4, fontSize: 11 }}>
                   {palettes.quantities[quantity].basis}
                 </div>
@@ -423,7 +460,11 @@ export function BoardView() {
                         {meta.periods_kept.map((p) => (
                           <tr key={p}>
                             <td>{p}년</td>
-                            <td style={{ textAlign: "right" }}>{fmt(picked.values[rpKey(p)], units)}</td>
+                            <td style={{ textAlign: "right" }}>
+                              {change
+                                ? fmtChange(palettes, picked.values[rpKey(p)], picked.status?.[rpKey(p)])
+                                : fmt(picked.values[rpKey(p)], units)}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -467,7 +508,11 @@ export function BoardView() {
                                 <tr key={p}>
                                   <td>{p}년</td>
                                   <td style={{ textAlign: "right" }}>
-                                    {r ? `${r.min.toFixed(2)} – ${r.max.toFixed(2)} ${units}` : "자료 없음"}
+                                    {r
+                                      ? change
+                                        ? `×${r.min.toFixed(2)} – ×${r.max.toFixed(2)}`
+                                        : `${r.min.toFixed(2)} – ${r.max.toFixed(2)} ${units}`
+                                      : "자료 없음"}
                                   </td>
                                 </tr>
                               );
@@ -492,10 +537,10 @@ export function BoardView() {
   );
 }
 
-function LegendRow({ color, label }: { color: string; label: string }) {
+function LegendRow({ color, label, outline }: { color: string; label: string; outline?: string }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
-      <span style={{ width: 18, height: 12, background: color, border: "1px solid var(--border)", display: "inline-block" }} />
+      <span style={{ width: 18, height: 12, background: color, border: `1px solid ${outline ?? "var(--border)"}`, display: "inline-block" }} />
       {label}
     </div>
   );

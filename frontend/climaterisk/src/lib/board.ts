@@ -18,8 +18,11 @@ export interface BoardMeta {
   layer: string;
   label?: string;
   peril?: string;
-  /** Return-period layers: quantity colouring every key. */
+  /** Return-period layers: quantity colouring every key ("change" = future / base ratio). */
   quantity?: string;
+  /** Change layers: the two layers the ratio is taken between. */
+  base_layer?: string;
+  future_layer?: string;
   /** Metric layers: key shown first. */
   default_key?: string;
   /** "metric" = chronic layer with named keys (drought); default return-period layer. */
@@ -40,6 +43,11 @@ export interface BoardMeta {
   use_tier_reason: string;
 }
 
+/** Why a change ratio is undefined: "base_zero" (base 0, future > 0), "both_zero", "null" (no data). */
+export type BoardStatus = "base_zero" | "both_zero" | "null";
+
+export const isChangeLayer = (meta: BoardMeta | null | undefined): boolean => meta?.quantity === "change";
+
 export type BoardValues = Record<string, number | null>;
 
 export interface BoardLookup {
@@ -48,6 +56,8 @@ export interface BoardLookup {
   name: string;
   centroid: number;
   values: BoardValues;
+  /** Change layers: why a ratio is missing, per key (only non-empty ones are present). */
+  status?: Record<string, BoardStatus>;
   cell_km_ns: number;
   cell_km_ew: number;
   exposure?: BoardExposure | null;
@@ -74,6 +84,7 @@ export interface BoardFeature {
     code: string;
     name: string;
     value: number | null;
+    status?: BoardStatus | null;
     exposure?: BoardExposure | null;
   };
 }
@@ -146,6 +157,7 @@ export interface PaletteSpec {
   shared: {
     null: { color: string; label: string; meaning: string };
     zero: { color: string; label: string; meaning: string };
+    base_zero: { color: string; outline: string; label: string; meaning: string };
     piece_outline: { color: string; weight: number };
     region_outline: { color: string; weight: number };
     selected_outline: { color: string; weight: number };
@@ -154,7 +166,7 @@ export interface PaletteSpec {
   families: Record<string, { label: string; ramp: string[] }>;
   perils: Record<string, string>;
   quantities: Record<string, PaletteQuantity>;
-  change: { breaks: number[]; colors: string[]; labels: string[] };
+  change: { label: string; basis: string; breaks: number[]; colors: string[]; labels: string[] };
 }
 
 export interface PaletteClass {
@@ -242,6 +254,33 @@ export function paletteColor(
   }
   if (value === 0 && q.zero_means_none) return spec.shared.zero.color;
   return rampOf(spec, q, family)[(q.steps ?? [])[classIndex(q.breaks ?? [], value)]];
+}
+
+/**
+ * Fill of a change-layer piece: `base_zero` -> shared.base_zero (white, grey outline),
+ * `both_zero` -> shared.zero, otherwise the ratio's class (null ratio -> shared.null).
+ * `outline` is set only where the spec gives the piece its own outline colour.
+ */
+export function changePieceStyle(
+  spec: PaletteSpec,
+  value: number | null | undefined,
+  status: BoardStatus | null | undefined,
+): { fill: string; outline?: string } {
+  if (status === "base_zero") return { fill: spec.shared.base_zero.color, outline: spec.shared.base_zero.outline };
+  if (status === "both_zero") return { fill: spec.shared.zero.color };
+  return { fill: paletteColor(spec, "change", value) };
+}
+
+/** "×1.40" for a ratio; the status text where there is none; "자료 없음" for null. */
+export function fmtChange(
+  spec: PaletteSpec | null,
+  value: number | null | undefined,
+  status: BoardStatus | null | undefined,
+): string {
+  if (value !== null && value !== undefined && !Number.isNaN(value)) return `×${value.toFixed(2)}`;
+  if (status === "base_zero") return spec?.shared.base_zero.label ?? "기준 0 · 배율 없음";
+  if (status === "both_zero") return spec?.shared.zero.label ?? "0 · 영향 없음";
+  return "자료 없음";
 }
 
 /** Stage name of a SPEI value (spec `stages[].name`, `above_last.name`). */

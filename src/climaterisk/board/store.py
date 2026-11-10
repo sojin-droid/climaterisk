@@ -176,6 +176,7 @@ def geojson(layer: dict[str, Any], key: float | str) -> dict[str, Any]:
                     "code": piece["code"],
                     "name": piece["name"],
                     "value": piece["values"].get(vkey),
+                    "status": (piece.get("status") or {}).get(vkey),
                     "exposure": piece.get("exposure"),
                 },
             }
@@ -212,6 +213,7 @@ def lookup(layer: dict[str, Any], lon: float, lat: float) -> dict[str, Any] | No
                     "name": piece["name"],
                     "centroid": piece["centroid"],
                     "values": piece["values"],
+                    "status": piece.get("status") or {},
                     "exposure": piece.get("exposure"),
                     "key_kind": meta.get("key_kind", "return_period"),
                     "cell_km_ns": meta["cell_km_ns"],

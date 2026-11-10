@@ -1,12 +1,22 @@
 {
   "_meta": {
-    "purpose": "Visual board national layers (docs/VISUAL_BOARD_KO.md): which hazard layer to build and which return periods to colour. Periods beyond half the event record are dropped at build time, not substituted.",
-    "version": "1.0.0",
-    "updated": "2026-11-10"
+    "purpose": "Visual board national layers (docs/VISUAL_BOARD_KO.md): which hazard layer to build and which return periods to colour. Periods beyond half the event record are dropped at build time, not substituted. change_layers: ratio of two built layers (like-for-like). rp_check: sub-check tolerance.",
+    "version": "1.1.0",
+    "updated": "2026-11-11"
   },
-  "return_periods_years": [2, 5, 10, 25, 50, 100, 250, 500],
+  "return_periods_years": [
+    2,
+    5,
+    10,
+    25,
+    50,
+    100,
+    250,
+    500
+  ],
   "layers": {
     "river_flood_hist_kor": {
+      "label": "하천 홍수 · 과거(1980–2000) · 한국",
       "peril": "river_flood",
       "quantity": "water_depth_m",
       "climate_scenario": "historical",
@@ -18,6 +28,206 @@
       "use_tier_reason": "국내 실측 검증이 없고 ISIMIP 전지구 격자라 하천망·제방이 반영되지 않아, 상대 비교와 순위용입니다 (docs/SCOPE.md §3).",
       "boundary_code_column": "SIGUNGU_CD",
       "boundary_name_column": "SIGUNGU_NM"
+    },
+    "river_flood_rcp26_2010_2030_kor": {
+      "label": "하천 홍수 · RCP2.6 2010–2030 · 한국",
+      "peril": "river_flood",
+      "quantity": "water_depth_m",
+      "climate_scenario": "rcp26",
+      "year_range": "2010_2030",
+      "country_iso3": "KOR",
+      "boundary_version": "2025_2Q",
+      "boundary_simplify_m": 50,
+      "boundary_code_column": "SIGUNGU_CD",
+      "boundary_name_column": "SIGUNGU_NM",
+      "use_tier": "I",
+      "use_tier_reason": "국내 실측 검증이 없고 ISIMIP 전지구 격자라 하천망·제방이 반영되지 않아, 상대 비교와 순위용입니다 (docs/SCOPE.md §3)."
+    },
+    "river_flood_rcp26_2030_2050_kor": {
+      "label": "하천 홍수 · RCP2.6 2030–2050 · 한국",
+      "peril": "river_flood",
+      "quantity": "water_depth_m",
+      "climate_scenario": "rcp26",
+      "year_range": "2030_2050",
+      "country_iso3": "KOR",
+      "boundary_version": "2025_2Q",
+      "boundary_simplify_m": 50,
+      "boundary_code_column": "SIGUNGU_CD",
+      "boundary_name_column": "SIGUNGU_NM",
+      "use_tier": "I",
+      "use_tier_reason": "국내 실측 검증이 없고 ISIMIP 전지구 격자라 하천망·제방이 반영되지 않아, 상대 비교와 순위용입니다 (docs/SCOPE.md §3)."
+    },
+    "river_flood_rcp60_2010_2030_kor": {
+      "label": "하천 홍수 · RCP6.0 2010–2030 · 한국",
+      "peril": "river_flood",
+      "quantity": "water_depth_m",
+      "climate_scenario": "rcp60",
+      "year_range": "2010_2030",
+      "country_iso3": "KOR",
+      "boundary_version": "2025_2Q",
+      "boundary_simplify_m": 50,
+      "boundary_code_column": "SIGUNGU_CD",
+      "boundary_name_column": "SIGUNGU_NM",
+      "use_tier": "I",
+      "use_tier_reason": "국내 실측 검증이 없고 ISIMIP 전지구 격자라 하천망·제방이 반영되지 않아, 상대 비교와 순위용입니다 (docs/SCOPE.md §3)."
+    },
+    "river_flood_rcp60_2030_2050_kor": {
+      "label": "하천 홍수 · RCP6.0 2030–2050 · 한국",
+      "peril": "river_flood",
+      "quantity": "water_depth_m",
+      "climate_scenario": "rcp60",
+      "year_range": "2030_2050",
+      "country_iso3": "KOR",
+      "boundary_version": "2025_2Q",
+      "boundary_simplify_m": 50,
+      "boundary_code_column": "SIGUNGU_CD",
+      "boundary_name_column": "SIGUNGU_NM",
+      "use_tier": "I",
+      "use_tier_reason": "국내 실측 검증이 없고 ISIMIP 전지구 격자라 하천망·제방이 반영되지 않아, 상대 비교와 순위용입니다 (docs/SCOPE.md §3)."
+    },
+    "river_flood_rcp85_2010_2030_kor": {
+      "label": "하천 홍수 · RCP8.5 2010–2030 · 한국",
+      "peril": "river_flood",
+      "quantity": "water_depth_m",
+      "climate_scenario": "rcp85",
+      "year_range": "2010_2030",
+      "country_iso3": "KOR",
+      "boundary_version": "2025_2Q",
+      "boundary_simplify_m": 50,
+      "boundary_code_column": "SIGUNGU_CD",
+      "boundary_name_column": "SIGUNGU_NM",
+      "use_tier": "I",
+      "use_tier_reason": "국내 실측 검증이 없고 ISIMIP 전지구 격자라 하천망·제방이 반영되지 않아, 상대 비교와 순위용입니다 (docs/SCOPE.md §3)."
+    },
+    "river_flood_rcp85_2030_2050_kor": {
+      "label": "하천 홍수 · RCP8.5 2030–2050 · 한국",
+      "peril": "river_flood",
+      "quantity": "water_depth_m",
+      "climate_scenario": "rcp85",
+      "year_range": "2030_2050",
+      "country_iso3": "KOR",
+      "boundary_version": "2025_2Q",
+      "boundary_simplify_m": 50,
+      "boundary_code_column": "SIGUNGU_CD",
+      "boundary_name_column": "SIGUNGU_NM",
+      "use_tier": "I",
+      "use_tier_reason": "국내 실측 검증이 없고 ISIMIP 전지구 격자라 하천망·제방이 반영되지 않아, 상대 비교와 순위용입니다 (docs/SCOPE.md §3)."
+    },
+    "tropical_cyclone_hist_kor": {
+      "label": "태풍 풍속 · 과거(1980–2020 합성 경로 10개) · 한국",
+      "peril": "tropical_cyclone",
+      "quantity": "wind_ms",
+      "event_type": "synthetic",
+      "model_name": "random_walk",
+      "nb_synth_tracks": 10,
+      "country_iso3": "KOR",
+      "boundary_version": "2025_2Q",
+      "boundary_simplify_m": 50,
+      "boundary_code_column": "SIGUNGU_CD",
+      "boundary_name_column": "SIGUNGU_NM",
+      "use_tier": "I",
+      "use_tier_reason": "국내 실측 검증이 없고 바람 성분만(침수·강우 제외)이라 하한이며, 합성 경로 10개로 만든 사건 집합이라 상대 비교와 순위용입니다 (docs/SCOPE.md §3).",
+      "climate_scenario": "historical",
+      "year_range": "1980_2020"
+    },
+    "tropical_cyclone_rcp45_2040_kor": {
+      "label": "태풍 풍속 · RCP4.5 2040 · 한국",
+      "peril": "tropical_cyclone",
+      "quantity": "wind_ms",
+      "event_type": "synthetic",
+      "model_name": "random_walk",
+      "nb_synth_tracks": 10,
+      "country_iso3": "KOR",
+      "boundary_version": "2025_2Q",
+      "boundary_simplify_m": 50,
+      "boundary_code_column": "SIGUNGU_CD",
+      "boundary_name_column": "SIGUNGU_NM",
+      "use_tier": "I",
+      "use_tier_reason": "국내 실측 검증이 없고 바람 성분만(침수·강우 제외)이라 하한이며, 합성 경로 10개로 만든 사건 집합이라 상대 비교와 순위용입니다 (docs/SCOPE.md §3).",
+      "climate_scenario": "rcp45",
+      "ref_year": 2040
+    },
+    "tropical_cyclone_rcp60_2040_kor": {
+      "label": "태풍 풍속 · RCP6.0 2040 · 한국",
+      "peril": "tropical_cyclone",
+      "quantity": "wind_ms",
+      "event_type": "synthetic",
+      "model_name": "random_walk",
+      "nb_synth_tracks": 10,
+      "country_iso3": "KOR",
+      "boundary_version": "2025_2Q",
+      "boundary_simplify_m": 50,
+      "boundary_code_column": "SIGUNGU_CD",
+      "boundary_name_column": "SIGUNGU_NM",
+      "use_tier": "I",
+      "use_tier_reason": "국내 실측 검증이 없고 바람 성분만(침수·강우 제외)이라 하한이며, 합성 경로 10개로 만든 사건 집합이라 상대 비교와 순위용입니다 (docs/SCOPE.md §3).",
+      "climate_scenario": "rcp60",
+      "ref_year": 2040
+    },
+    "tropical_cyclone_rcp85_2040_kor": {
+      "label": "태풍 풍속 · RCP8.5 2040 · 한국",
+      "peril": "tropical_cyclone",
+      "quantity": "wind_ms",
+      "event_type": "synthetic",
+      "model_name": "random_walk",
+      "nb_synth_tracks": 10,
+      "country_iso3": "KOR",
+      "boundary_version": "2025_2Q",
+      "boundary_simplify_m": 50,
+      "boundary_code_column": "SIGUNGU_CD",
+      "boundary_name_column": "SIGUNGU_NM",
+      "use_tier": "I",
+      "use_tier_reason": "국내 실측 검증이 없고 바람 성분만(침수·강우 제외)이라 하한이며, 합성 경로 10개로 만든 사건 집합이라 상대 비교와 순위용입니다 (docs/SCOPE.md §3).",
+      "climate_scenario": "rcp85",
+      "ref_year": 2040
     }
+  },
+  "change_layers": {
+    "river_flood_change_rcp26_kor": {
+      "base": "river_flood_rcp26_2010_2030_kor",
+      "future": "river_flood_rcp26_2030_2050_kor",
+      "label": "하천 홍수 변화 · RCP2.6 2030–2050 ÷ 2010–2030",
+      "use_tier": "I",
+      "use_tier_reason": "시나리오 차이(같은 모형 사슬, 같은 RCP의 두 기간)입니다. 변화 지도는 같은 모형 사슬의 시나리오 차이(배율 = 미래 ÷ 기준)라 절대값보다 오차가 덜 끼지만, 사용 등급은 두 층 중 낮은 쪽(I)을 따릅니다 (docs/SCOPE.md §3)."
+    },
+    "river_flood_change_rcp60_kor": {
+      "base": "river_flood_rcp60_2010_2030_kor",
+      "future": "river_flood_rcp60_2030_2050_kor",
+      "label": "하천 홍수 변화 · RCP6.0 2030–2050 ÷ 2010–2030",
+      "use_tier": "I",
+      "use_tier_reason": "시나리오 차이(같은 모형 사슬, 같은 RCP의 두 기간)입니다. 변화 지도는 같은 모형 사슬의 시나리오 차이(배율 = 미래 ÷ 기준)라 절대값보다 오차가 덜 끼지만, 사용 등급은 두 층 중 낮은 쪽(I)을 따릅니다 (docs/SCOPE.md §3)."
+    },
+    "river_flood_change_rcp85_kor": {
+      "base": "river_flood_rcp85_2010_2030_kor",
+      "future": "river_flood_rcp85_2030_2050_kor",
+      "label": "하천 홍수 변화 · RCP8.5 2030–2050 ÷ 2010–2030",
+      "use_tier": "I",
+      "use_tier_reason": "시나리오 차이(같은 모형 사슬, 같은 RCP의 두 기간)입니다. 변화 지도는 같은 모형 사슬의 시나리오 차이(배율 = 미래 ÷ 기준)라 절대값보다 오차가 덜 끼지만, 사용 등급은 두 층 중 낮은 쪽(I)을 따릅니다 (docs/SCOPE.md §3)."
+    },
+    "tropical_cyclone_change_rcp45_kor": {
+      "base": "tropical_cyclone_hist_kor",
+      "future": "tropical_cyclone_rcp45_2040_kor",
+      "label": "태풍 풍속 변화 · RCP4.5 2040 ÷ 과거(1980–2020 합성 경로 10개)",
+      "use_tier": "I",
+      "use_tier_reason": "시나리오 차이(같은 모형 사슬, 과거 합성 경로 집합 대비 2040)입니다. 변화 지도는 같은 모형 사슬의 시나리오 차이(배율 = 미래 ÷ 기준)라 절대값보다 오차가 덜 끼지만, 사용 등급은 두 층 중 낮은 쪽(I)을 따릅니다 (docs/SCOPE.md §3)."
+    },
+    "tropical_cyclone_change_rcp60_kor": {
+      "base": "tropical_cyclone_hist_kor",
+      "future": "tropical_cyclone_rcp60_2040_kor",
+      "label": "태풍 풍속 변화 · RCP6.0 2040 ÷ 과거(1980–2020 합성 경로 10개)",
+      "use_tier": "I",
+      "use_tier_reason": "시나리오 차이(같은 모형 사슬, 과거 합성 경로 집합 대비 2040)입니다. 변화 지도는 같은 모형 사슬의 시나리오 차이(배율 = 미래 ÷ 기준)라 절대값보다 오차가 덜 끼지만, 사용 등급은 두 층 중 낮은 쪽(I)을 따릅니다 (docs/SCOPE.md §3)."
+    },
+    "tropical_cyclone_change_rcp85_kor": {
+      "base": "tropical_cyclone_hist_kor",
+      "future": "tropical_cyclone_rcp85_2040_kor",
+      "label": "태풍 풍속 변화 · RCP8.5 2040 ÷ 과거(1980–2020 합성 경로 10개)",
+      "use_tier": "I",
+      "use_tier_reason": "시나리오 차이(같은 모형 사슬, 과거 합성 경로 집합 대비 2040)입니다. 변화 지도는 같은 모형 사슬의 시나리오 차이(배율 = 미래 ÷ 기준)라 절대값보다 오차가 덜 끼지만, 사용 등급은 두 층 중 낮은 쪽(I)을 따릅니다 (docs/SCOPE.md §3)."
+    }
+  },
+  "rp_check": {
+    "rel_tol": 0.25,
+    "warn_share": 0.1
   }
 }

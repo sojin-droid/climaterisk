@@ -121,6 +121,165 @@ def rp_intensity(hazard: Any, return_periods: list[float]) -> dict[str, Any]:
     }
 
 
+def rp_intensity_check(hazard: Any, return_periods: list[float]) -> dict[str, Any]:
+    """Sub check of :func:`rp_intensity`: the empirical step rule, no interpolation.
+
+    Diagnostic only. It never replaces the main CLIMADA result; ``scripts/board_layer.py``
+    records how often the two disagree and warns when that is frequent.
+
+    Algorithm:
+        With events $e$ of annual frequency $f_e$ and intensity $I_e(c)$ at centroid $c$,
+        the exceedance frequency of the level reached by event $e$ is
+
+        $$F_c(I_e) = \\sum_{k:\\,I_k(c) \\ge I_e(c)} f_k$$
+
+        and the intensity of return period $T$ (years) is
+
+        $$x_T(c) = \\max\\{I_e(c) : F_c(I_e) \\ge 1/T\\}$$
+
+        or 0 if no event qualifies. Ties share one $F$ (all events of equal intensity are
+        counted). Kept periods, cap and record come from
+        ``physical._resolvable_return_periods`` exactly as in :func:`rp_intensity`.
+
+        ASCII: F(I_e) = sum(f_k where I_k >= I_e); x_T = max(I_e where F(I_e) >= 1/T), else 0.
+
+    Vectorised over centroids: the sparse intensity matrix is taken column-wise (CSC), the
+    non-zero entries are sorted by (centroid, descending intensity), $F$ is a running sum
+    inside each centroid, and the first entry reaching $1/T$ is found for all centroids at
+    once. The matrix is never densified.
+
+    Args:
+        hazard: A CLIMADA ``Hazard``.
+        return_periods: Requested return periods in years.
+
+    Returns:
+        Same dict as :func:`rp_intensity` (``periods``, ``max_supported``,
+        ``record_years``, ``intensity`` of shape ``(len(periods), n_centroids)``).
+    """
+    from climaterisk_worker.physical import _resolvable_return_periods
+
+    wanted = sorted({float(p) if float(p) != int(p) else int(p) for p in return_periods})
+    _, max_rp, record_years = _resolvable_return_periods(hazard, wanted)
+    kept = [p for p in wanted if max_rp is not None and p <= max_rp]
+    n_centroids = int(hazard.intensity.shape[1])
+    out = {
+        "periods": kept,
+        "max_supported": max_rp,
+        "record_years": record_years,
+        "intensity": np.zeros((len(kept), n_centroids)),
+    }
+    if not kept:
+        return out
+    mat = hazard.intensity.tocsc()
+    freq = np.asarray(hazard.frequency, dtype=float)
+    col = np.repeat(np.arange(n_centroids), np.diff(mat.indptr))
+    inten = np.asarray(mat.data, dtype=float)
+    f_ev = freq[mat.indices]
+    pos = inten > 0
+    col, inten, f_ev = col[pos], inten[pos], f_ev[pos]
+    if inten.size == 0:
+        return out
+    order = np.lexsort((-inten, col))  # by centroid, then intensity descending
+    col, inten, f_ev = col[order], inten[order], f_ev[order]
+    cum = np.cumsum(f_ev)
+    first = np.r_[True, col[1:] != col[:-1]]
+    start_cum = (cum - f_ev)[first]  # running total before each centroid's first entry
+    cum = cum - start_cum[np.cumsum(first) - 1]
+    # Ties share the exceedance frequency of the whole tie group (value at its last entry).
+    is_end = np.r_[(col[1:] != col[:-1]) | (inten[1:] != inten[:-1]), True]
+    ends = np.flatnonzero(is_end)
+    cum = cum[ends[np.searchsorted(ends, np.arange(cum.size), side="left")]]
+    for i, period in enumerate(kept):
+        reach = cum >= (1.0 / period) * (1.0 - 1e-9)
+        hit = np.flatnonzero(reach)
+        if hit.size == 0:
+            continue
+        cols_hit, first_hit = np.unique(col[hit], return_index=True)
+        out["intensity"][i, cols_hit] = inten[hit[first_hit]]
+    log.debug("rp_intensity_check nnz=%d shape=%s", inten.size, out["intensity"].shape)
+    return out
+
+
+def rp_disagreement(
+    main: dict[str, Any], check: dict[str, Any], rel_tol: float
+) -> dict[str, float]:
+    """Share of centroids where the main method and the sub check differ per period.
+
+    Algorithm:
+        For period $T$ over the centroids $C_T$ with $m_c > 0$ or $k_c > 0$ ($m$ main,
+        $k$ check, hazard units),
+
+        $$s_T = \\frac{|\\{c \\in C_T : |m_c - k_c| > \\tau \\max(m_c, k_c)\\}|}{|C_T|}$$
+
+        with relative tolerance $\\tau$ (dimensionless); $s_T = 0$ when $C_T$ is empty.
+
+        ASCII: s_T = count(|m-k| > tol*max(m,k)) / count(m>0 or k>0).
+
+    Args:
+        main: Output of :func:`rp_intensity`.
+        check: Output of :func:`rp_intensity_check` (same kept periods).
+        rel_tol: Relative tolerance $\\tau$.
+
+    Returns:
+        ``{period_key: share}`` with ``period_key`` formatted as ``f"{period:g}"``.
+
+    Raises:
+        ValueError: The two results have different periods or shapes.
+    """
+    if list(main["periods"]) != list(check["periods"]):
+        raise ValueError(f"periods differ: {main['periods']} vs {check['periods']}")
+    m = np.asarray(main["intensity"], dtype=float)
+    k = np.asarray(check["intensity"], dtype=float)
+    if m.shape != k.shape:
+        raise ValueError(f"shapes differ: {m.shape} vs {k.shape}")
+    out: dict[str, float] = {}
+    for p, mr, kr in zip(main["periods"], m, k, strict=True):
+        active = (mr > 0) | (kr > 0)
+        n = int(active.sum())
+        bad = int((np.abs(mr - kr) > rel_tol * np.maximum(mr, kr))[active].sum()) if n else 0
+        out[f"{p:g}"] = bad / n if n else 0.0
+    return out
+
+
+def change_values(base: Any, future: Any) -> tuple[Any, Any]:
+    """Future / base ratio with an explicit status where the ratio is undefined.
+
+    Algorithm:
+        $$r = x_{\\mathrm{fut}} / x_{\\mathrm{base}}$$ (dimensionless) where both are
+        finite and $x_{\\mathrm{base}} > 0$. Otherwise $r$ is NaN with a status: both
+        NaN-free and both 0 -> ``both_zero``; base 0 and future $> 0$ -> ``base_zero`` (the
+        ratio is undefined, not infinite); either NaN -> ``null``. A defined ratio has
+        status ``""``.
+
+        ASCII: r = fut / base if base > 0; else NaN with status both_zero / base_zero / null.
+
+    Args:
+        base: Base-period values (any shape).
+        future: Future values, same shape.
+
+    Returns:
+        ``(ratio, status)``: float array and ``<U9`` string array of the input shape.
+
+    Raises:
+        ValueError: Shapes differ.
+    """
+    b = np.asarray(base, dtype=float)
+    f = np.asarray(future, dtype=float)
+    if b.shape != f.shape:
+        raise ValueError(f"shapes differ: {b.shape} vs {f.shape}")
+    ratio = np.full(b.shape, np.nan)
+    status = np.full(b.shape, "", dtype="<U9")
+    null = np.isnan(b) | np.isnan(f)
+    both0 = ~null & (b == 0) & (f == 0)
+    base0 = ~null & (b == 0) & (f > 0)
+    ok = ~null & (b > 0)
+    status[null] = "null"
+    status[both0] = "both_zero"
+    status[base0] = "base_zero"
+    ratio[ok] = f[ok] / b[ok]
+    return ratio, status
+
+
 def grid_cells(lon: Any, lat: Any, res_deg: float) -> Any:
     """One square cell of side ``res_deg`` centred on each centroid.
 

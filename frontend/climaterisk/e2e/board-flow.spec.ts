@@ -199,3 +199,72 @@ test("board: drought layer → key selector, badges, exposure", async ({ page })
   await expect(region).not.toContainText(/mean|평균 *[0-9]/);
   await expect(page.getByText("사례 트윈: 강남역 (미검증)")).toBeVisible();
 });
+
+const CHANGE_META = {
+  layer: "river_flood_change_rcp85_kor",
+  label: "하천 홍수 변화 · RCP8.5 2030–2050 ÷ 2010–2030",
+  peril: "river_flood",
+  quantity: "change",
+  base_layer: "river_flood_rcp85_2010_2030_kor",
+  future_layer: "river_flood_rcp85_2030_2050_kor",
+  units: "ratio",
+  periods_kept: [10, 100],
+  max_supported: 240,
+  record_years: 480,
+  resolution_arcsec: 150,
+  cell_km_ns: 4.64,
+  cell_km_ew: 3.73,
+  hazard_source: "ratio of two CLIMADA Data API river_flood sets (fixture)",
+  boundary_source: "SGIS 시군구 2025_2Q (fixture)",
+  use_tier: "I",
+  use_tier_reason: "시나리오 차이(같은 모형 사슬)",
+};
+
+test("board: change layer → grouped selector, ratio legend, status pieces, ×ratio lookup", async ({ page }) => {
+  await routePalettes(page);
+  await page.route(/tile\.openstreetmap\.org/, (r) => r.abort());
+  await page.route("**/api/board/layers", (r) => r.fulfill({ json: [CHANGE_META, META] }));
+  await page.route("**/api/board/layers/*/geojson?*", (r) =>
+    r.fulfill({
+      json: {
+        type: "FeatureCollection",
+        features: [
+          { type: "Feature", geometry: { type: "Polygon", coordinates: sq(127.5, 36, 1) },
+            properties: { id: 0, centroid: 0, code: "11220", name: "서초구", value: 1.4, status: null } },
+          { type: "Feature", geometry: { type: "Polygon", coordinates: sq(128.6, 36, 1) },
+            properties: { id: 1, centroid: 1, code: "11230", name: "강남구", value: null, status: "base_zero" } },
+          { type: "Feature", geometry: { type: "Polygon", coordinates: sq(129.7, 36, 1) },
+            properties: { id: 2, centroid: 2, code: "11240", name: "송파구", value: null, status: "both_zero" } },
+        ],
+      },
+    }),
+  );
+  await page.route("**/api/board/layers/*/lookup?*", (r) =>
+    r.fulfill({
+      json: { id: 0, code: "11220", name: "서초구", centroid: 0, cell_km_ns: 4.64, cell_km_ew: 3.73,
+        values: { "10": null, "100": 1.4 }, status: { "10": "base_zero" } },
+    }),
+  );
+
+  await page.goto("/?view=board");
+  // the selector opens on an absolute layer; absolute and change layers are separate groups
+  await expect(page.getByLabel("재해 층 · Layer")).toHaveValue("river_flood_hist_kor");
+  await expect(page.locator("#board-layer optgroup")).toHaveCount(2);
+  await expect(page.locator('#board-layer optgroup[label^="변화"] option')).toHaveCount(1);
+  await page.getByLabel("재해 층 · Layer").selectOption("river_flood_change_rcp85_kor");
+
+  const legend = page.getByTestId("legend");
+  await expect(page.getByTestId("legend-title")).toContainText(PALETTES.change.label);
+  for (const label of [...PALETTES.change.labels, PALETTES.shared.base_zero.label, PALETTES.shared.zero.label, PALETTES.shared.null.label]) {
+    await expect(legend).toContainText(label);
+  }
+  await expect(page.getByTestId("legend-basis")).toContainText("PiYG");
+  await expect(page.getByRole("alert")).toHaveCount(0);
+
+  await page.locator(".leaflet-container").click({ position: { x: 400, y: 300 } });
+  const panel = page.getByTestId("pick-panel");
+  await expect(panel).toContainText("서초구");
+  await expect(panel).toContainText("×1.40");
+  await expect(panel).toContainText(PALETTES.shared.base_zero.label);
+  await expect(panel).not.toContainText("Infinity");
+});

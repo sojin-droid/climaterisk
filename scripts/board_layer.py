@@ -1,16 +1,24 @@
 #!/usr/bin/env python
 """Build a national visual-board layer: hazard grid cell x 시군구 pieces with per-period values.
 
-Layer ``river_flood_hist_kor`` (``assets/libraries/visual_board.json``): the CLIMADA Data API
-river-flood historical hazard for KOR (150 arcsec grid), read from CLIMADA's local download
-cache only (offline), cut by the SGIS 시군구 boundaries. Each piece keeps its cell's value;
-nothing is averaged (docs/VISUAL_BOARD_KO.md section 2).
+Layers are defined in ``assets/libraries/visual_board.json`` (river flood, tropical cyclone): the
+CLIMADA Data API hazard for KOR (150 arcsec grid), read from CLIMADA's local download cache only
+(offline), cut by the SGIS 시군구 boundaries. Each piece keeps its cell's value; nothing is
+averaged (docs/VISUAL_BOARD_KO.md section 2).
+
+Every return-period layer carries a mandatory sub check (``meta.check``): the empirical step rule
+(``board.rp_intensity_check``) against the main CLIMADA method, diagnostic only, with a warning
+when more than ``rp_check.warn_share`` of the centroids disagree. A change layer is the
+future / base ratio of two built layers of the same grid (``change_layers`` in the config).
 
 Runs in the CLIMADA worker environment::
 
     export CLIMATERISK_DATA_ROOT=~/Data/climaterisk
     export CLIMATERISK_CLIMADA_DATA_DIR=~/Data/climaterisk/external/climada
+    ./.climada-env/bin/python scripts/board_layer.py --fetch --all   # online, sequential
+    ./.climada-env/bin/python scripts/board_layer.py --all           # offline build of everything
     ./.climada-env/bin/python scripts/board_layer.py [--layer river_flood_hist_kor]
+    ./.climada-env/bin/python scripts/board_layer.py --change river_flood_change_rcp85_kor
 
 Outputs under ``<DATA_ROOT>/derived/board/``: ``<layer>.geojson`` (columns ``centroid``,
 ``code``, ``name``, ``area_km2``, ``rp<T>`` per kept return period in the hazard's units)
@@ -23,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import math
 import os
 import sys
@@ -39,6 +48,39 @@ for extra in (REPO / "worker", REPO / "src"):
         sys.path.insert(0, str(extra))
 
 _M_PER_DEG_LAT = 111_320.0
+log = logging.getLogger("board_layer")
+
+
+def hazard_properties(spec: dict[str, Any]) -> dict[str, str]:
+    """CLIMADA Data API properties of a layer (same names as ``physical.py`` requests).
+
+    River flood: ``climate_scenario`` and ``year_range``. Tropical cyclone: ``event_type``,
+    ``model_name``, ``climate_scenario`` and, for a future set, ``ref_year`` (the historical
+    set has none; the config's ``historical`` is the API's ``None``). Country coverage for
+    both. ``nb_synth_tracks`` of the config is not sent: the current Data API versions (v2.1)
+    carry no such property and a request with it matches the stale v2 sets; every KOR set here
+    is the ``10synth_tracks`` one by name.
+    """
+    props: dict[str, str] = {"climate_scenario": str(spec["climate_scenario"])}
+    if spec["peril"] == "tropical_cyclone":
+        if props["climate_scenario"] == "historical":
+            props["climate_scenario"] = "None"  # the Data API names the present TC set "None"
+        props["event_type"] = str(spec.get("event_type", "synthetic"))
+        props["model_name"] = str(spec.get("model_name", "random_walk"))
+        if spec.get("ref_year") is not None:
+            props["ref_year"] = str(spec["ref_year"])
+    else:
+        props["year_range"] = str(spec["year_range"])
+    props["spatial_coverage"] = "country"
+    props["country_iso3alpha"] = str(spec["country_iso3"])
+    return props
+
+
+def _period_label(spec: dict[str, Any]) -> str:
+    """``year_range`` or ``ref_year`` of a layer spec, for the source text."""
+    if spec.get("ref_year") is not None:
+        return f"ref_year {spec['ref_year']}"
+    return str(spec["year_range"])
 
 
 def period_column(period: float) -> str:
@@ -96,6 +138,10 @@ def board_json_payload(pieces: Any, meta: dict[str, Any], spec: dict[str, Any]) 
     out_meta["quantity"] = spec["quantity"]
     out_meta["use_tier"] = spec["use_tier"]
     out_meta["use_tier_reason"] = spec["use_tier_reason"]
+    if spec.get("label"):
+        out_meta["label"] = spec["label"]
+    if "check" in meta:
+        out_meta["check"] = meta["check"]
     rows = []
     for i, (geom, cen, code, name) in enumerate(
         zip(pieces.geometry, pieces["centroid"], pieces["code"], pieces["name"], strict=True)
@@ -166,7 +212,7 @@ def build_metadata(
         "built_utc": datetime.now(UTC).isoformat(timespec="seconds"),
         "hazard_source": (
             f"CLIMADA Data API {spec['peril']} {spec['climate_scenario']} "
-            f"{spec['year_range']} {spec['country_iso3']} (local download cache, offline)"
+            f"{_period_label(spec)} {spec['country_iso3']} (local download cache, offline)"
         ),
         "boundary_source": f"SGIS 시군구 {spec['boundary_version']}",
         "units": units,
@@ -207,12 +253,7 @@ def run(layer: str, out_dir: Path | None) -> dict[str, Any]:
     hazard = resilient_get_hazard(
         make_client(),
         spec["peril"],
-        properties={
-            "climate_scenario": spec["climate_scenario"],
-            "year_range": spec["year_range"],
-            "spatial_coverage": "country",
-            "country_iso3alpha": spec["country_iso3"],
-        },
+        properties=hazard_properties(spec),
     )
     lon = np.asarray(hazard.centroids.lon, dtype=float)
     lat = np.asarray(hazard.centroids.lat, dtype=float)
@@ -220,6 +261,25 @@ def run(layer: str, out_dir: Path | None) -> dict[str, Any]:
     res_deg = float(abs(meta_t.a))
 
     result = board.rp_intensity(hazard, requested)
+    check = board.rp_intensity_check(hazard, requested)
+    rp_cfg = cfg["rp_check"]
+    shares = board.rp_disagreement(result, check, float(rp_cfg["rel_tol"]))
+    check_block = {
+        "method": "empirical_step",
+        "rel_tol": float(rp_cfg["rel_tol"]),
+        "warn_share": float(rp_cfg["warn_share"]),
+        "disagree_share_by_period": shares,
+        "warning": any(v > float(rp_cfg["warn_share"]) for v in shares.values()),
+    }
+    if check_block["warning"]:
+        log.warning(
+            "%s: return-period sub check disagrees (> %.0f%% of centroids, tol %.0f%%): %s",
+            layer,
+            100 * check_block["warn_share"],
+            100 * check_block["rel_tol"],
+            {k: round(v, 3) for k, v in shares.items()},
+        )
+    del check  # diagnostic only; never written as a second result
 
     shp = paths.municipality_sgis_dir() / f"bnd_sigungu_00_{spec['boundary_version']}.shp"
     regions = gpd.read_file(shp, encoding="utf-8")
@@ -261,6 +321,7 @@ def run(layer: str, out_dir: Path | None) -> dict[str, Any]:
         requested=requested,
     )
     meta["boundary_simplify_m"] = simplify_m
+    meta["check"] = check_block
     meta["runtime_seconds"] = round(time.time() - t0, 1)
     board_file = out / f"{layer}.board.json"
     board_file.write_text(
@@ -276,14 +337,188 @@ def run(layer: str, out_dir: Path | None) -> dict[str, Any]:
     return meta
 
 
+def _read_built(layer: str, out: Path) -> dict[str, Any]:
+    """A built layer's ``.board.json`` (raises ``FileNotFoundError`` naming the build step)."""
+    path = out / f"{layer}.board.json"
+    if not path.exists():
+        raise FileNotFoundError(f"{path} missing; build layer {layer!r} first")
+    return json.loads(path.read_text(encoding="utf-8"))  # type: ignore[no-any-return]
+
+
+def change_payload(
+    name: str, ch: dict[str, Any], base: dict[str, Any], fut: dict[str, Any], spec: dict[str, Any]
+) -> dict[str, Any]:
+    """Change layer content from two built layers (pure; no I/O).
+
+    Values are ``future / base`` (``board.change_values``) per period kept by both layers;
+    where no ratio exists the value is ``None`` and ``status`` names why (``base_zero``,
+    ``both_zero``, ``null``).
+
+    Args:
+        name: Change layer name.
+        ch: Its block of ``change_layers`` (``base``, ``future``, ``label``, tier fields).
+        base: Parsed base ``.board.json``.
+        fut: Parsed future ``.board.json``.
+        spec: The future layer's block of ``layers`` (peril, boundary fields).
+
+    Returns:
+        ``{"meta", "pieces"}``.
+
+    Raises:
+        ValueError: The two layers do not have identical pieces (grid, region, geometry).
+    """
+    import numpy as np
+    from climaterisk_worker import board
+
+    bp, fp = base["pieces"], fut["pieces"]
+    if len(bp) != len(fp):
+        raise ValueError(f"{name}: piece counts differ ({len(bp)} vs {len(fp)})")
+    for i, (a, b) in enumerate(zip(bp, fp, strict=True)):
+        same = (a["centroid"], a["code"], a["polygons"]) == (
+            b["centroid"],
+            b["code"],
+            b["polygons"],
+        )
+        if not same:
+            raise ValueError(f"{name}: piece {i} differs between base and future (not one grid)")
+    bm, fm = base["meta"], fut["meta"]
+    base_keys = {period_key(p) for p in bm["periods_kept"]}
+    periods = [p for p in fm["periods_kept"] if period_key(p) in base_keys]
+    rows: list[dict[str, Any]] = [
+        {k: a[k] for k in ("id", "centroid", "code", "name", "polygons")} | {"values": {}}
+        for a in bp
+    ]
+    status_counts: dict[str, dict[str, int]] = {}
+    for p in periods:
+        key = period_key(p)
+        b = np.array([np.nan if a["values"][key] is None else a["values"][key] for a in bp])
+        f = np.array([np.nan if a["values"][key] is None else a["values"][key] for a in fp])
+        ratio, status = board.change_values(b, f)
+        status_counts[key] = {
+            s_: int((status == s_).sum()) for s_ in ("", "both_zero", "base_zero", "null")
+        }
+        for row, r, st in zip(rows, ratio, status, strict=True):
+            row["values"][key] = None if np.isnan(r) else float(r)
+            if st:
+                row.setdefault("status", {})[key] = str(st)
+    keep = (
+        "requested_periods", "resolution_arcsec", "cell_km_ns", "cell_km_ew", "boundary_source",
+        "boundary_simplify_m",
+    )  # fmt: skip
+    meta = {k: fm[k] for k in keep if k in fm}
+    meta.update(
+        layer=name,
+        units="ratio",
+        quantity="change",
+        label=ch["label"],
+        peril=spec["peril"],
+        base_layer=ch["base"],
+        future_layer=ch["future"],
+        periods_kept=[float(p) for p in periods],
+        max_supported=min(bm["max_supported"], fm["max_supported"]),
+        record_years=min(bm["record_years"], fm["record_years"]),
+        hazard_source=f"ratio {fm['hazard_source']} / {bm['hazard_source']}",
+        use_tier=ch["use_tier"],
+        use_tier_reason=ch["use_tier_reason"],
+        status_counts_by_period=status_counts,
+    )
+    return {"meta": meta, "pieces": rows}
+
+
+def run_change(name: str, out_dir: Path | None) -> dict[str, Any]:
+    """Build one change layer from the two built layers it names; return its metadata."""
+    from climaterisk_worker import board
+
+    from climaterisk import paths
+
+    cfg = board.load_board_config()
+    ch = cfg["change_layers"][name]
+    out = out_dir or paths.derived_board_dir()
+    payload = change_payload(
+        name,
+        ch,
+        _read_built(ch["base"], out),
+        _read_built(ch["future"], out),
+        cfg["layers"][ch["future"]],
+    )
+    board_file = out / f"{name}.board.json"
+    board_file.write_text(
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8"
+    )
+    meta = dict(payload["meta"], n_pieces=len(payload["pieces"]))
+    meta["board_json_bytes"] = board_file.stat().st_size
+    (out / f"{name}.meta.json").write_text(
+        json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return meta
+
+
+def fetch(layers: list[str]) -> None:
+    """Download the hazards the layers need that CLIMADA's cache lacks (online, sequential).
+
+    Never run two downloads at once (large files, slow link). Each fetched dataset's name and
+    size are logged. A dataset that does not exist in the Data API raises; nothing else is
+    substituted for it.
+    """
+    import climaterisk_worker  # noqa: F401  (must precede climada: project-scoped conf)
+    from climaterisk_worker import board
+    from climaterisk_worker._dataapi import OfflineError, make_client, resilient_get_hazard
+
+    cfg = board.load_board_config()
+    for layer in layers:
+        spec = cfg["layers"][layer]
+        props = hazard_properties(spec)
+        os.environ["CLIMATERISK_OFFLINE"] = "1"
+        try:
+            resilient_get_hazard(make_client(), spec["peril"], properties=props)
+            log.info("%s: already in the CLIMADA cache", layer)
+            continue
+        except OfflineError:
+            pass
+        finally:
+            os.environ.pop("CLIMATERISK_OFFLINE", None)
+        client = make_client()
+        info = client.get_dataset_info(spec["peril"], properties=props)
+        size = sum(int(f.file_size) for f in info.files)
+        log.info("%s: fetching dataset %s (%d bytes)", layer, info.name, size)
+        resilient_get_hazard(client, spec["peril"], properties=props)
+        log.info("%s: fetched %s (%d bytes)", layer, info.name, size)
+
+
 def main() -> None:
     """CLI entry point."""
+    from climaterisk_worker import board
+
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--layer", default="river_flood_hist_kor")
+    ap.add_argument("--layer", default=None, help="one layer name (default river_flood_hist_kor)")
+    ap.add_argument("--change", default=None, help="one change layer name")
+    ap.add_argument("--all", action="store_true", help="every layer, then every change layer")
+    ap.add_argument(
+        "--fetch", action="store_true", help="online: download missing hazards only, then exit"
+    )
     ap.add_argument("--out", type=Path, default=None, help="default: <DATA_ROOT>/derived/board")
     args = ap.parse_args()
-    meta = run(args.layer, args.out)
-    print(json.dumps(meta, ensure_ascii=False, indent=2))
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    cfg = board.load_board_config()
+    layers = list(cfg["layers"]) if args.all else [args.layer or "river_flood_hist_kor"]
+    if args.change:
+        layers = []
+    if args.fetch:
+        fetch(layers)
+        return
+    summary: dict[str, Any] = {}
+    for layer in layers:
+        summary[layer] = run(layer, args.out)
+    changes = list(cfg["change_layers"]) if args.all else ([args.change] if args.change else [])
+    for name in changes:
+        summary[name] = run_change(name, args.out)
+    print(
+        json.dumps(
+            summary if (args.all or len(summary) > 1) else next(iter(summary.values())),
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":
