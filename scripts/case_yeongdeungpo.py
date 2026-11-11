@@ -152,8 +152,11 @@ def main() -> int:
 
     # --- scenarios --------------------------------------------------------------------
     runs: dict[str, Any] = {}
+    height_main = np.zeros(ids.shape)
     for name, hv in hts.items():
         hgrid = np.where(footprint, np.concatenate([[0.0], hv])[ids], 0.0)
+        if name == "main":
+            height_main = hgrid
         runs[name] = ch.run_scenario(grid, hgrid, surface, open_mask, green, background, sun, spec)
         logger.info("scenario %s done", name)
 
@@ -327,8 +330,22 @@ def main() -> int:
     np.savez_compressed(
         out / "maps.npz",
         open_mask=open_mask,
+        svf=runs["main"]["svf"].astype("float32"),
+        height_m=height_main.astype("float32"),
+        surface_class=np.select([green, road], [2, 1], 0).astype("uint8"),
+        site_cells=site_cells,
+        lat=lat.astype("float64"),
+        lon=lon.astype("float64"),
         **{
             f"utci_{d['date']}": runs["main"]["days"][d["date"]]["utci"].astype("float32")
+            for d in days
+        },
+        **{
+            f"mrt_{d['date']}": runs["main"]["days"][d["date"]]["mrt"].astype("float32")
+            for d in days
+        },
+        **{
+            f"sunlit_{d['date']}": runs["main"]["days"][d["date"]]["sunlit"].astype(bool)
             for d in days
         },
     )
