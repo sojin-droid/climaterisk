@@ -42,7 +42,7 @@ import json
 import logging
 import math
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping, Sequence
 from itertools import pairwise
 from pathlib import Path
 from typing import Any
@@ -835,8 +835,10 @@ class _Recorder:
         bank: dict[str, float],
         sample_s: float,
         classes: dict[str, np.ndarray] | None = None,
+        snapshots: Any | None = None,
     ) -> None:
         self.classes = classes or {}
+        self.snapshots = snapshots  # optional object with ``offer(t, h)`` (cropped grid)
         self.fr_samples: list[tuple[float, dict[str, tuple[int, int]]]] = []
         self.faces = faces
         self.cell_m = cell_m
@@ -879,6 +881,8 @@ class _Recorder:
         return {k: (int((wet & m).sum()), int((over & m).sum())) for k, m in self.classes.items()}
 
     def record(self, t: float, h: np.ndarray, q_x: np.ndarray, q_y: np.ndarray) -> None:
+        if self.snapshots is not None:
+            self.snapshots.offer(t, h)
         dt = t - self.t_last
         self.t_last = t
         q = self._discharge(q_x, q_y)
@@ -955,6 +959,8 @@ def run_storm(
     label: str,
     rain_scope: str = "domain",
     fr_max: float | None = None,
+    snapshot_s: Sequence[float] | None = None,
+    snapshot_hook: Callable[[float, np.ndarray], None] | None = None,
 ) -> dict[str, Any]:
     """Run one hyetograph over the domain on the local-inertial solver.
 
@@ -975,10 +981,14 @@ def run_storm(
         label: Name for logs.
         rain_scope: ``"domain"`` or ``"catchment"``.
         fr_max: Optional Froude limiter (sensitivity only), see :func:`hydraulics.step`.
+        snapshot_s: Optional model times (s) at which to keep the depth field (cropped grid);
+            ``None`` (default) leaves the run exactly as before.
+        snapshot_hook: Optional ``f(t, h)`` called every solver step (read-only use of ``h``);
+            only with ``snapshot_s``.
 
     Returns:
         Dict with ``h_max`` (cropped), ``recorder``, ``n_steps``, ``runtime_s``, volumes and
-        ``t_end_s``.
+        ``t_end_s``; with ``snapshot_s`` also ``snapshots`` (a ``Snapshots``).
     """
     sl_r, sl_c = crop
     dt_min = float(spec["rain"]["main"]["dt_min"])
@@ -1017,7 +1027,12 @@ def run_storm(
     chan = burn["channel"][crop] & land
     low_m = land & ~chan & (terrain["ground"][crop] <= float(spec["hydraulic"]["low_ground_m"]))
     classes = {"channel": chan, "floodplain_below_20m": low_m, "upland": land & ~chan & ~low_m}
-    rec = _Recorder(faces, cell, pts_c, bed, bank, 60.0, classes)
+    snaps = None
+    if snapshot_s is not None:
+        from climaterisk_worker.twin.case_pohang_propagation import Snapshots
+
+        snaps = Snapshots(snapshot_s, on_offer=snapshot_hook)
+    rec = _Recorder(faces, cell, pts_c, bed, bank, 60.0, classes, snaps)
     t0 = time.time()
     res = hydraulics.run(
         h0,
@@ -1043,6 +1058,8 @@ def run_storm(
         t_end / 3600,
     )
     res["recorder"] = rec
+    if snaps is not None:
+        res["snapshots"] = snaps
     res["runtime_s"] = runtime
     res["t_end_s"] = t_end
     res["t_storm_s"] = t_storm
@@ -1101,35 +1118,21 @@ def _hours(t_s: float) -> float | None:
     return None if math.isnan(t_s) else round(t_s / 3600.0, 3)
 
 
-def run_case(
-    spec: dict[str, Any],
-    out_dir: Path,
-    cell_m: float | None = None,
-    with_check: bool = True,
-    t_scale: float = 1.0,
-) -> dict[str, Any]:
-    """Build and run the whole Naengcheon case; write the outputs to ``out_dir``.
+def build_case_inputs(spec: dict[str, Any], cell_m: float | None = None) -> dict[str, Any]:
+    """Everything the main storm needs: terrain, burnt channels, CN, points, bank, crop, rain.
 
-    Pipeline: bare-earth terrain, catchment (D8, compared with ``catchment_ref``), channel
-    burn calibrated on 700 m3/s, CN from OSM green, the main storm (nested hyetograph of the
-    published ASOS depths) and, as a diagnostic, the Seoul-shape check storm.
+    Shared by :func:`run_case` and the propagation rerun, so both run the same inputs.
 
     Args:
         spec: Case spec.
-        out_dir: Output folder (created).
         cell_m: Cell size (m); default ``spec["domain"]["cell_m"]``.
-        with_check: Also run the check storm.
-        t_scale: Factor on the simulated time (1 = full; < 1 only for quick tests).
 
     Returns:
-        The summary dict (also written as ``summary.json``) plus the arrays under the keys
-        ``_arrays`` (not serialised).
+        Dict with ``terrain`` (``points`` set), ``burn``, ``cn``, ``green_share``, ``pts``,
+        ``rec_points`` (full-grid cells of the recorded points), ``bank``, ``crop``,
+        ``apt_keys``, ``n_domain`` and ``main_inc`` (rain per step, mm).
     """
-    t_start = time.time()
-    out_dir.mkdir(parents=True, exist_ok=True)
     terrain = build_terrain(spec, cell_m)
-    grid: site.SiteGrid = terrain["grid"]
-    cell = grid.cell_m
     pts = find_points(spec, terrain)
     terrain["points"] = pts
     burn = burn_channels(spec, terrain)
@@ -1177,6 +1180,54 @@ def run_case(
     main_inc = nested_hyetograph(
         spec["rain"]["main"]["depth_duration_mm"], float(spec["rain"]["main"]["dt_min"])
     )
+    return {
+        "terrain": terrain,
+        "burn": burn,
+        "cn": cn,
+        "green_share": green_share,
+        "pts": pts,
+        "rec_points": rec_points,
+        "bank": bank,
+        "crop": crop,
+        "apt_keys": apt_keys,
+        "n_domain": n_domain,
+        "main_inc": main_inc,
+    }
+
+
+def run_case(
+    spec: dict[str, Any],
+    out_dir: Path,
+    cell_m: float | None = None,
+    with_check: bool = True,
+    t_scale: float = 1.0,
+) -> dict[str, Any]:
+    """Build and run the whole Naengcheon case; write the outputs to ``out_dir``.
+
+    Pipeline: bare-earth terrain, catchment (D8, compared with ``catchment_ref``), channel
+    burn calibrated on 700 m3/s, CN from OSM green, the main storm (nested hyetograph of the
+    published ASOS depths) and, as a diagnostic, the Seoul-shape check storm.
+
+    Args:
+        spec: Case spec.
+        out_dir: Output folder (created).
+        cell_m: Cell size (m); default ``spec["domain"]["cell_m"]``.
+        with_check: Also run the check storm.
+        t_scale: Factor on the simulated time (1 = full; < 1 only for quick tests).
+
+    Returns:
+        The summary dict (also written as ``summary.json``) plus the arrays under the keys
+        ``_arrays`` (not serialised).
+    """
+    t_start = time.time()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    inp = build_case_inputs(spec, cell_m)
+    terrain, burn, cn, green_share = inp["terrain"], inp["burn"], inp["cn"], inp["green_share"]
+    grid: site.SiteGrid = terrain["grid"]
+    cell, pts, ground = grid.cell_m, inp["pts"], terrain["ground"]
+    dom = terrain["domain"]
+    rec_points, bank, crop = inp["rec_points"], inp["bank"], inp["crop"]
+    apt_keys, n_domain, main_inc = inp["apt_keys"], inp["n_domain"], inp["main_inc"]
     if t_scale != 1.0:
         spec = json.loads(json.dumps(spec))
         spec["rain"]["recession_min"] = float(spec["rain"]["recession_min"]) * t_scale

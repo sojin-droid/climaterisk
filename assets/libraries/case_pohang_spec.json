@@ -139,9 +139,12 @@
     "apartment": "인덕동 우방신세계타운 (1차 as the reference point, 2차 alongside): identified by the OSM names 우방신세계타운1차아파트 and 우방신세계타운2차아파트 and by the press reports of the car-park deaths"
   },
   "figures": {
-    "_note": "Figure pack only (twin/case_pohang_figures.py). A cell of the long profile is marked as a suspect numerical spike (A26) when both its maximum water surface and its maximum depth (surface minus burnt bed) exceed the centred running median over profile_spike_window cells by more than profile_spike_tol_m metres. Cells are only marked in the figure, never removed or smoothed.",
+    "_note": "Figure pack only (twin/case_pohang_figures.py). A cell of the long profile is marked as a suspect numerical spike (A26) when both its maximum water surface and its maximum depth (surface minus burnt bed) exceed the centred running median over profile_spike_window cells by more than profile_spike_tol_m metres. Cells are only marked in the figure, never removed or smoothed. Propagation figure (twin/case_pohang_propagation.py): propagation_clock are the clock times (assumption A27 anchoring) of the depth snapshots of the rerun main storm, propagation_threshold_m the depth above which a cell counts as flooded, propagation_reproduce_atol_m the largest allowed difference (m) between the rerun maximum depth and max_depth.tif.",
     "profile_spike_window": 41,
-    "profile_spike_tol_m": 2.0
+    "profile_spike_tol_m": 2.0,
+    "propagation_clock": ["2022-09-06T03:00", "2022-09-06T04:00", "2022-09-06T04:30", "2022-09-06T05:00", "2022-09-06T05:30", "2022-09-06T06:00", "2022-09-06T06:30", "2022-09-06T07:30"],
+    "propagation_threshold_m": 0.3,
+    "propagation_reproduce_atol_m": 0.01
   },
   "assumptions": [
     "A1 Rain is uniform in space: the Pohang ASOS (station 138) depth-duration values apply to every active cell of the domain (catchment, floodplain buffer and the land of POSCO inside it); no gauge or radar field is used (the AWS peaks of 110-116 mm/h and the 509.5 mm at 오천 show the real field was not uniform).",
