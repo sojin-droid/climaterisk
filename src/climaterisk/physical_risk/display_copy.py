@@ -168,6 +168,15 @@ MUNICIPALITY_COPY: dict[str, str] = {
     ),
 }
 
+#: Pointer from the single-point screen to the 시군구-level reading on the visual board
+#: (pieces, min-max, no mean). Shown next to the representative-point warning, never instead
+#: of it: that sentence stays true for the single-point screen.
+BOARD_POINTER = (
+    "시군구 전체의 범위는 시각 보드의 시군구 패널에서 보세요. 격자 조각의 최소–최대만 보이며 "
+    "평균은 내지 않습니다. (Municipality-wide range: Visual Board 시군구 panel — grid-cell "
+    "pieces, min–max, no mean.)"
+)
+
 #: Under the summary counts, always.
 SUMMARY_NOTE = (
     "Risk counts summarize individual hazard assessments. They are not an overall portfolio "
@@ -284,6 +293,7 @@ def municipality_bundle() -> dict[str, Any]:
     """Municipality-mode copy plus the dataset provenance (for the UI and the Excel run info)."""
     return {
         **MUNICIPALITY_COPY,
+        "board_pointer": BOARD_POINTER,
         "status_copy": dict(MUNICIPALITY_STATUS_COPY),
         "status_short": dict(MUNICIPALITY_STATUS_SHORT),
         "dataset": dataset_summary(),

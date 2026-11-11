@@ -1,0 +1,393 @@
+{
+  "_meta": {
+    "purpose": "Visual board national layers (docs/VISUAL_BOARD_KO.md): which hazard layer to build and which return periods to colour. Periods beyond half the event record are dropped at build time, not substituted. change_layers: ratio of two built layers (like-for-like). rp_check: sub-check tolerance. litpop: option C exposure weighting (default off), layers it applies to, sub-check tolerances.",
+    "version": "1.3.0",
+    "updated": "2026-11-11"
+  },
+  "return_periods_years": [
+    2,
+    5,
+    10,
+    25,
+    50,
+    100,
+    250,
+    500
+  ],
+  "layers": {
+    "river_flood_hist_kor": {
+      "label": "하천 홍수 · 과거(1980–2000) · 한국",
+      "peril": "river_flood",
+      "quantity": "water_depth_m",
+      "climate_scenario": "historical",
+      "year_range": "1980_2000",
+      "country_iso3": "KOR",
+      "boundary_version": "2025_2Q",
+      "boundary_simplify_m": 50,
+      "use_tier": "I",
+      "use_tier_reason": "국내 실측 검증이 없고 ISIMIP 전지구 격자라 하천망·제방이 반영되지 않아, 상대 비교와 순위용입니다 (docs/SCOPE.md §3).",
+      "boundary_code_column": "SIGUNGU_CD",
+      "boundary_name_column": "SIGUNGU_NM"
+    },
+    "river_flood_rcp26_2010_2030_kor": {
+      "label": "하천 홍수 · RCP2.6 2010–2030 · 한국",
+      "peril": "river_flood",
+      "quantity": "water_depth_m",
+      "climate_scenario": "rcp26",
+      "year_range": "2010_2030",
+      "country_iso3": "KOR",
+      "boundary_version": "2025_2Q",
+      "boundary_simplify_m": 50,
+      "boundary_code_column": "SIGUNGU_CD",
+      "boundary_name_column": "SIGUNGU_NM",
+      "use_tier": "I",
+      "use_tier_reason": "국내 실측 검증이 없고 ISIMIP 전지구 격자라 하천망·제방이 반영되지 않아, 상대 비교와 순위용입니다 (docs/SCOPE.md §3)."
+    },
+    "river_flood_rcp26_2030_2050_kor": {
+      "label": "하천 홍수 · RCP2.6 2030–2050 · 한국",
+      "peril": "river_flood",
+      "quantity": "water_depth_m",
+      "climate_scenario": "rcp26",
+      "year_range": "2030_2050",
+      "country_iso3": "KOR",
+      "boundary_version": "2025_2Q",
+      "boundary_simplify_m": 50,
+      "boundary_code_column": "SIGUNGU_CD",
+      "boundary_name_column": "SIGUNGU_NM",
+      "use_tier": "I",
+      "use_tier_reason": "국내 실측 검증이 없고 ISIMIP 전지구 격자라 하천망·제방이 반영되지 않아, 상대 비교와 순위용입니다 (docs/SCOPE.md §3)."
+    },
+    "river_flood_rcp60_2010_2030_kor": {
+      "label": "하천 홍수 · RCP6.0 2010–2030 · 한국",
+      "peril": "river_flood",
+      "quantity": "water_depth_m",
+      "climate_scenario": "rcp60",
+      "year_range": "2010_2030",
+      "country_iso3": "KOR",
+      "boundary_version": "2025_2Q",
+      "boundary_simplify_m": 50,
+      "boundary_code_column": "SIGUNGU_CD",
+      "boundary_name_column": "SIGUNGU_NM",
+      "use_tier": "I",
+      "use_tier_reason": "국내 실측 검증이 없고 ISIMIP 전지구 격자라 하천망·제방이 반영되지 않아, 상대 비교와 순위용입니다 (docs/SCOPE.md §3)."
+    },
+    "river_flood_rcp60_2030_2050_kor": {
+      "label": "하천 홍수 · RCP6.0 2030–2050 · 한국",
+      "peril": "river_flood",
+      "quantity": "water_depth_m",
+      "climate_scenario": "rcp60",
+      "year_range": "2030_2050",
+      "country_iso3": "KOR",
+      "boundary_version": "2025_2Q",
+      "boundary_simplify_m": 50,
+      "boundary_code_column": "SIGUNGU_CD",
+      "boundary_name_column": "SIGUNGU_NM",
+      "use_tier": "I",
+      "use_tier_reason": "국내 실측 검증이 없고 ISIMIP 전지구 격자라 하천망·제방이 반영되지 않아, 상대 비교와 순위용입니다 (docs/SCOPE.md §3)."
+    },
+    "river_flood_rcp85_2010_2030_kor": {
+      "label": "하천 홍수 · RCP8.5 2010–2030 · 한국",
+      "peril": "river_flood",
+      "quantity": "water_depth_m",
+      "climate_scenario": "rcp85",
+      "year_range": "2010_2030",
+      "country_iso3": "KOR",
+      "boundary_version": "2025_2Q",
+      "boundary_simplify_m": 50,
+      "boundary_code_column": "SIGUNGU_CD",
+      "boundary_name_column": "SIGUNGU_NM",
+      "use_tier": "I",
+      "use_tier_reason": "국내 실측 검증이 없고 ISIMIP 전지구 격자라 하천망·제방이 반영되지 않아, 상대 비교와 순위용입니다 (docs/SCOPE.md §3)."
+    },
+    "river_flood_rcp85_2030_2050_kor": {
+      "label": "하천 홍수 · RCP8.5 2030–2050 · 한국",
+      "peril": "river_flood",
+      "quantity": "water_depth_m",
+      "climate_scenario": "rcp85",
+      "year_range": "2030_2050",
+      "country_iso3": "KOR",
+      "boundary_version": "2025_2Q",
+      "boundary_simplify_m": 50,
+      "boundary_code_column": "SIGUNGU_CD",
+      "boundary_name_column": "SIGUNGU_NM",
+      "use_tier": "I",
+      "use_tier_reason": "국내 실측 검증이 없고 ISIMIP 전지구 격자라 하천망·제방이 반영되지 않아, 상대 비교와 순위용입니다 (docs/SCOPE.md §3)."
+    },
+    "tropical_cyclone_hist_kor": {
+      "label": "태풍 풍속 · 과거(1980–2020 합성 경로 10개) · 한국",
+      "peril": "tropical_cyclone",
+      "quantity": "wind_ms",
+      "event_type": "synthetic",
+      "model_name": "random_walk",
+      "nb_synth_tracks": 10,
+      "country_iso3": "KOR",
+      "boundary_version": "2025_2Q",
+      "boundary_simplify_m": 50,
+      "boundary_code_column": "SIGUNGU_CD",
+      "boundary_name_column": "SIGUNGU_NM",
+      "use_tier": "I",
+      "use_tier_reason": "국내 실측 검증이 없고 바람 성분만(침수·강우 제외)이라 하한이며, 합성 경로 10개로 만든 사건 집합이라 상대 비교와 순위용입니다 (docs/SCOPE.md §3).",
+      "climate_scenario": "historical",
+      "year_range": "1980_2020"
+    },
+    "tropical_cyclone_rcp45_2040_kor": {
+      "label": "태풍 풍속 · RCP4.5 2040 · 한국",
+      "peril": "tropical_cyclone",
+      "quantity": "wind_ms",
+      "event_type": "synthetic",
+      "model_name": "random_walk",
+      "nb_synth_tracks": 10,
+      "country_iso3": "KOR",
+      "boundary_version": "2025_2Q",
+      "boundary_simplify_m": 50,
+      "boundary_code_column": "SIGUNGU_CD",
+      "boundary_name_column": "SIGUNGU_NM",
+      "use_tier": "I",
+      "use_tier_reason": "국내 실측 검증이 없고 바람 성분만(침수·강우 제외)이라 하한이며, 합성 경로 10개로 만든 사건 집합이라 상대 비교와 순위용입니다 (docs/SCOPE.md §3).",
+      "climate_scenario": "rcp45",
+      "ref_year": 2040
+    },
+    "tropical_cyclone_rcp60_2040_kor": {
+      "label": "태풍 풍속 · RCP6.0 2040 · 한국",
+      "peril": "tropical_cyclone",
+      "quantity": "wind_ms",
+      "event_type": "synthetic",
+      "model_name": "random_walk",
+      "nb_synth_tracks": 10,
+      "country_iso3": "KOR",
+      "boundary_version": "2025_2Q",
+      "boundary_simplify_m": 50,
+      "boundary_code_column": "SIGUNGU_CD",
+      "boundary_name_column": "SIGUNGU_NM",
+      "use_tier": "I",
+      "use_tier_reason": "국내 실측 검증이 없고 바람 성분만(침수·강우 제외)이라 하한이며, 합성 경로 10개로 만든 사건 집합이라 상대 비교와 순위용입니다 (docs/SCOPE.md §3).",
+      "climate_scenario": "rcp60",
+      "ref_year": 2040
+    },
+    "tropical_cyclone_rcp85_2040_kor": {
+      "label": "태풍 풍속 · RCP8.5 2040 · 한국",
+      "peril": "tropical_cyclone",
+      "quantity": "wind_ms",
+      "event_type": "synthetic",
+      "model_name": "random_walk",
+      "nb_synth_tracks": 10,
+      "country_iso3": "KOR",
+      "boundary_version": "2025_2Q",
+      "boundary_simplify_m": 50,
+      "boundary_code_column": "SIGUNGU_CD",
+      "boundary_name_column": "SIGUNGU_NM",
+      "use_tier": "I",
+      "use_tier_reason": "국내 실측 검증이 없고 바람 성분만(침수·강우 제외)이라 하한이며, 합성 경로 10개로 만든 사건 집합이라 상대 비교와 순위용입니다 (docs/SCOPE.md §3).",
+      "climate_scenario": "rcp85",
+      "ref_year": 2040
+    },
+    "coastal_flood_hist_kor": {
+      "label": "해안 침수 · 과거(Aqueduct 역사 해수면, 지반침하 반영) · 한국",
+      "peril": "coastal_flood",
+      "quantity": "water_depth_m",
+      "source": "aqueduct_inuncoast",
+      "aqueduct": {
+        "dataset": "aqueduct_inuncoast_historical_wtsub_hist",
+        "box": [
+          125.5,
+          33,
+          129.5,
+          38.5
+        ],
+        "note": "WRI Aqueduct Floods v2 inuncoast, 역사 해수면, 지반침하 반영(wtsub), 30 arcsec"
+      },
+      "climate_scenario": "historical",
+      "year_range": "hist",
+      "country_iso3": "KOR",
+      "boundary_version": "2025_2Q",
+      "boundary_simplify_m": 50,
+      "boundary_code_column": "SIGUNGU_CD",
+      "boundary_name_column": "SIGUNGU_NM",
+      "use_tier": "S",
+      "use_tier_reason": "WRI Aqueduct 해안 침수 지도는 방어시설(방조제·호안·배수시설) 미반영이라 매립지는 2년 빈도에도 수 m 침수로 나오고, 해수면 상승 백분위·지반침하 가정에 값이 좌우되므로 스크리닝용입니다 (docs/SCOPE.md §3).",
+      "notes": [
+        "방어시설(방조제·호안·배수시설) 미반영: 매립지는 2년 빈도에도 수 m 침수로 나옵니다. 절대 침수심이 아니라 방어가 없을 때의 상한 읽기입니다.",
+        "Aqueduct는 재현주기마다 지도 한 장(사건 집합 아님)입니다. 주 방법: 지도 9장을 사건 9개(빈도 1/T_i − 1/T_{i+1})로 만든 CLIMADA 하자드의 재현주기 읽기. 검사(진단 전용): 경험적 단계 규칙과 '재현주기가 길수록 깊이가 줄지 않는다'는 단조성, 원본 지도와의 일치. 기록 길이 1000년의 절반 규칙으로 500년까지만 씁니다.",
+        "캐시는 침수 없음(0)과 자료 없음을 구분하지 못합니다. 격자는 과거·미래 캐시 상자의 합집합이고, 한 층의 상자 밖(2030 층은 동경 126° 서쪽 섬, 과거 층은 129.5° 동쪽)은 값 없음(null)입니다. 울릉·독도·백령도는 두 상자 밖입니다."
+      ]
+    },
+    "coastal_flood_rcp85_2030_kor": {
+      "label": "해안 침수 · RCP8.5 2030(해수면 상승 50번째 백분위) · 한국",
+      "peril": "coastal_flood",
+      "quantity": "water_depth_m",
+      "source": "aqueduct_inuncoast",
+      "aqueduct": {
+        "dataset": "aqueduct_inuncoast_rcp8p5_wtsub_2030_0_perc_50",
+        "box": [
+          126,
+          33,
+          130,
+          38.5
+        ],
+        "note": "WRI Aqueduct Floods v2 inuncoast, RCP8.5 2030, 해수면 상승 50번째 백분위, 지반침하 반영(wtsub), 30 arcsec"
+      },
+      "climate_scenario": "rcp85",
+      "year_range": "2030",
+      "country_iso3": "KOR",
+      "boundary_version": "2025_2Q",
+      "boundary_simplify_m": 50,
+      "boundary_code_column": "SIGUNGU_CD",
+      "boundary_name_column": "SIGUNGU_NM",
+      "use_tier": "S",
+      "use_tier_reason": "WRI Aqueduct 해안 침수 지도는 방어시설(방조제·호안·배수시설) 미반영이라 매립지는 2년 빈도에도 수 m 침수로 나오고, 해수면 상승 백분위·지반침하 가정에 값이 좌우되므로 스크리닝용입니다 (docs/SCOPE.md §3).",
+      "notes": [
+        "방어시설(방조제·호안·배수시설) 미반영: 매립지는 2년 빈도에도 수 m 침수로 나옵니다. 절대 침수심이 아니라 방어가 없을 때의 상한 읽기입니다.",
+        "Aqueduct는 재현주기마다 지도 한 장(사건 집합 아님)입니다. 주 방법: 지도 9장을 사건 9개(빈도 1/T_i − 1/T_{i+1})로 만든 CLIMADA 하자드의 재현주기 읽기. 검사(진단 전용): 경험적 단계 규칙과 '재현주기가 길수록 깊이가 줄지 않는다'는 단조성, 원본 지도와의 일치. 기록 길이 1000년의 절반 규칙으로 500년까지만 씁니다.",
+        "캐시는 침수 없음(0)과 자료 없음을 구분하지 못합니다. 격자는 과거·미래 캐시 상자의 합집합이고, 한 층의 상자 밖(2030 층은 동경 126° 서쪽 섬, 과거 층은 129.5° 동쪽)은 값 없음(null)입니다. 울릉·독도·백령도는 두 상자 밖입니다."
+      ]
+    },
+    "wildfire_hist_kor": {
+      "label": "산불 강도 · 과거(2001–2020 시즌 20개) · 한국",
+      "peril": "wildfire",
+      "quantity": "fire_intensity_K",
+      "climate_scenario": "historical",
+      "year_range": "2001_2020",
+      "country_iso3": "KOR",
+      "boundary_version": "2025_2Q",
+      "boundary_simplify_m": 50,
+      "boundary_code_column": "SIGUNGU_CD",
+      "boundary_name_column": "SIGUNGU_NM",
+      "use_tier": "S",
+      "use_tier_reason": "시즌 20개(2001–2020) 기록이라 재현주기 상한이 약 10년이고, 같은 하자드에 쓰는 피해함수는 무임계 시그모이드·Lüthi 2021 보정 형태 미적용이라 저강도 시즌을 자릿수급 과대하므로 강도 참고용입니다 (docs/SCOPE.md §3).",
+      "notes": [
+        "CLIMADA Data API 산불 시즌 20개(2001–2020)의 밝기온도입니다. 기록이 20년이라 재현주기는 10년까지만 씁니다(2·5·10년).",
+        "주 방법: CLIMADA 재현주기 읽기. 검사(진단 전용): 경험적 단계 규칙. 자료가 시즌 20개뿐이라 2년 값은 두 방법이 갈릴 수 있어 meta.check에 기록합니다.",
+        "0 K는 불이 기록되지 않은 조각이며, 자료 없음(null)과 다릅니다."
+      ]
+    }
+  },
+  "change_layers": {
+    "river_flood_change_rcp26_kor": {
+      "base": "river_flood_rcp26_2010_2030_kor",
+      "future": "river_flood_rcp26_2030_2050_kor",
+      "label": "하천 홍수 변화 · RCP2.6 2030–2050 ÷ 2010–2030",
+      "use_tier": "I",
+      "use_tier_reason": "시나리오 차이(같은 모형 사슬, 같은 RCP의 두 기간)입니다. 변화 지도는 같은 모형 사슬의 시나리오 차이(배율 = 미래 ÷ 기준)라 절대값보다 오차가 덜 끼지만, 사용 등급은 두 층 중 낮은 쪽(I)을 따릅니다 (docs/SCOPE.md §3)."
+    },
+    "river_flood_change_rcp60_kor": {
+      "base": "river_flood_rcp60_2010_2030_kor",
+      "future": "river_flood_rcp60_2030_2050_kor",
+      "label": "하천 홍수 변화 · RCP6.0 2030–2050 ÷ 2010–2030",
+      "use_tier": "I",
+      "use_tier_reason": "시나리오 차이(같은 모형 사슬, 같은 RCP의 두 기간)입니다. 변화 지도는 같은 모형 사슬의 시나리오 차이(배율 = 미래 ÷ 기준)라 절대값보다 오차가 덜 끼지만, 사용 등급은 두 층 중 낮은 쪽(I)을 따릅니다 (docs/SCOPE.md §3)."
+    },
+    "river_flood_change_rcp85_kor": {
+      "base": "river_flood_rcp85_2010_2030_kor",
+      "future": "river_flood_rcp85_2030_2050_kor",
+      "label": "하천 홍수 변화 · RCP8.5 2030–2050 ÷ 2010–2030",
+      "use_tier": "I",
+      "use_tier_reason": "시나리오 차이(같은 모형 사슬, 같은 RCP의 두 기간)입니다. 변화 지도는 같은 모형 사슬의 시나리오 차이(배율 = 미래 ÷ 기준)라 절대값보다 오차가 덜 끼지만, 사용 등급은 두 층 중 낮은 쪽(I)을 따릅니다 (docs/SCOPE.md §3)."
+    },
+    "tropical_cyclone_change_rcp45_kor": {
+      "base": "tropical_cyclone_hist_kor",
+      "future": "tropical_cyclone_rcp45_2040_kor",
+      "label": "태풍 풍속 변화 · RCP4.5 2040 ÷ 과거(1980–2020 합성 경로 10개)",
+      "use_tier": "I",
+      "use_tier_reason": "시나리오 차이(같은 모형 사슬, 과거 합성 경로 집합 대비 2040)입니다. 변화 지도는 같은 모형 사슬의 시나리오 차이(배율 = 미래 ÷ 기준)라 절대값보다 오차가 덜 끼지만, 사용 등급은 두 층 중 낮은 쪽(I)을 따릅니다 (docs/SCOPE.md §3)."
+    },
+    "tropical_cyclone_change_rcp60_kor": {
+      "base": "tropical_cyclone_hist_kor",
+      "future": "tropical_cyclone_rcp60_2040_kor",
+      "label": "태풍 풍속 변화 · RCP6.0 2040 ÷ 과거(1980–2020 합성 경로 10개)",
+      "use_tier": "I",
+      "use_tier_reason": "시나리오 차이(같은 모형 사슬, 과거 합성 경로 집합 대비 2040)입니다. 변화 지도는 같은 모형 사슬의 시나리오 차이(배율 = 미래 ÷ 기준)라 절대값보다 오차가 덜 끼지만, 사용 등급은 두 층 중 낮은 쪽(I)을 따릅니다 (docs/SCOPE.md §3)."
+    },
+    "tropical_cyclone_change_rcp85_kor": {
+      "base": "tropical_cyclone_hist_kor",
+      "future": "tropical_cyclone_rcp85_2040_kor",
+      "label": "태풍 풍속 변화 · RCP8.5 2040 ÷ 과거(1980–2020 합성 경로 10개)",
+      "use_tier": "I",
+      "use_tier_reason": "시나리오 차이(같은 모형 사슬, 과거 합성 경로 집합 대비 2040)입니다. 변화 지도는 같은 모형 사슬의 시나리오 차이(배율 = 미래 ÷ 기준)라 절대값보다 오차가 덜 끼지만, 사용 등급은 두 층 중 낮은 쪽(I)을 따릅니다 (docs/SCOPE.md §3)."
+    },
+    "coastal_flood_change_rcp85_kor": {
+      "base": "coastal_flood_hist_kor",
+      "future": "coastal_flood_rcp85_2030_kor",
+      "label": "해안 침수 변화 · RCP8.5 2030 ÷ 과거 (해수면 상승 시나리오 차이)",
+      "use_tier": "S",
+      "use_tier_reason": "해수면 상승 시나리오 차이(같은 Aqueduct 모형 사슬·같은 격자, 과거 역사 해수면 대비 RCP8.5 2030의 50번째 백분위)입니다. 배율(미래 ÷ 기준)은 절대값보다 오차가 덜 끼지만 방어시설 미반영이라 사용 등급은 두 층 모두 S입니다 (docs/SCOPE.md §3).",
+      "notes": [
+        "미래 ÷ 과거(같은 재현주기). 과거 0 m에서 미래가 침수면 배율을 정의할 수 없어 '기준 0'으로 표시합니다. 변화량은 해수면 상승 시나리오(RCP8.5 2030, 50번째 백분위)와 지반침하 가정의 차이이며, 방어시설은 반영하지 않습니다."
+      ]
+    }
+  },
+  "rp_check": {
+    "rel_tol": 0.25,
+    "warn_share": 0.1
+  },
+  "resolution_ladder": [
+    {
+      "id": "national",
+      "label_ko": "전국 격자",
+      "label_en": "National grid",
+      "note_ko": "재해 자료 격자 그대로(약 1–5 km), 보간 없음"
+    },
+    {
+      "id": "sigungu",
+      "label_ko": "시군구 (격자 조각 모음)",
+      "label_en": "Municipality (pieces)",
+      "note_ko": "조각 수·최소–최대만, 평균 없음"
+    },
+    {
+      "id": "point",
+      "label_ko": "지점 (격자 한 칸)",
+      "label_en": "Point (one cell)",
+      "note_ko": "지점이 들어간 격자 한 칸의 값"
+    },
+    {
+      "id": "case",
+      "label_ko": "사례 트윈",
+      "label_en": "Case twin",
+      "note_ko": "대상지만 고해상도(수 m–수십 m), 전국 결과와 합산·비교 불가"
+    }
+  ],
+  "litpop": {
+    "dataset": "LitPop_150arcsec_KOR v3 (CLIMADA Data API)",
+    "res_arcsec": 150,
+    "exponents": "(1,1)",
+    "fin_mode": "pc",
+    "default_on": false,
+    "centroid_nudge_fraction": 0.01,
+    "max_centroid_distance_cells": 1.0,
+    "sector": "residential",
+    "flood_region": "Asia",
+    "layers": [
+      "river_flood_hist_kor",
+      "river_flood_rcp26_2010_2030_kor",
+      "river_flood_rcp26_2030_2050_kor",
+      "river_flood_rcp60_2010_2030_kor",
+      "river_flood_rcp60_2030_2050_kor",
+      "river_flood_rcp85_2010_2030_kor",
+      "river_flood_rcp85_2030_2050_kor",
+      "tropical_cyclone_hist_kor",
+      "tropical_cyclone_rcp45_2040_kor",
+      "tropical_cyclone_rcp60_2040_kor",
+      "tropical_cyclone_rcp85_2040_kor"
+    ],
+    "banner_ko": "노출 가중(LitPop) 켜짐 — 재해 값은 격자 그대로 사용합니다. 건물과 인구가 많은 곳의 영향을 LitPop 노출(150″ ≈ 4.6 km, CLIMADA 공개 자료)로 가중해 연평균 손실을 계산합니다. LitPop은 공개 모델 추정값(야간 조명 × 인구)입니다.",
+    "assumptions_ko": [
+      "LitPop 가치 전체에 주거(residential) 부문 피해곡선을 적용했습니다. 상업·산업 등 부문별 곡선은 쓰지 않았습니다.",
+      "하천 홍수는 JRC 아시아(Asia) 곡선을 씁니다. 한국 전용 곡선은 없습니다. 열대저기압은 CLIMADA가 한국에 배정한 지역 함수를 씁니다.",
+      "LitPop 점 하나는 그 점이 들어 있는 격자 조각의 재해 값을 그대로 읽습니다. 조각 경계에 걸친 점은 목록에서 처음 맞는 조각에 속하고, 어느 조각에도 없는 점은 세어 두되 옮기지 않습니다.",
+      "건물별 속성, 제방·방어 시설, 보험 조건은 반영하지 않습니다. 조각과 시군구의 금액은 합계이며 평균이 아닙니다."
+    ],
+    "size_legend_usd": [
+      1000000.0,
+      10000000.0,
+      100000000.0,
+      1000000000.0
+    ],
+    "check": {
+      "rel_tol": 0.25,
+      "warn_share": 0.1,
+      "min_eal": 1000
+    },
+    "excluded_layers_ko": {
+      "coastal_flood_*": "해안 침수 격자(30″ ≈ 0.9 km)가 LitPop(150″ ≈ 4.6 km)보다 5배 촘촘해, 4.6 km 점의 자산 전체가 침수 칸 하나에 얹힌다. 실측: 5,690점 중 21점만 조각에 놓이고 연평균 손실 대부분이 지도 밖에 남았다(2026-11-11). 노출이 재해보다 거칠면 가중하지 않는다."
+    }
+  }
+}

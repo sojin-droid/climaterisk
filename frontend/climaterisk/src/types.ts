@@ -839,6 +839,8 @@ export interface PhysicalRiskDisplay {
     screening_vs_financial: string;
     financial_unavailable: string;
     point_definition: string;
+    /** Pointer to the visual board 시군구 panel (min–max pieces); shown next to `warning`. */
+    board_pointer?: string;
     status_copy: Record<string, string>;
     status_short: Record<string, string>;
     dataset: MunicipalityDataset;

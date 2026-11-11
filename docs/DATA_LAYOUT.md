@@ -19,6 +19,9 @@ backend, the CLIMADA worker, the scripts and the tests). No other code builds a 
       sgis/                           SGIS boundary package (raw government download)
       source/                         official office-address sources (V0.3 input, raw)
       office/                         office layers built from them (V0.3)
+    drought/                          TerraClimate / CHIRPS / KRC / exposure inputs (manifest.json per source)
+    farmmap/<year>/raw/               팜맵 province SHP archives (user copy from data.go.kr; manifest.json)
+    worldpop/age_2024_1km/            WorldPop 2024 1 km age bands, both sexes, constrained UN-adjusted (20 GeoTIFFs; CC BY 4.0, doi:10.5258/SOTON/WP00842; heat health, scripts/heat_health_board.py)
     climada/                          CLIMADA's data directory (CLIMATERISK_CLIMADA_DATA_DIR):
                                       Data API cache hazard/ + .downloads.db + .apicache,
                                       MRIOT, OSM, E-OBS, IBTrACS, WorldPop, CLIMADA system files
@@ -27,7 +30,12 @@ backend, the CLIMADA worker, the scripts and the tests). No other code builds a 
     hazard_db/                        local hazard catalogue: catalog.json + HDF5
     calibrations/                     persisted impact-function calibrations (next to hazard_db)
     municipality/                     derived municipality products (V0.3 office points)
+    board/                            visual-board national layers (<layer>.geojson + <layer>.meta.json; scripts/board_layer.py)
+    case_twins/                       case-twin summaries + figures (<id>/summary.json, PNGs; built on the twin branch, read-only on the board)
+    drought/                          agricultural drought v0 (pieces, per-year SPEI stage, 시군구 summary; scripts/drought_agri.py)
   cache/                              regenerable caches
+    aqueduct/                         WRI Aqueduct coastal-flood depth stacks (<dataset>__<bbox>.npz; read by the coastal board layers)
+    heat_days/                        0.05 deg block-meaned daily TAMAX per window (npz; scripts/heat_days_board.py)
     climada_conf/climada.conf         project-scoped CLIMADA config (generated)
   evidence/                           large reproducibility artefacts
     migration/                        per-file sha256 manifests of the data migration

@@ -1,0 +1,517 @@
+{
+  "_meta": {
+    "purpose": "Single colour authority for every map and legend of the visual board and the reports (docs/BOARD_COLORS_KO.md). Colour = peril family, darkness = magnitude. Class breaks are fixed per quantity and never derived from the data on screen, so a map never re-scales between return periods, years, scenarios or regions.",
+    "version": "1.1.0",
+    "updated": "2026-11-11",
+    "ramp_sources": "ColorBrewer 2.0 (Brewer, Harrower 2003; Blues, Reds, RdPu, BuGn, PiYG, PRGn purple arm, BrBG brown arm), first steps of dryness and ground darkened so the lightest class stays apart from the shared zero colour",
+    "checks": "tests/test_board_palettes.py: lightness strictly falls along every ramp (OKLab L), families differ by >= 10 OKLab dE x100 at ramp steps 2-4, every class colour is a step of its family ramp in ramp order, the lightest class differs from zero by >= 8, breaks strictly increase, every peril in perils.json has a family.",
+    "class_rule": "value null/NaN -> shared.null; value == 0 and zero_means_none -> shared.zero; value <= breaks[0] -> class 0; breaks[i-1] < value <= breaks[i] -> class i; value > breaks[-1] -> last class. Class i uses family ramp[steps[i]]. spei_stage: first stage (driest first) with value <= leq, else shared.zero. change: same break rule on the ratio with change.colors."
+  },
+  "shared": {
+    "null": {
+      "color": "#8a8f98",
+      "label": "자료 없음 · no data",
+      "meaning": "자료 범위 밖(계산하지 않음). 0과 다르다."
+    },
+    "zero": {
+      "color": "#f7f7f5",
+      "label": "0 · 영향 없음",
+      "meaning": "계산했고 값이 0(또는 해당 단계 미만)."
+    },
+    "not_computed": {
+      "label": "계산 불가 · not resolvable",
+      "meaning": "재현주기가 사건 기록 길이의 ½을 넘음. 색을 칠하지 않고 버튼을 끈다(대체값 없음)."
+    },
+    "piece_outline": {
+      "color": "#ffffff",
+      "weight": 0.3
+    },
+    "region_outline": {
+      "color": "#4a4f57",
+      "weight": 1.0
+    },
+    "selected_outline": {
+      "color": "#111111",
+      "weight": 2.0
+    },
+    "exposure_point": {
+      "fill": "none",
+      "stroke": "#3a3a3a",
+      "meaning": "노출은 색이 아니라 속이 빈 점의 크기로만 표시(재해 색과 섞지 않음)."
+    },
+    "fill_opacity": 0.85,
+    "base_zero": {
+      "color": "#ffffff",
+      "outline": "#8a8f98",
+      "label": "기준 0 · 배율 없음",
+      "meaning": "변화 지도에서 기준값이 0이라 배율을 낼 수 없는 곳(흰 바탕 + 회색 테두리)."
+    }
+  },
+  "families": {
+    "water": {
+      "label": "물 · water",
+      "hue_note": "파랑. 침수심·강우량처럼 물의 양.",
+      "ramp": [
+        "#c6dbef",
+        "#9ecae1",
+        "#6baed6",
+        "#3182bd",
+        "#08519c",
+        "#08306b"
+      ]
+    },
+    "wind": {
+      "label": "바람·폭풍 · wind & storm",
+      "hue_note": "보라. 풍속, 우박 크기.",
+      "ramp": [
+        "#e7d4e8",
+        "#c2a5cf",
+        "#9970ab",
+        "#762a83",
+        "#5a1a6b",
+        "#40004b"
+      ]
+    },
+    "heat": {
+      "label": "열 · heat",
+      "hue_note": "빨강. 기온, 폭염일수, 열 관련 사망률.",
+      "ramp": [
+        "#fcbba1",
+        "#fc9272",
+        "#fb6a4a",
+        "#ef3b2c",
+        "#cb181d",
+        "#67000d"
+      ]
+    },
+    "dryness": {
+      "label": "건조 · dryness",
+      "hue_note": "갈색. 가뭄(SPEI), 저유량, 작물 수확 감소.",
+      "ramp": [
+        "#f1e0b0",
+        "#dfc27d",
+        "#bf812d",
+        "#8c510a",
+        "#6b3d07",
+        "#3d2303"
+      ]
+    },
+    "fire": {
+      "label": "불 · fire",
+      "hue_note": "자홍. 산불. 빨강(열)·갈색(건조)과 겹치지 않게 주황 대신 자홍.",
+      "ramp": [
+        "#fcc5c0",
+        "#fa9fb5",
+        "#f768a1",
+        "#dd3497",
+        "#ae017e",
+        "#7a0177"
+      ]
+    },
+    "ground": {
+      "label": "지반 · ground",
+      "hue_note": "청록. 산사태, 지진.",
+      "ramp": [
+        "#b8e3d8",
+        "#99d8c9",
+        "#66c2a4",
+        "#41ae76",
+        "#238b45",
+        "#005824"
+      ]
+    }
+  },
+  "perils": {
+    "river_flood": "water",
+    "coastal_flood": "water",
+    "tc_surge": "water",
+    "tc_rain": "water",
+    "pluvial_flood": "water",
+    "tropical_cyclone": "wind",
+    "european_windstorm": "wind",
+    "hail": "wind",
+    "heatwave": "heat",
+    "heat_mortality": "heat",
+    "drought": "dryness",
+    "low_flow": "dryness",
+    "crop_yield": "dryness",
+    "wildfire": "fire",
+    "landslide": "ground",
+    "earthquake": "ground"
+  },
+  "quantities": {
+    "water_depth_m": {
+      "family": "water",
+      "units": "m",
+      "label": "침수심",
+      "breaks": [
+        0.25,
+        0.5,
+        1,
+        2,
+        4
+      ],
+      "steps": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "basis": "JRC 전지구 침수심-피해 곡선 절점 0.5·1·2·4 m (Huizinga et al. 2017)와 맞춤. 하천·해안·해일·내수(트윈) 침수심 모두 같은 구간.",
+      "status": "in_use",
+      "zero_means_none": true
+    },
+    "rain_mm": {
+      "family": "water",
+      "units": "mm",
+      "label": "강우량(사건 합계)",
+      "breaks": [
+        50,
+        100,
+        200,
+        300,
+        400
+      ],
+      "steps": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "basis": "physical._CATALOG_PERILS tc_rain 절점 50·100·200·400 mm와 맞춤.",
+      "status": "provisional",
+      "zero_means_none": true
+    },
+    "wind_ms": {
+      "family": "wind",
+      "units": "m/s",
+      "label": "최대 풍속",
+      "breaks": [
+        17,
+        25,
+        33,
+        44,
+        54
+      ],
+      "steps": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "basis": "기상청 태풍 강도 구분: 17 열대폭풍 하한, 25 중, 33 강, 44 매우 강, 54 초강력. 기상청은 10분 평균, CLIMADA TropCyclone은 1분 지속풍이라 같은 값이 기상청 기준보다 약 7–12 % 세게 읽힘(WMO 환산계수 0.88–0.93, Harper et al. 2010; 범례에 표기).",
+      "status": "provisional",
+      "zero_means_none": true
+    },
+    "hail_cm": {
+      "family": "wind",
+      "units": "cm",
+      "label": "우박 지름",
+      "breaks": [
+        2,
+        4,
+        6,
+        8
+      ],
+      "steps": [
+        0,
+        2,
+        3,
+        4,
+        5
+      ],
+      "basis": "physical._CATALOG_PERILS hail 절점 2·4·6·8 cm.",
+      "status": "provisional",
+      "zero_means_none": true
+    },
+    "tmax_degC": {
+      "family": "heat",
+      "units": "°C",
+      "label": "일 최고기온",
+      "breaks": [
+        30,
+        33,
+        35,
+        37,
+        40
+      ],
+      "steps": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "basis": "기상청 폭염특보 33 °C(주의보)·35 °C(경보). 2020년부터 기상청은 체감온도를 쓰므로, 기온 자료이면 범례에 '기온 기준'을 표기. 현재 폭염 하자드 정의(TA p95 / UTCI / TAMAX)는 미결정(docs/SCOPE.md heatwave).",
+      "status": "provisional",
+      "zero_means_none": false
+    },
+    "heat_days_per_year": {
+      "family": "heat",
+      "units": "일/년",
+      "label": "폭염일수",
+      "breaks": [
+        1,
+        5,
+        10,
+        20,
+        30
+      ],
+      "steps": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "basis": "일 최고 33 °C 이상 일수(기상청 폭염일 정의). 30일 이상은 2018년급.",
+      "status": "provisional",
+      "zero_means_none": true
+    },
+    "heat_deaths_per_100k": {
+      "family": "heat",
+      "units": "명/10만/년",
+      "label": "열 관련 초과사망률",
+      "breaks": [
+        0.25,
+        0.5,
+        1,
+        2,
+        5
+      ],
+      "steps": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "basis": "2026-11-11 전국 층(heat_health_kor)을 처음 올리며 한 번 확정: 연평균(2000–2019) 조각 분포 p10 0.31·p50 0.54·p90 0.75, 2018년 p10 1.3·p50 2.7·p90 4.5·최대 8.9. 두 키가 모두 여러 칸에 퍼지도록 0.25·0.5·1·2·5. 이후 바꾸지 않는다.",
+      "status": "in_use",
+      "zero_means_none": true
+    },
+    "spei_stage": {
+      "family": "dryness",
+      "units": "-",
+      "label": "SPEI-3 가뭄 단계",
+      "stages": [
+        {
+          "leq": -2.0,
+          "step": 4,
+          "name": "경계 이상",
+          "label": "경계 이상: SPEI-3 ≤ −2"
+        },
+        {
+          "leq": -1.5,
+          "step": 2,
+          "name": "주의",
+          "label": "주의: −2 < SPEI-3 ≤ −1.5"
+        },
+        {
+          "leq": -1.0,
+          "step": 1,
+          "name": "관심",
+          "label": "관심: −1.5 < SPEI-3 ≤ −1"
+        }
+      ],
+      "above_last": {
+        "use": "zero",
+        "name": "없음",
+        "label": "없음: SPEI-3 > −1"
+      },
+      "basis": "docs/DROUGHT_AGRI_KO.md 단계(McKee 1993 구분과 같은 −1/−1.5/−2). 단계 색은 갈색 단계 1·2·4(가장 진한 5는 지도 위에서 검정처럼 보여 쓰지 않음).",
+      "status": "in_use"
+    },
+    "share_of_years": {
+      "family": "dryness",
+      "units": "연 비율",
+      "label": "단계 이상 발생 빈도",
+      "breaks": [
+        0.1,
+        0.2,
+        0.3,
+        0.4
+      ],
+      "steps": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "basis": "10 %p 간격. 표준화 지수(SPEI)의 같은 기간 빈도는 어디서나 비슷하게 나오므로 지역 비교용이 아님(화면에 표시).",
+      "status": "in_use",
+      "zero_means_none": true
+    },
+    "low_flow_deficit": {
+      "family": "dryness",
+      "units": "비율",
+      "label": "저유량 부족률",
+      "breaks": [
+        0.25,
+        0.5,
+        0.75
+      ],
+      "steps": [
+        1,
+        3,
+        4,
+        5
+      ],
+      "basis": "physical._CATALOG_PERILS low_flow 절점.",
+      "status": "provisional",
+      "zero_means_none": true
+    },
+    "yield_loss_frac": {
+      "family": "dryness",
+      "units": "비율",
+      "label": "수확 감소율",
+      "breaks": [
+        0.05,
+        0.1,
+        0.2,
+        0.4
+      ],
+      "steps": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "basis": "physical._CATALOG_PERILS crop_yield 절점 0.1·0.2·0.4 + 5 % 감지 하한.",
+      "status": "provisional",
+      "zero_means_none": true
+    },
+    "fire_intensity_K": {
+      "family": "fire",
+      "units": "K",
+      "label": "산불 강도(밝기온도)",
+      "breaks": [
+        300,
+        325,
+        350,
+        400
+      ],
+      "steps": [
+        0,
+        2,
+        3,
+        4,
+        5
+      ],
+      "basis": "CLIMADA WildFire 밝기온도. 325 K는 현재 피해함수 중간점(x0). 산불 하자드는 등급 S(docs/SCOPE.md).",
+      "status": "provisional",
+      "zero_means_none": false
+    },
+    "landslide_probability": {
+      "family": "ground",
+      "units": "확률",
+      "label": "산사태 발생 확률",
+      "breaks": [
+        0.05,
+        0.1,
+        0.25,
+        0.5
+      ],
+      "steps": [
+        0,
+        2,
+        3,
+        4,
+        5
+      ],
+      "basis": "physical._CATALOG_PERILS landslide 절점 0.25·0.5 + 낮은 확률 구분 0.05·0.1.",
+      "status": "provisional",
+      "zero_means_none": true
+    },
+    "mmi": {
+      "family": "ground",
+      "units": "MMI",
+      "label": "진도(수정 메르칼리)",
+      "breaks": [
+        5,
+        6,
+        7,
+        8,
+        9
+      ],
+      "steps": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "basis": "진도 VI부터 경미한 피해(EMS-98). 정수 진도 경계.",
+      "status": "provisional",
+      "zero_means_none": false
+    },
+    "loss_ratio": {
+      "family": "peril",
+      "units": "자산가치 대비 연",
+      "label": "연 기대손실률(EAL/가치)",
+      "breaks": [
+        0.0001,
+        0.001,
+        0.005,
+        0.01,
+        0.05
+      ],
+      "steps": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "basis": "모든 재해 공통 구간. 색은 그 재해의 계열을 쓴다(색=재해). 0.01 %·0.1 %·0.5 %·1 %·5 %.",
+      "status": "provisional",
+      "zero_means_none": true
+    }
+  },
+  "change": {
+    "label": "변화 · change (미래 − 기준)",
+    "rule": "위험이 커지는 방향(손실·빈도·강도 증가)을 항상 같은 팔(자홍)로 칠한다. SPEI처럼 값이 작을수록 나쁜 지표는 지수 자체가 아니라 '단계 이상 빈도'의 변화로 보여 준다. 모든 재해가 이 한 가지 발산 팔레트를 쓴다.",
+    "units": "배율(미래 ÷ 기준)",
+    "breaks": [
+      0.5,
+      0.667,
+      0.909,
+      1.1,
+      1.5,
+      2.0
+    ],
+    "colors": [
+      "#276419",
+      "#4d9221",
+      "#b8e186",
+      "#efefec",
+      "#f1b6da",
+      "#c51b7d",
+      "#8e0152"
+    ],
+    "labels": [
+      "×0.5 이하",
+      "×0.5 – ×0.67",
+      "×0.67 – ×0.91",
+      "×0.91 – ×1.1 (변화 없음)",
+      "×1.1 – ×1.5",
+      "×1.5 – ×2",
+      "×2 초과"
+    ],
+    "basis": "ColorBrewer PiYG(색각이상 안전). 배율의 로그 대칭 구간(1/2↔2, 1/1.5↔1.5, 1/1.1↔1.1)이라 두 팔의 단계 수가 같다. 가운데는 무채색. 감소 쪽 초록은 '좋음'이 아니라 '위험 감소'. 기준이 0인 곳은 배율을 정의할 수 없으므로 null(자료 없음)이 아니라 별도 표시 '기준 0'.",
+    "status": "provisional"
+  }
+}
