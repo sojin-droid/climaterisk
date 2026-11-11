@@ -42,6 +42,25 @@ export interface BoardMeta {
   boundary_source: string;
   use_tier: string;
   use_tier_reason: string;
+  /** Present on layers built with the LitPop exposure weighting (option C, default off). */
+  litpop?: BoardLitpop;
+}
+
+/** `meta.litpop` of a layer (docs/VISUAL_BOARD_KO.md section 2 C): what the circles are and how far to trust them. */
+export interface BoardLitpop {
+  dataset: string;
+  res_arcsec: number;
+  banner_ko: string;
+  /** Round EAL steps (USD per year) of the circle-size legend, increasing; the last one is the radius reference. */
+  size_legend_usd: number[];
+  impf?: string;
+  assumptions?: string[];
+  n_points: number;
+  n_assigned: number;
+  value_assigned_usd: number;
+  eal_total_usd?: number;
+  eal_unassigned_usd?: number;
+  check: { n_compared?: number; disagree_share?: number; warning: boolean };
 }
 
 /** Why a change ratio is undefined: "base_zero" (base 0, future > 0), "both_zero", "null" (no data). */
@@ -162,6 +181,8 @@ export interface PaletteSpec {
     piece_outline: { color: string; weight: number };
     region_outline: { color: string; weight: number };
     selected_outline: { color: string; weight: number };
+    /** Exposure is drawn as a hollow circle (no fill), never as a colour. */
+    exposure_point: { fill: string; stroke: string; meaning: string };
     fill_opacity: number;
   };
   families: Record<string, { label: string; ramp: string[] }>;
@@ -404,4 +425,64 @@ export function fmtStatusCounts(
     .filter((st) => (counts?.[st] ?? 0) > 0)
     .map((st) => `${fmtChange(spec, null, st)} ${counts?.[st]}조각`)
     .join(" · ");
+}
+
+// ---- LitPop circles (exposure weighting, step 7) ----
+
+/** Pixel radius of the circle for the largest legend step; the other sizes follow from it. */
+export const LITPOP_RADIUS_REF_PX = 30;
+/** Smallest drawn radius (px): a tiny but positive loss stays visible rather than vanishing. */
+export const LITPOP_RADIUS_MIN_PX = 1;
+
+/**
+ * Circle radius (px) for an annual expected loss: the area is proportional to the loss, so
+ * $r = R_{ref}\sqrt{EAL / EAL_{ref}}$ with `EAL_ref` the largest legend step and `R_ref`
+ * `LITPOP_RADIUS_REF_PX`; below `LITPOP_RADIUS_MIN_PX` the minimum is drawn.
+ * ASCII: r = R_ref * sqrt(eal / eal_ref), at least R_min.
+ */
+export function litpopRadiusPx(eal: number, ref: number): number {
+  if (!(eal > 0) || !(ref > 0)) return 0;
+  return Math.max(LITPOP_RADIUS_MIN_PX, LITPOP_RADIUS_REF_PX * Math.sqrt(eal / ref));
+}
+
+/** USD amount in Korean units ("10만 USD", "1억 USD") for the circle-size legend. */
+export function fmtUsdKo(v: number): string {
+  if (v >= 1e8) return `${(v / 1e8).toLocaleString("ko-KR")}억 USD`;
+  if (v >= 1e4) return `${(v / 1e4).toLocaleString("ko-KR")}만 USD`;
+  return `${v.toLocaleString("ko-KR")} USD`;
+}
+
+type Ring = number[][];
+
+/**
+ * Area centroid `[lat, lon]` of a piece's largest polygon outer ring (shoelace); a degenerate
+ * ring falls back to the mean of its vertices. `null` when the geometry has no ring.
+ */
+export function featureCentre(geometry: { type: string; coordinates: unknown }): [number, number] | null {
+  const polys =
+    geometry.type === "Polygon" ? [geometry.coordinates as Ring[]] : (geometry.coordinates as Ring[][]);
+  let best: { area: number; ring: Ring } | null = null;
+  for (const poly of polys ?? []) {
+    const ring = poly?.[0];
+    if (!ring || ring.length < 3) continue;
+    let a = 0;
+    for (let i = 0; i < ring.length - 1; i++) a += ring[i][0] * ring[i + 1][1] - ring[i + 1][0] * ring[i][1];
+    if (best === null || Math.abs(a) > best.area) best = { area: Math.abs(a), ring };
+  }
+  if (best === null) return null;
+  const r = best.ring;
+  let a2 = 0;
+  let cx = 0;
+  let cy = 0;
+  for (let i = 0; i < r.length - 1; i++) {
+    const cross = r[i][0] * r[i + 1][1] - r[i + 1][0] * r[i][1];
+    a2 += cross;
+    cx += (r[i][0] + r[i + 1][0]) * cross;
+    cy += (r[i][1] + r[i + 1][1]) * cross;
+  }
+  if (Math.abs(a2) < 1e-18) {
+    const n = r.length;
+    return [r.reduce((t, c) => t + c[1], 0) / n, r.reduce((t, c) => t + c[0], 0) / n];
+  }
+  return [cy / (3 * a2), cx / (3 * a2)];
 }

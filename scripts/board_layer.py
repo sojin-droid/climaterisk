@@ -134,7 +134,12 @@ def period_key(period: float) -> str:
     return f"{period:g}"
 
 
-def board_json_payload(pieces: Any, meta: dict[str, Any], spec: dict[str, Any]) -> dict[str, Any]:
+def board_json_payload(
+    pieces: Any,
+    meta: dict[str, Any],
+    spec: dict[str, Any],
+    exposure: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Compact ``<layer>.board.json`` content (pure given a pieces GeoDataFrame).
 
     Args:
@@ -142,6 +147,8 @@ def board_json_payload(pieces: Any, meta: dict[str, Any], spec: dict[str, Any]) 
             ``rp<T>`` column per kept period (NaN = no data -> null).
         meta: Output of ``build_metadata``.
         spec: The layer's block of ``visual_board.json`` (``use_tier``, ``use_tier_reason``).
+        exposure: Optional ``{name: array(n_pieces)}`` summable amounts (USD), written per
+            piece rounded to 2 decimals (the LitPop weighting of step 7).
 
     Returns:
         ``{"meta", "pieces"}`` as documented in ``tests/test_board_api.py``.
@@ -163,6 +170,8 @@ def board_json_payload(pieces: Any, meta: dict[str, Any], spec: dict[str, Any]) 
         out_meta["notes"] = spec["notes"]
     if "check" in meta:
         out_meta["check"] = meta["check"]
+    if "litpop" in meta:
+        out_meta["litpop"] = meta["litpop"]
     rows = []
     for i, (geom, cen, code, name) in enumerate(
         zip(pieces.geometry, pieces["centroid"], pieces["code"], pieces["name"], strict=True)
@@ -171,16 +180,17 @@ def board_json_payload(pieces: Any, meta: dict[str, Any], spec: dict[str, Any]) 
         for p in periods:
             v = float(pieces[period_column(p)].iloc[i])
             values[period_key(p)] = None if math.isnan(v) else v
-        rows.append(
-            {
-                "id": i,
-                "centroid": int(cen),
-                "code": str(code),
-                "name": str(name),
-                "polygons": polygons_of(geom),
-                "values": values,
-            }
-        )
+        row: dict[str, Any] = {
+            "id": i,
+            "centroid": int(cen),
+            "code": str(code),
+            "name": str(name),
+            "polygons": polygons_of(geom),
+            "values": values,
+        }
+        if exposure:
+            row["exposure"] = {k: round(float(a[i]), 2) for k, a in exposure.items()}
+        rows.append(row)
     return {"meta": out_meta, "pieces": rows}
 
 
@@ -427,6 +437,231 @@ def aqueduct_check(aq: dict[str, Any], result: dict[str, Any], rp_cfg: dict[str,
     }
 
 
+LITPOP_EXPOSURE_KEYS = ("litpop_value_usd", "litpop_eal_usd")
+_LITPOP_CACHE: dict[str, Any] = {}
+
+
+def litpop_impact_function(spec: dict[str, Any], litpop_cfg: dict[str, Any]) -> tuple[Any, str]:
+    """Impact function and its text for a LitPop layer (same choices as the asset engine).
+
+    River and coastal flood: the JRC curve of ``litpop_cfg["flood_region"]`` and
+    ``litpop_cfg["sector"]`` (``registry.flood_impact_function`` /
+    ``coastal_flood_impact_function``, as ``physical_risk.engine`` does). Tropical cyclone:
+    the Eberenz regional function CLIMADA assigns to the layer's country
+    (``registry.tc_region_for_country`` + ``tc_impact_function``).
+
+    Returns:
+        ``(function, text naming the function and id)``.
+    """
+    from climaterisk_worker.physical_risk import registry
+
+    peril = spec["peril"]
+    if peril in ("river_flood", "coastal_flood"):
+        region, sector = str(litpop_cfg["flood_region"]), str(litpop_cfg["sector"])
+        make = (
+            registry.flood_impact_function
+            if peril == "river_flood"
+            else registry.coastal_flood_impact_function
+        )
+        func = make(region, sector)
+        text = (
+            f"JRC depth-damage curve ImpfRiverFlood.from_jrc_region_sector({region!r}, "
+            f"{sector!r}), id {int(func.id)} ({func.name})"
+            + (" — same curve tagged CF" if peril == "coastal_flood" else "")
+        )
+        return func, text
+    if peril == "tropical_cyclone":
+        iso3 = str(spec["country_iso3"])
+        assigned = registry.tc_region_for_country(iso3)
+        if assigned is None:
+            raise ValueError(f"{iso3}: no CLIMADA tropical-cyclone region; LitPop not computed")
+        impf_id, code, name = assigned
+        func = registry.tc_impact_function(impf_id)
+        text = (
+            f"Eberenz et al. 2021 regional TC function {code} {name!r}, id {int(func.id)} "
+            f"({func.name}), assigned to {iso3} by ImpfSetTropCyclone"
+        )
+        return func, text
+    raise ValueError(f"{peril}: no LitPop weighting for this peril")
+
+
+def load_litpop(litpop_cfg: dict[str, Any], country_iso3: str) -> Any:
+    """The LitPop ``Exposures`` (CLIMADA Data API, offline cache), read once per process."""
+    from climaterisk_worker._dataapi import make_client
+
+    key = f"{litpop_cfg['dataset']}|{country_iso3}"
+    if key not in _LITPOP_CACHE:
+        _LITPOP_CACHE[key] = make_client().get_exposures(
+            "litpop",
+            properties={
+                "country_iso3alpha": country_iso3,
+                "exponents": str(litpop_cfg["exponents"]),
+                "fin_mode": str(litpop_cfg["fin_mode"]),
+            },
+        )
+    return _LITPOP_CACHE[key]
+
+
+def litpop_layer(
+    layer: str,
+    spec: dict[str, Any],
+    litpop_cfg: dict[str, Any],
+    hazard: Any,
+    pieces: Any,
+    result: dict[str, Any],
+    res_deg: float,
+) -> dict[str, Any]:
+    """LitPop exposure weighting of one built layer: per-piece value, EAL, ``meta.litpop``.
+
+    Main method: CLIMADA ``ImpactCalc(exposures, impfset, hazard).impact()`` per-point
+    ``eai_exp`` (centroids assigned the CLIMADA way), summed per piece. Sub check
+    (diagnostic only): per piece, loss at each kept return period =
+    value x MDR(piece intensity) x mean wet-event affected fraction of the cell, then
+    ``board.eal_from_rp_losses``; ``board.litpop_check`` compares it with the main EAL.
+    LitPop points are assigned to the piece that contains them (``board.assign_points``);
+    a point outside every piece is counted, not moved.
+
+    Algorithm:
+        $$EAL_p = \\sum_{k \\in p} \\sum_e f_e\\, V_k\\, \\mathrm{MDR}(I_e(c_k))$$
+        with $V_k$ the LitPop value (USD) of point $k$, $f_e$ the annual frequency of event
+        $e$, $I_e(c_k)$ its intensity at the centroid assigned to $k$ and MDR the impact
+        function's mean damage ratio (CLIMADA ``eai_exp``). Sums only; no mean.
+        ASCII: EAL_piece = sum over points in the piece of sum over events of
+        f_e * V_k * MDR(I_e(c_k)).
+
+    Args:
+        layer: Layer name.
+        spec: The layer's block of ``visual_board.json``.
+        litpop_cfg: The config's ``litpop`` block.
+        hazard: The layer's CLIMADA hazard (the one the return periods came from).
+        pieces: GeoDataFrame of the layer's pieces with ``centroid`` and geometry.
+        result: ``board.rp_intensity`` output with ``piece_values`` ``(n_periods, n_pieces)``.
+        res_deg: Hazard grid cell side in degrees (centroid matching threshold).
+
+    Returns:
+        ``{"meta": meta.litpop, "exposure": {key: array(n_pieces)}}``.
+    """
+    import numpy as np
+    import pandas as pd
+    from climada.engine import ImpactCalc
+    from climada.entity import Exposures, ImpactFuncSet
+    from climaterisk_worker import board
+
+    func, impf_text = litpop_impact_function(spec, litpop_cfg)
+    haz_type = str(hazard.haz_type)
+    if str(func.haz_type) != haz_type:
+        raise ValueError(f"{layer}: impact function tag {func.haz_type} != hazard {haz_type}")
+    exp = load_litpop(litpop_cfg, str(spec["country_iso3"]))
+    gdf = exp.gdf
+    lon = gdf.geometry.x.to_numpy(dtype=float)
+    lat = gdf.geometry.y.to_numpy(dtype=float)
+    value = gdf["value"].to_numpy(dtype=float)
+    n_points = int(value.size)
+    log.debug("%s: litpop points %s %s, impf %s", layer, lon.shape, lon.dtype, impf_text)
+
+    frame = pd.DataFrame(
+        {"latitude": lat, "longitude": lon, "value": value, f"impf_{haz_type}": int(func.id)}
+    )
+    exposures = Exposures(frame, value_unit=str(exp.value_unit))
+    # Nearest centroid, but only within ``max_centroid_distance_cells`` hazard cells: every
+    # LitPop point lies on a corner shared by four cells, so a point with none of its four
+    # cells in the hazard grid (e.g. inland of the wet-cell-only coastal grid) is not
+    # exposed instead of being tied to a far-away wet cell.
+    threshold_deg = res_deg * float(litpop_cfg["max_centroid_distance_cells"])
+    exposures.assign_centroids(hazard, threshold=threshold_deg)
+    impact = ImpactCalc(exposures, ImpactFuncSet([func]), hazard).impact(
+        save_mat=False, assign_centroids=False
+    )
+    eai_point = np.asarray(impact.eai_exp, dtype=float)
+    centr_point = exposures.gdf[f"centr_{haz_type}"].to_numpy(dtype=int)
+
+    # The LitPop points sit on the corners of the hazard cells (the two 150 arcsec grids are
+    # registered half a cell apart), so "the cell containing the point" is a floating-point
+    # tie. The point is read in the cell of the centroid CLIMADA assigned to it (the same one
+    # the main method used), by moving only the *query* location a fraction of the way to
+    # that centroid; the 시군구 is read there. The LitPop value itself is not moved.
+    nudge = float(litpop_cfg["centroid_nudge_fraction"])
+    h_lon = np.asarray(hazard.centroids.lon, dtype=float)
+    h_lat = np.asarray(hazard.centroids.lat, dtype=float)
+    q_lon, q_lat = lon.copy(), lat.copy()
+    has_c = centr_point >= 0
+    q_lon[has_c] += nudge * (h_lon[centr_point[has_c]] - lon[has_c])
+    q_lat[has_c] += nudge * (h_lat[centr_point[has_c]] - lat[has_c])
+    rows = [{"polygons": polygons_of(g)} for g in pieces.geometry]
+    idx = board.assign_points(q_lon, q_lat, rows)
+    ok = idx >= 0
+    n_pieces = len(rows)
+    centr_piece = pieces["centroid"].to_numpy(dtype=int)
+    n_centroid_mismatch = int((centr_point[ok] != centr_piece[idx[ok]]).sum())
+
+    value_piece = np.bincount(idx[ok], weights=value[ok], minlength=n_pieces)
+    eal_piece = np.bincount(idx[ok], weights=eai_point[ok], minlength=n_pieces)
+
+    # sub check: loss at each kept return period = value x MDR(piece intensity)
+    periods = [float(p) for p in result["periods"]]
+    inten = np.nan_to_num(np.asarray(result["piece_values"], dtype=float), nan=0.0)
+    # ImpactCalc multiplies each event's loss by the hazard's affected fraction of the cell
+    # (the ISIMIP flooded fraction); an intensity at a return period carries no fraction, so
+    # the check uses the frequency-weighted mean fraction of the cell's wet events.
+    wet = (hazard.intensity > 0).astype(float)
+    freq = np.asarray(hazard.frequency, dtype=float)
+    den = np.asarray(wet.T @ freq).ravel()
+    frac = hazard.fraction if hazard.fraction.nnz > 0 else wet  # no fraction stored = 1 where wet
+    num = np.asarray(frac.multiply(wet).T @ freq).ravel()
+    fbar = np.divide(num, den, out=np.zeros_like(den), where=den > 0)[centr_piece]
+    losses = np.stack(
+        [value_piece * np.asarray(func.calc_mdr(row), dtype=float) * fbar for row in inten]
+    )
+    eal_check = np.asarray(board.eal_from_rp_losses(periods, losses), dtype=float)
+    ck_cfg = litpop_cfg["check"]
+    check = board.litpop_check(
+        eal_piece,
+        eal_check,
+        float(ck_cfg["rel_tol"]),
+        float(ck_cfg["warn_share"]),
+        float(ck_cfg["min_eal"]),
+    )
+    check.update(
+        rel_tol=float(ck_cfg["rel_tol"]),
+        warn_share=float(ck_cfg["warn_share"]),
+        method="return_period_trapezoid",
+    )
+    if check["warning"]:
+        log.warning(
+            "%s: LitPop EAL sub check disagrees on %.0f%% of %d pieces (tol %.0f%%, warn > %.0f%%)",
+            layer, 100 * check["disagree_share"], check["n_compared"],
+            100 * check["rel_tol"], 100 * check["warn_share"],
+        )  # fmt: skip
+    log.info(
+        "%s: LitPop %d/%d points assigned, EAL total %.3e USD, %d centroid mismatches",
+        layer, int(ok.sum()), n_points, float(eal_piece.sum()), n_centroid_mismatch,
+    )  # fmt: skip
+
+    lp_meta = {
+        "dataset": str(litpop_cfg["dataset"]),
+        "res_arcsec": int(litpop_cfg["res_arcsec"]),
+        "exponents": str(litpop_cfg["exponents"]),
+        "fin_mode": str(litpop_cfg["fin_mode"]),
+        "value_unit": str(exp.value_unit),
+        "banner_ko": str(litpop_cfg["banner_ko"]),
+        "size_legend_usd": [float(v) for v in litpop_cfg["size_legend_usd"]],
+        "impf": impf_text,
+        "assumptions": list(litpop_cfg["assumptions_ko"]),
+        "n_points": n_points,
+        "n_assigned": int(ok.sum()),
+        "n_centroid_mismatch": n_centroid_mismatch,
+        "value_total_usd": float(value.sum()),
+        "value_assigned_usd": float(value_piece.sum()),
+        "eal_total_usd": float(eal_piece.sum()),
+        "eal_unassigned_usd": float(eai_point[~ok].sum()),
+        "check": check,
+    }
+    return {
+        "meta": lp_meta,
+        "exposure": {"litpop_value_usd": value_piece, "litpop_eal_usd": eal_piece},
+    }
+
+
 def run(layer: str, out_dir: Path | None) -> dict[str, Any]:
     """Build one layer and write its GeoJSON and metadata; return the metadata."""
     import climaterisk_worker  # noqa: F401  (must precede climada: project-scoped conf)
@@ -510,6 +745,11 @@ def run(layer: str, out_dir: Path | None) -> dict[str, Any]:
         pieces[period_column(p)] = row
     result["piece_values"] = piece_values
 
+    litpop: dict[str, Any] | None = None
+    litpop_cfg = cfg.get("litpop")
+    if litpop_cfg and layer in litpop_cfg["layers"]:
+        litpop = litpop_layer(layer, spec, litpop_cfg, hazard, pieces, result, res_deg)
+
     out = out_dir or paths.derived_board_dir()
     out.mkdir(parents=True, exist_ok=True)
     geojson = out / f"{layer}.geojson"
@@ -529,11 +769,15 @@ def run(layer: str, out_dir: Path | None) -> dict[str, Any]:
     )
     meta["boundary_simplify_m"] = simplify_m
     meta["check"] = check_block
+    if litpop is not None:
+        meta["litpop"] = litpop["meta"]
     meta["runtime_seconds"] = round(time.time() - t0, 1)
     board_file = out / f"{layer}.board.json"
     board_file.write_text(
         json.dumps(
-            board_json_payload(pieces, meta, spec), ensure_ascii=False, separators=(",", ":")
+            board_json_payload(pieces, meta, spec, litpop["exposure"] if litpop else None),
+            ensure_ascii=False,
+            separators=(",", ":"),
         ),
         encoding="utf-8",
     )

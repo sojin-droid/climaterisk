@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { GeoJSON, MapContainer, Marker, TileLayer, useMap, useMapEvents } from "react-leaflet";
+import { CircleMarker, GeoJSON, MapContainer, Marker, TileLayer, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import type { Asset, Libraries, Portfolio } from "../types";
 import type { ViewId } from "../layout/ActivityBar";
@@ -23,6 +23,9 @@ import {
   headlineUnits,
   changePieceStyle,
   fmtChange,
+  fmtUsdKo,
+  featureCentre,
+  litpopRadiusPx,
   isChangeLayer,
   keyQuantity,
   paletteClasses,
@@ -34,6 +37,7 @@ import {
   type BoardExposure,
   type BoardFeature,
   type BoardKey,
+  type BoardLitpop,
   type BoardLookup,
   type BoardMeta,
   type BoardRegion,
@@ -88,6 +92,8 @@ const EXPOSURE_ROWS: { key: string; label: string; unit: string; digits: number;
   { key: "greenhouse_ha", label: "시설", unit: "ha", digits: 1, unassessed: true },
   { key: "pop_total", label: "인구", unit: "명", digits: 0, unassessed: false },
   { key: "pop_65plus", label: "65세 이상 인구", unit: "명", digits: 0, unassessed: false },
+  { key: "litpop_value_usd", label: "LitPop 노출 자산", unit: "USD", digits: 0, unassessed: false },
+  { key: "litpop_eal_usd", label: "LitPop 연평균 손실", unit: "USD", digits: 0, unassessed: false },
 ];
 
 const fmtMetric = (
@@ -323,6 +329,64 @@ function CasePage({
   );
 }
 
+/**
+ * LitPop exposure circles (step 7): one hollow circle per piece with a positive LitPop annual
+ * expected loss, at the piece's area centroid, area proportional to the loss (radius from the
+ * largest legend step). Drawn with an SVG renderer so each circle is an element of its own;
+ * they are not interactive (clicks reach the map) and never touch the hazard fills.
+ */
+function LitpopCircles({ fc, palettes, litpop }: { fc: BoardCollection; palettes: PaletteSpec; litpop: BoardLitpop }) {
+  const renderer = useMemo(() => L.svg(), []);
+  const ref = litpop.size_legend_usd[litpop.size_legend_usd.length - 1];
+  const circles = useMemo(() => {
+    const out: { id: number; centre: [number, number]; radius: number }[] = [];
+    for (const f of fc.features) {
+      const eal = f.properties.exposure?.litpop_eal_usd;
+      if (typeof eal !== "number" || !(eal > 0)) continue;
+      const centre = featureCentre(f.geometry);
+      if (centre) out.push({ id: f.properties.id, centre, radius: litpopRadiusPx(eal, ref) });
+    }
+    return out;
+  }, [fc, ref]);
+  return (
+    <>
+      {circles.map((c) => (
+        <CircleMarker
+          key={c.id}
+          center={c.centre}
+          radius={c.radius}
+          className="litpop-circle"
+          renderer={renderer}
+          fill={false}
+          fillOpacity={0}
+          color={palettes.shared.exposure_point.stroke}
+          weight={1.5}
+          interactive={false}
+        />
+      ))}
+    </>
+  );
+}
+
+function LitpopLegend({ litpop, stroke }: { litpop: BoardLitpop; stroke: string }) {
+  const ref = litpop.size_legend_usd[litpop.size_legend_usd.length - 1];
+  return (
+    <ul data-testid="litpop-legend" style={{ listStyle: "none", margin: "4px 0", padding: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+      {litpop.size_legend_usd.map((v) => {
+        const r = litpopRadiusPx(v, ref);
+        return (
+          <li key={v} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
+            <svg width={2 * r + 4} height={2 * r + 4} aria-hidden="true">
+              <circle cx={r + 2} cy={r + 2} r={r} fill="none" stroke={stroke} strokeWidth={1.5} />
+            </svg>
+            연평균 손실 {fmtUsdKo(v)}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 function ClickLookup({ onPick }: { onPick: (lon: number, lat: number) => void }) {
   useMapEvents({ click: (e) => onPick(e.latlng.lng, e.latlng.lat) });
   return null;
@@ -368,6 +432,8 @@ export function BoardView({
   const [pendingCase, setPendingCase] = useState<string | null>(null);
   const [openCase, setOpenCase] = useState<BoardCase | null>(null);
   const wantKey = useRef<{ layer: string; key: string } | null>(null);
+  // LitPop exposure weighting (option C): off by default and off again on every layer switch
+  const [litpopOn, setLitpopOn] = useState(false);
 
   // The ladder, search names and case list are side information: a failure leaves them empty
   // and never blocks the map.
@@ -427,6 +493,7 @@ export function BoardView({
     setPicked(null);
     setRegion(null);
     setOutside(false);
+    setLitpopOn(false);
   }, [meta]);
 
   useEffect(() => {
@@ -598,6 +665,9 @@ export function BoardView({
           )}
           {fc && meta && palettes && quantity && key !== null && fcFor === `${meta.layer}|${key}` && (
             <GeoJSON key={`${fcFor}|${quantity}`} data={fc as never} style={style as never} />
+          )}
+          {litpopOn && meta?.litpop && fc && palettes && fcFor === `${meta.layer}|${key}` && (
+            <LitpopCircles key={`lp-${fcFor}`} fc={fc} palettes={palettes} litpop={meta.litpop} />
           )}
           {highlighted && palettes && (
             <GeoJSON
@@ -818,6 +888,46 @@ export function BoardView({
               </div>
             </div>
 
+            {meta.litpop && (
+              <div data-testid="litpop-panel">
+                <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <input
+                    type="checkbox"
+                    data-testid="litpop-toggle"
+                    checked={litpopOn}
+                    onChange={(e) => setLitpopOn(e.target.checked)}
+                  />
+                  노출 가중(LitPop)
+                </label>
+                {litpopOn && (
+                  <>
+                    <div className="hint" data-testid="litpop-banner">{meta.litpop.banner_ko}</div>
+                    {palettes && <LitpopLegend litpop={meta.litpop} stroke={palettes.shared.exposure_point.stroke} />}
+                    {palettes && <div className="hint" style={{ fontSize: 11 }}>{palettes.shared.exposure_point.meaning}</div>}
+                    {meta.litpop.check.warning && (
+                      <div className="hint" data-testid="litpop-check" role="alert" style={{ color: "var(--danger)" }}>
+                        보조 점검 경고: 주 방법(CLIMADA)과 재현주기 보조 추정이 조각의 {Math.round((meta.litpop.check.disagree_share ?? 0) * 100)} %에서 크게 어긋납니다. 금액은 어림값으로만 읽으세요.
+                      </div>
+                    )}
+                    {(meta.litpop.eal_unassigned_usd ?? 0) > 0 && (
+                      <div className="hint" data-testid="litpop-unassigned" style={{ fontSize: 11 }}>
+                        LitPop 점 {meta.litpop.n_assigned.toLocaleString("ko-KR")}/{meta.litpop.n_points.toLocaleString("ko-KR")}개만 조각에 놓였습니다. 조각 밖 점의 연평균 손실 약 {Math.round(meta.litpop.eal_unassigned_usd ?? 0).toLocaleString("ko-KR")} USD는 지도와 합계에 넣지 않았습니다.
+                      </div>
+                    )}
+                    {(meta.litpop.assumptions?.length ?? 0) > 0 && (
+                      <details data-testid="litpop-assumptions">
+                        <summary style={{ cursor: "pointer", fontSize: 12 }}>가정 {meta.litpop.assumptions?.length}개</summary>
+                        <ul className="hint" style={{ margin: "4px 0", paddingLeft: 18 }}>
+                          {meta.litpop.assumptions?.map((a) => <li key={a}>{a}</li>)}
+                          {meta.litpop.impf && <li>피해곡선: {meta.litpop.impf}</li>}
+                        </ul>
+                      </details>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+
             <div>
               <div className="section-title" data-testid="legend-title">
                 범례 · Legend
@@ -912,6 +1022,7 @@ export function BoardView({
                       </tbody>
                     </table>
                   )}
+                  {!metric && litpopOn && picked.exposure && <ExposureTable exposure={picked.exposure} />}
                   <div className="hint">
                     이 지점은 격자 한 칸(약 {picked.cell_km_ns.toFixed(1)}×{picked.cell_km_ew.toFixed(1)} km) 값 하나를 읽습니다. 칸 안 어디를 찍어도 같은 값입니다.
                   </div>
@@ -978,6 +1089,7 @@ export function BoardView({
                           {region.exposure_sum && <ExposureTable exposure={region.exposure_sum} sum />}
                         </>
                       ) : (
+                        <>
                         <table style={{ fontSize: 12, width: "100%" }}>
                           <tbody>
                             {meta.periods_kept.map((p) => {
@@ -997,6 +1109,8 @@ export function BoardView({
                             })}
                           </tbody>
                         </table>
+                        {litpopOn && region.exposure_sum && <ExposureTable exposure={region.exposure_sum} sum />}
+                        </>
                       )}
                     </div>
                   )}

@@ -566,3 +566,152 @@ def rp_monotone_check(rps: list[float], depth: Any, tol_m: float = 1e-6) -> dict
         "share_violating": float(bad.sum() / wet.sum()) if wet.any() else 0.0,
         "max_drop_m": float(drop[wet].max()) if wet.any() else 0.0,
     }
+
+
+# ---------------------------------------------------------------------------------------
+# Step 7: LitPop exposure weighting (docs/VISUAL_BOARD_KO.md section 2, option C)
+# ---------------------------------------------------------------------------------------
+
+
+def _ring_inside(x: Any, y: Any, ring: Any) -> Any:
+    """Boolean mask of points whose even-odd ray (towards +x) crosses ``ring`` an odd number
+    of times. ``ring`` is ``[[lon, lat], ...]``; closed or open both work."""
+    pts = np.asarray(ring, dtype=float)
+    inside = np.zeros(x.shape, dtype=bool)
+    x1, y1 = pts[:-1, 0], pts[:-1, 1]
+    x2, y2 = pts[1:, 0], pts[1:, 1]
+    if not np.array_equal(pts[0], pts[-1]):
+        x1, y1 = np.append(x1, pts[-1, 0]), np.append(y1, pts[-1, 1])
+        x2, y2 = np.append(x2, pts[0, 0]), np.append(y2, pts[0, 1])
+    for xa, ya, xb, yb in zip(x1, y1, x2, y2, strict=True):
+        if ya == yb:
+            continue
+        straddles = (ya > y) != (yb > y)
+        x_cross = xa + (y - ya) * (xb - xa) / (yb - ya)
+        inside ^= straddles & (x < x_cross)
+    return inside
+
+
+def assign_points(lon: Any, lat: Any, pieces: list[dict[str, Any]]) -> Any:
+    """Index of the board piece that contains each point (``-1`` when none).
+
+    Algorithm:
+        A piece is a list of polygons, each ``[exterior, hole, ...]`` (lon, lat degrees).
+        A point is inside a polygon when it is inside the exterior ring and in no hole;
+        each ring uses the even-odd rule: a ray from the point towards $+x$ crosses the
+        ring's edges $(x_a,y_a)\\to(x_b,y_b)$ with
+
+        $$ y_a > y \\ne y_b > y, \\qquad x < x_a + (y - y_a)\\,\\frac{x_b - x_a}{y_b - y_a} $$
+
+        an odd number of times. A piece contains the point when any of its polygons does.
+        A point on a shared edge goes to the first piece in list order; a point outside
+        every piece gets $-1$ (it is counted by the caller, never moved to a neighbour).
+
+        ASCII: inside iff the number of edge crossings of the +x ray is odd; polygon = in
+        exterior and not in a hole; piece = any polygon; first matching piece wins.
+
+    Args:
+        lon: Longitudes (degrees), shape ``(n,)``.
+        lat: Latitudes (degrees), shape ``(n,)``.
+        pieces: Piece dicts with ``polygons`` (as in a layer's ``.board.json``).
+
+    Returns:
+        ``int`` array of shape ``(n,)``: index into ``pieces`` or ``-1``.
+    """
+    x = np.asarray(lon, dtype=float)
+    y = np.asarray(lat, dtype=float)
+    out = np.full(x.shape, -1, dtype=int)
+    for k, piece in enumerate(pieces):
+        todo = np.flatnonzero(out < 0)
+        if todo.size == 0:
+            break
+        for poly in piece["polygons"]:
+            ext = np.asarray(poly[0], dtype=float)
+            x0, y0 = ext.min(axis=0)
+            x1, y1 = ext.max(axis=0)
+            cand = todo[(x[todo] >= x0) & (x[todo] <= x1) & (y[todo] >= y0) & (y[todo] <= y1)]
+            if cand.size == 0:
+                continue
+            xc, yc = x[cand], y[cand]
+            hit = _ring_inside(xc, yc, poly[0])
+            for hole in poly[1:]:
+                hit &= ~_ring_inside(xc, yc, hole)
+            out[cand[hit]] = k
+            todo = np.flatnonzero(out < 0)
+            if todo.size == 0:
+                break
+    log.debug(
+        "assign_points n=%d pieces=%d assigned=%d", x.size, len(pieces), int((out >= 0).sum())
+    )
+    return out
+
+
+def eal_from_rp_losses(periods: Any, losses: Any) -> Any:
+    """Expected annual loss from losses at a few return periods (sub-check estimator).
+
+    Algorithm:
+        With frequencies $f_i = 1/T_i$ sorted ascending (so $T$ descending) and $L_i$ the
+        loss of period $T_i$ (currency):
+
+        $$ EAL = \\sum_i \\tfrac{1}{2}(L_i + L_{i+1})(f_{i+1} - f_i) + L(T_{max})\\,f_{min} $$
+
+        The trapezoid integrates the exceedance curve between the kept periods; the tail
+        beyond the largest kept period is carried at the largest loss ($f_{min} = 1/T_{max}$).
+        Events more frequent than the shortest kept period contribute nothing.
+
+        ASCII: trapezoid of L over f = 1/T between kept periods + f_min * L(T_max).
+
+    Args:
+        periods: Return periods in years, shape ``(m,)`` (any order).
+        losses: Losses in currency units, shape ``(m,)`` or ``(m, n)`` (one column per
+            piece), in the order of ``periods``.
+
+    Returns:
+        ``float`` for a 1-D ``losses``, else an array of shape ``(n,)``.
+    """
+    t = np.asarray(periods, dtype=float)
+    loss = np.asarray(losses, dtype=float)
+    order = np.argsort(-t)  # T descending = f ascending
+    f = 1.0 / t[order]
+    ls = loss[order]
+    df = np.diff(f)
+    if ls.ndim == 1:
+        return float(np.sum(0.5 * (ls[:-1] + ls[1:]) * df) + ls[0] * f[0])
+    return np.sum(0.5 * (ls[:-1] + ls[1:]) * df[:, None], axis=0) + ls[0] * f[0]
+
+
+def litpop_check(
+    eal_main: Any, eal_check: Any, rel_tol: float, warn_share: float, min_eal: float
+) -> dict[str, Any]:
+    """Sub check of the LitPop expected annual loss (diagnostic only; never a second result).
+
+    Algorithm:
+        Over pieces with $EAL_{main} > m$ ($m$ = ``min_eal``, currency per year), a piece
+        disagrees when
+
+        $$ |EAL_{check} - EAL_{main}| > \\varepsilon\\, EAL_{main} $$
+
+        with relative tolerance $\\varepsilon$ (``rel_tol``). The share of disagreeing
+        pieces above ``warn_share`` sets ``warning``.
+
+        ASCII: disagree if |check - main| > rel_tol * main; warning if share > warn_share.
+
+    Args:
+        eal_main: Main-method EAL per piece (ImpactCalc), shape ``(n,)``.
+        eal_check: Return-period-trapezoid EAL per piece, shape ``(n,)``.
+        rel_tol: Relative tolerance in (0, 1).
+        warn_share: Share of disagreeing pieces above which to warn.
+        min_eal: Pieces with ``eal_main`` at or below this are not compared.
+
+    Returns:
+        ``{"n_compared", "disagree_share", "warning"}``.
+    """
+    main = np.asarray(eal_main, dtype=float)
+    chk = np.asarray(eal_check, dtype=float)
+    use = main > float(min_eal)
+    n = int(use.sum())
+    if n == 0:
+        return {"n_compared": 0, "disagree_share": 0.0, "warning": False}
+    bad = np.abs(chk[use] - main[use]) > float(rel_tol) * main[use]
+    share = float(bad.sum() / n)
+    return {"n_compared": n, "disagree_share": share, "warning": bool(share > float(warn_share))}
