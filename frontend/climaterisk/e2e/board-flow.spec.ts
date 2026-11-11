@@ -343,3 +343,156 @@ test("board: metric layer with level + ratio keys, peril-grouped selector, perso
   await expect(panel.getByTestId("exposure")).toContainText("65세 이상 인구");
   await expect(page.getByRole("alert")).toHaveCount(0);
 });
+
+// ---- 시군구 panel + resolution ladder, case twins (fixtures; no board data on the e2e backend) ----
+const LADDER = JSON.parse(
+  readFileSync(new URL("../../../assets/libraries/visual_board.json", import.meta.url), "utf-8"),
+).resolution_ladder;
+
+const routeBoardBase = async (page: Page, layers: unknown[]) => {
+  await routePalettes(page);
+  await page.route(/tile\.openstreetmap\.org/, (r) => r.abort());
+  await page.route("**/api/board/layers", (r) => r.fulfill({ json: layers }));
+  await page.route("**/api/board/ladder", (r) => r.fulfill({ json: LADDER }));
+  await page.route("**/api/board/layers/*/geojson?*", (r) => r.fulfill({ json: geojson(100) }));
+};
+
+test("board: 시군구 search → panel rows in returned order, null vs 0, ladder", async ({ page }) => {
+  const FLOOD = { ...META, label: "하천 홍수 테스트" };
+  await routeBoardBase(page, [FLOOD, DROUGHT_META]);
+  await page.route("**/api/board/cases", (r) => r.fulfill({ json: [] }));
+  await page.route("**/api/board/regions", (r) =>
+    r.fulfill({ json: [{ code: "11220", name: "서초구" }, { code: "11230", name: "강남구" }] }),
+  );
+  await page.route("**/api/board/regions/*", (r) =>
+    r.fulfill({
+      json: {
+        code: "11220",
+        name: "서초구",
+        layers: [
+          // returned order is the display order: the 0 row comes first although it is the smallest
+          { layer: "river_flood_hist_kor", label: "하천 홍수 테스트", peril: "river_flood", quantity: "water_depth_m",
+            headline_key: "100", n_pieces: 8, headline: { min: 0, max: 0 } },
+          { layer: "drought_spei3_hist_kor", label: "가뭄 테스트", peril: "drought", quantity: "spei_stage",
+            headline_key: "y2022", n_pieces: 5, headline: null },
+        ],
+      },
+    }),
+  );
+
+  await page.goto("/?view=board");
+  await expect(page.getByTestId("ladder-national")).toHaveAttribute("aria-current", "step");
+  await expect(page.getByTestId("ladder-national")).toContainText("4.6×3.7 km");
+  await expect(page.getByTestId("resolution-ladder").locator("li")).toHaveCount(4);
+
+  await page.getByTestId("region-search").fill("서초구");
+  const panel = page.getByTestId("sigungu-panel");
+  await expect(panel).toContainText("서초구 · 재해별 조각 최소–최대 (평균·합산·순위 없음)");
+  const rows = panel.locator('[data-testid^="sigungu-row-"]');
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(0)).toHaveAttribute("data-testid", "sigungu-row-river_flood_hist_kor");
+  await expect(rows.nth(0)).toContainText("100년 빈도");
+  await expect(rows.nth(0)).toContainText("조각 8개");
+  await expect(rows.nth(0)).toContainText("0 – 0 m");
+  await expect(rows.nth(0)).not.toContainText("자료 없음");
+  await expect(rows.nth(1)).toContainText("2022년 5–9월 최소 SPEI-3");
+  await expect(rows.nth(1)).toContainText("자료 없음");
+  await expect(panel).not.toContainText(/평균 *[0-9]|mean/);
+  await expect(page.getByTestId("ladder-sigungu")).toHaveAttribute("aria-current", "step");
+  await expect(page.getByTestId("ladder-national")).not.toHaveAttribute("aria-current", "step");
+
+  // a row makes its layer active
+  await rows.nth(1).click();
+  await expect(page.locator("#board-layer")).toHaveValue("drought_spei3_hist_kor");
+  await expect(rows.nth(1)).toHaveAttribute("aria-pressed", "true");
+
+  // a clicked point closes the panel and moves the ladder to "point"
+  await page.route("**/api/board/layers/*/lookup?*", (r) =>
+    r.fulfill({
+      json: { id: 0, code: "11220", name: "서초구", centroid: 0, cell_km_ns: 4.64, cell_km_ew: 3.73, key_kind: "metric",
+        values: { freq_ge1: 0.2, freq_ge2: 0.1, freq_ge3: 0.05, y2022: -1.2 } },
+    }),
+  );
+  await page.locator(".leaflet-container").click({ position: { x: 400, y: 300 } });
+  await expect(page.getByTestId("ladder-point")).toHaveAttribute("aria-current", "step");
+  await expect(page.getByTestId("sigungu-panel")).toHaveCount(0);
+});
+
+const CASE_LIST = [
+  { id: "pohang", name: "포항 냉천 · 태풍 힌남노 (2022-09-06)", peril: "pluvial_river_flood", lon: 129.4015, lat: 35.9936, cell_m: 30, badge: "미검증", available: true },
+  { id: "yeongdeungpo", name: "영등포 쪽방촌 · 골목 폭염 (2026년 여름 최고 5일)", peril: "heat", lon: 126.90875, lat: 37.517, cell_m: 5, badge: "미검증", available: false },
+];
+const POHANG = {
+  ...CASE_LIST[0],
+  source_doc: "docs/reports/case_pohang_ko.md (feat/city-digital-twin)",
+  figures: [{ file: "max_depth_map.png", caption_ko: "최대 침수심 (30 m 격자, 지표면 기준)" }],
+  highlights: [
+    { label_ko: "유역 면적 (논문 79.4)", unit: "km²", value: 83.39 },
+    { label_ko: "인덕교 월류 시각 (강우 시작 후)", unit: "h", value: null },
+  ],
+  can_say: ["냉천 유역은 지형으로 다시 잡혀 논문 값과 맞는다"],
+  cannot_say: ["실제 침수 범위와의 일치"],
+  next_data: ["고해상도 하천 단면(측량)"],
+  assumptions: ["A1 비는 공간적으로 균일하다", "A2 폭풍은 교대 블록 강우이다"],
+  n_assumptions: 3,
+  assumptions_complete: false,
+  summary: { check: { warning: true } },
+};
+const PNG_1PX = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==",
+  "base64",
+);
+
+test("board: case twins → transition notice → cancel keeps map → open page → back", async ({ page }) => {
+  const figureRequests: string[] = [];
+  await routeBoardBase(page, [META]);
+  await page.route("**/api/board/regions", (r) => r.fulfill({ json: [] }));
+  await page.route("**/api/board/cases", (r) => r.fulfill({ json: CASE_LIST }));
+  await page.route("**/api/board/cases/pohang", (r) => r.fulfill({ json: POHANG }));
+  await page.route("**/api/board/cases/*/figures/*", (r) => {
+    figureRequests.push(new URL(r.request().url()).pathname);
+    return r.fulfill({ body: PNG_1PX, contentType: "image/png" });
+  });
+
+  await page.goto("/?view=board");
+  await expect(page.getByTestId("case-list")).toBeVisible();
+  await expect(page.getByTestId("case-open-yeongdeungpo")).toBeDisabled();
+  await expect(page.getByRole("button", { name: "사례 트윈: 포항 냉천 · 태풍 힌남노 (2022-09-06)" })).toBeVisible();
+
+  // no automatic switch: the notice comes first, 취소 keeps the map
+  await page.getByTestId("case-open-pohang").click();
+  const notice = page.getByTestId("case-transition");
+  await expect(notice).toContainText("사례 트윈으로 전환합니다. 해상도와 방법이 달라 전국 결과와 합산·비교할 수 없습니다.");
+  await expect(page.getByTestId("case-page")).toHaveCount(0);
+  await notice.getByRole("button", { name: "취소" }).click();
+  await expect(notice).toHaveCount(0);
+  await expect(page.getByTestId("case-page")).toHaveCount(0);
+  await expect(page.locator(".leaflet-container")).toBeVisible();
+
+  // the map pin goes through the same notice
+  await page.getByRole("button", { name: "사례 트윈: 포항 냉천 · 태풍 힌남노 (2022-09-06)" }).click();
+  await expect(page.getByTestId("case-transition")).toBeVisible();
+  await page.getByTestId("case-transition").getByRole("button", { name: "열기" }).click();
+
+  const cp = page.getByTestId("case-page");
+  await expect(cp).toBeVisible();
+  await expect(page.getByTestId("case-badge")).toHaveText("미검증");
+  await expect(cp).toContainText("약 4.6×3.7 km vs 사례 30 m");
+  await expect(page.getByTestId("ladder-case")).toHaveAttribute("aria-current", "step");
+  const hl = page.getByTestId("case-highlights");
+  await expect(hl).toContainText("83.4 km²");
+  await expect(hl).toContainText("자료 없음");
+  await expect(page.getByTestId("case-assumptions")).toContainText("가정 3개");
+  await expect(page.getByTestId("case-assumptions")).toContainText("A2 폭풍은 교대 블록 강우이다");
+  await expect(page.getByTestId("case-assumptions")).toContainText("불완전");
+  await expect(page.getByTestId("case-check")).toContainText("보조 점검 경고");
+  await expect(cp).toContainText("말할 수 있는 것");
+  await expect(cp).toContainText("말할 수 없는 것");
+  await expect(cp).toContainText("다음에 필요한 자료");
+  await expect(cp).toContainText("docs/reports/case_pohang_ko.md");
+  await expect.poll(() => figureRequests).toContain("/api/board/cases/pohang/figures/max_depth_map.png");
+
+  await page.getByRole("button", { name: "← 전국 지도로" }).click();
+  await expect(page.getByTestId("case-page")).toHaveCount(0);
+  await expect(page.getByTestId("ladder-national")).toHaveAttribute("aria-current", "step");
+});

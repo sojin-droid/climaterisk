@@ -698,6 +698,7 @@ export function ModelsView({ model }: { model: Portfolio }) {
                   height={260}
                   pointLabel={muniCopy.point_label}
                   warning={muniCopy.warning}
+                boardPointer={muniCopy.board_pointer}
                 />
               </div>
             )}
@@ -1023,6 +1024,7 @@ export function ModelsView({ model }: { model: Portfolio }) {
                 onSelect={(id) => setDetailId(id)}
                 pointLabel={muniCopy.point_label}
                 warning={muniCopy.warning}
+                boardPointer={muniCopy.board_pointer}
               />
             </div>
           )}

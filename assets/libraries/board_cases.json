@@ -1,0 +1,193 @@
+{
+  "_meta": {
+    "purpose": "Case-twin pages of the visual board (read-only). Results live in <DATA_ROOT>/derived/case_twins/<id>/summary.json; highlights are key paths into that summary. Gangnam is a later step.",
+    "version": "1.0.0",
+    "updated": "2026-11-11"
+  },
+  "cases": [
+    {
+      "id": "pohang",
+      "name": "포항 냉천 · 태풍 힌남노 (2022-09-06)",
+      "peril": "pluvial_river_flood",
+      "lon": 129.4015,
+      "lat": 35.9936,
+      "cell_m": 30,
+      "national_layer": "river_flood_hist_kor",
+      "source_doc": "docs/reports/case_pohang_ko.md (feat/city-digital-twin)",
+      "figures": [
+        {
+          "file": "max_depth_map.png",
+          "caption_ko": "최대 침수심 (30 m 격자, 지표면 기준)"
+        },
+        {
+          "file": "hydrograph_mouth.png",
+          "caption_ko": "하구 유량 시계열 (주 방법 vs 보조 점검)"
+        }
+      ],
+      "highlights": [
+        {
+          "label_ko": "유역 면적 (논문 79.4)",
+          "path": [
+            "catchment_area_km2"
+          ],
+          "unit": "km²"
+        },
+        {
+          "label_ko": "하구 첨두유량",
+          "path": [
+            "discharge_mouth",
+            "peak_10min_mean_m3s"
+          ],
+          "unit": "m³/s"
+        },
+        {
+          "label_ko": "500년 계획홍수량",
+          "path": [
+            "discharge_mouth",
+            "design_500yr_m3s"
+          ],
+          "unit": "m³/s"
+        },
+        {
+          "label_ko": "인덕교 월류 시각 (강우 시작 후)",
+          "path": [
+            "points",
+            "인덕교",
+            "overtopping_time_h_after_rain_start"
+          ],
+          "unit": "h"
+        },
+        {
+          "label_ko": "냉천교 월류 시각 (강우 시작 후)",
+          "path": [
+            "points",
+            "냉천교",
+            "overtopping_time_h_after_rain_start"
+          ],
+          "unit": "h"
+        },
+        {
+          "label_ko": "포스코 부지 상위 10 % 수심",
+          "path": [
+            "points",
+            "POSCO",
+            "polygon_p90_max_depth_m"
+          ],
+          "unit": "m"
+        },
+        {
+          "label_ko": "보조 점검 첨두 차이",
+          "path": [
+            "check",
+            "peak_rel_diff"
+          ],
+          "unit": "비율"
+        }
+      ],
+      "can_say": [
+        "냉천 유역(83 km²)은 지형으로 다시 잡혀 논문 값과 5 % 안에서 맞는다",
+        "공개 강우로 하구 첨두유량이 하도 소통능력(약 700 m³/s)을 넘고 500년 계획홍수량 수준까지 오른다",
+        "인덕교·냉천교 월류가 재현된다(보도된 지점과 같음)"
+      ],
+      "cannot_say": [
+        "실제 침수 범위와의 일치(공개된 침수 범위 지도가 없음)",
+        "포스코 부지 안의 정확한 침수 위치",
+        "지하주차장 내부 수위·시각",
+        "피해액(트윈은 금액을 내지 않음)",
+        "오어지 방류·토사 퇴적의 영향(모델에 없음)"
+      ],
+      "next_data": [
+        "고해상도 하천 단면(측량) 또는 5 m DEM",
+        "공식 침수흔적도(로그인 필요, 조회만 가능)",
+        "하천 수위 관측 시계열(홍수통제소 키 필요)"
+      ]
+    },
+    {
+      "id": "yeongdeungpo",
+      "name": "영등포 쪽방촌 · 골목 폭염 (2026년 여름 최고 5일)",
+      "peril": "heat",
+      "lon": 126.90875,
+      "lat": 37.517,
+      "cell_m": 5,
+      "national_layer": "heat_days_kor",
+      "source_doc": "docs/reports/case_yeongdeungpo_ko.md (feat/city-digital-twin)",
+      "figures": [
+        {
+          "file": "utci_map.png",
+          "caption_ko": "한낮 UTCI (고정 열 스트레스 구간)"
+        },
+        {
+          "file": "sensor_check.png",
+          "caption_ko": "S-DoT 센서 순위 점검"
+        }
+      ],
+      "highlights": [
+        {
+          "label_ko": "대상지 평균 UTCI",
+          "path": [
+            "main",
+            "mean_over_days",
+            "utci_mean_c"
+          ],
+          "unit": "°C"
+        },
+        {
+          "label_ko": "그늘 아닌 비율",
+          "path": [
+            "main",
+            "mean_over_days",
+            "sunlit_share"
+          ],
+          "unit": "비율"
+        },
+        {
+          "label_ko": "대상지 − 주변 관측 기온",
+          "path": [
+            "site_minus_background",
+            "observed_air_temp_c_mean_over_days"
+          ],
+          "unit": "°C"
+        },
+        {
+          "label_ko": "높이 미상 건물",
+          "path": [
+            "n_buildings_height_unknown"
+          ],
+          "unit": "동"
+        },
+        {
+          "label_ko": "보조 점검 순위 상관",
+          "path": [
+            "check",
+            "spearman"
+          ],
+          "unit": ""
+        },
+        {
+          "label_ko": "센서 수",
+          "path": [
+            "check",
+            "n"
+          ],
+          "unit": "개"
+        }
+      ],
+      "can_say": [
+        "한낮 열린 공간은 전부 '극한 열 스트레스' 구간이다",
+        "건물 그늘만 열 스트레스를 한두 단계 낮춘다",
+        "높이 미상 건물(78동)을 바꿔도 결과는 0.25 °C 안에서 변한다"
+      ],
+      "cannot_say": [
+        "보도된 '골목 +4 °C'(S-DoT 센서망으로 확인되지 않음, 대상지는 주변보다 0.6 °C 낮음)",
+        "쪽방 실내 온도(모델링하지 않음)",
+        "온열질환 발생과의 직접 연결(구 단위 통계뿐)",
+        "냉방비(금액 없음)"
+      ],
+      "next_data": [
+        "건축물대장 층수(건축HUB 키 필요)",
+        "대상지 안 추가 기온 관측",
+        "지표면 온도·복사 관측"
+      ]
+    }
+  ]
+}

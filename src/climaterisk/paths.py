@@ -194,6 +194,11 @@ def derived_board_dir(*parts: str) -> Path:
     return derived_dir("board", *parts)
 
 
+def derived_case_twins_dir(*parts: str) -> Path:
+    """``<DATA_ROOT>/derived/case_twins[/…]`` — case-twin summaries and figures."""
+    return derived_dir("case_twins", *parts)
+
+
 def derived_drought_dir(*parts: str) -> Path:
     """``<DATA_ROOT>/derived/drought[/…]`` — agricultural drought pieces and summaries."""
     return derived_dir("drought", *parts)

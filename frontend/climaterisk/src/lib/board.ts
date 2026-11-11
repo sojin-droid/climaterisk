@@ -295,3 +295,113 @@ export function keyQuantity(meta: BoardMeta, key: string | null): string | null 
   if (meta.key_kind === "metric") return meta.keys?.find((k) => k.key === key)?.quantity ?? null;
   return meta.quantity ?? null;
 }
+
+// ---- 시군구 panel, resolution ladder, case twins (docs/VISUAL_BOARD_KO.md §3) ----
+
+export interface BoardRegionName {
+  code: string;
+  name: string;
+}
+
+/** One layer's row in the all-layer 시군구 panel: min–max of the headline key, no mean. */
+export interface BoardRegionRow {
+  layer: string;
+  label: string;
+  peril?: string | null;
+  quantity?: string | null;
+  headline_key: string;
+  n_pieces: number;
+  headline: { min: number; max: number } | null;
+  /** Change layers: piece count per status of the headline key (ratio undefined, not "no data"). */
+  headline_status?: Partial<Record<BoardStatus, number>>;
+}
+
+export interface BoardRegionAll {
+  code: string;
+  name: string;
+  layers: BoardRegionRow[];
+}
+
+export type LadderId = "national" | "sigungu" | "point" | "case";
+
+export interface LadderRung {
+  id: LadderId;
+  label_ko: string;
+  label_en: string;
+  note_ko: string;
+}
+
+export interface BoardCaseSummary {
+  id: string;
+  name: string;
+  peril: string;
+  lon: number;
+  lat: number;
+  cell_m: number;
+  badge: string;
+  available: boolean;
+}
+
+export interface BoardCaseHighlight {
+  label_ko: string;
+  unit: string;
+  value: number | null;
+}
+
+export interface BoardCase extends BoardCaseSummary {
+  source_doc: string;
+  /** National layer of the same peril, for the "national cell vs case cell" line. */
+  national_layer?: string;
+  figures: { file: string; caption_ko: string }[];
+  highlights: BoardCaseHighlight[];
+  can_say: string[];
+  cannot_say: string[];
+  next_data: string[];
+  assumptions: string[];
+  n_assumptions: number;
+  assumptions_complete: boolean;
+  summary: { check?: { warning?: boolean; [k: string]: unknown }; [k: string]: unknown };
+}
+
+export const getBoardRegionNames = () => getJson<BoardRegionName[]>("/api/board/regions");
+export const getBoardRegionAll = (code: string) =>
+  getJson<BoardRegionAll>(`/api/board/regions/${encodeURIComponent(code)}`);
+export const getBoardLadder = () => getJson<LadderRung[]>("/api/board/ladder");
+export const getBoardCases = () => getJson<BoardCaseSummary[]>("/api/board/cases");
+export const getBoardCase = (id: string) =>
+  getJson<BoardCase>(`/api/board/cases/${encodeURIComponent(id)}`);
+export const caseFigureUrl = (id: string, file: string) =>
+  `/api/board/cases/${encodeURIComponent(id)}/figures/${encodeURIComponent(file)}`;
+
+/** Headline label: return-period key -> "<n>년 빈도", metric key -> that key's label from the layer meta. */
+export function headlineLabel(meta: BoardMeta | undefined, key: string): string {
+  if (!meta) return key;
+  if (meta.key_kind === "metric") return meta.keys?.find((k) => k.key === key)?.label ?? key;
+  return `${key}년 빈도`;
+}
+
+/** Units text of a headline key (metric layers: the key's own units; else the layer's). */
+export function headlineUnits(meta: BoardMeta | undefined, key: string): string {
+  if (!meta) return "";
+  if (meta.key_kind === "metric") return meta.keys?.find((k) => k.key === key)?.units ?? meta.units;
+  return meta.units;
+}
+
+/** Number text of a case highlight: null -> "자료 없음" (never 0), else value with unit. */
+export function fmtHighlight(value: number | null, unit: string): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return "자료 없음";
+  const text = Number.isInteger(value) ? String(value) : value.toFixed(Math.abs(value) < 10 ? 2 : 1);
+  return unit ? `${text} ${unit}` : text;
+}
+
+/** Status part of a 시군구-panel row: "0 · 영향 없음 30조각" etc. ("" when there is none). */
+export function fmtStatusCounts(
+  spec: PaletteSpec | null,
+  counts: Partial<Record<BoardStatus, number>> | undefined,
+): string {
+  const order: BoardStatus[] = ["both_zero", "base_zero", "null"];
+  return order
+    .filter((st) => (counts?.[st] ?? 0) > 0)
+    .map((st) => `${fmtChange(spec, null, st)} ${counts?.[st]}조각`)
+    .join(" · ");
+}

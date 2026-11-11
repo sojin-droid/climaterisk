@@ -251,3 +251,89 @@ def region(layer: dict[str, Any], code: str) -> dict[str, Any]:
         "by_key": by_key,
         "exposure_sum": exposure_sum,
     }
+
+
+def regions(layer: dict[str, Any]) -> list[dict[str, Any]]:
+    """One row per 시군구 code present in ``layer``, sorted by code: code, name, piece count."""
+    counts: dict[str, int] = {}
+    names: dict[str, str] = {}
+    for piece in layer["pieces"]:
+        code = piece["code"]
+        counts[code] = counts.get(code, 0) + 1
+        names.setdefault(code, piece["name"])
+    return [{"code": c, "name": names[c], "n_pieces": counts[c]} for c in sorted(counts)]
+
+
+def headline_key(layer: dict[str, Any]) -> str:
+    """Key shown for a layer in the all-layer 시군구 panel.
+
+    Metric layers: ``meta.default_key`` when it is one of the keys, else the first key.
+    Return-period layers: ``"100"`` when 100 y is kept, else the largest kept period.
+    """
+    meta = layer["meta"]
+    if is_metric(layer):
+        keys = layer_keys(layer)
+        default = meta.get("default_key")
+        return str(default) if default is not None and str(default) in keys else keys[0]
+    kept = [float(p) for p in meta["periods_kept"]]
+    return period_key(100.0 if 100.0 in kept else max(kept))
+
+
+def region_all(code: str) -> list[dict[str, Any]]:
+    """One row per layer with pieces of ``code``, in ``list_layers()`` order (never by value).
+
+    ``headline`` is the min/max over the pieces for the layer's headline key (``None`` when
+    every piece is null); ``headline_status`` counts the change-layer statuses of those
+    pieces (``base_zero`` / ``both_zero`` / ``null``), so a ratio that is undefined because
+    both periods are 0 is not shown as "no data". There is no mean and no ranking.
+
+    Raises:
+        KeyError: No layer has a piece with ``code``.
+    """
+    rows: list[dict[str, Any]] = []
+    for meta in list_layers():
+        name = str(meta["layer"])
+        try:
+            layer = load_layer(name)
+            reg = region(layer, code)
+        except KeyError:
+            continue
+        hkey = headline_key(layer)
+        status_counts: dict[str, int] = {}
+        for pc in layer["pieces"]:
+            if pc["code"] == code:
+                st = (pc.get("status") or {}).get(hkey)
+                if st:
+                    status_counts[str(st)] = status_counts.get(str(st), 0) + 1
+        try:
+            quantity: str | None = key_quantity(layer, hkey)
+        except ValueError:
+            quantity = None
+        rows.append(
+            {
+                "layer": name,
+                "label": meta.get("label") or name,
+                "peril": meta.get("peril"),
+                "quantity": quantity,
+                "headline_key": hkey,
+                "n_pieces": reg["n_pieces"],
+                "headline": reg["by_key"][hkey],
+                "headline_status": status_counts,
+            }
+        )
+    if not rows:
+        raise KeyError(code)
+    return rows
+
+
+def all_regions() -> list[dict[str, str]]:
+    """Union over layers of ``{"code", "name"}``, sorted by code, no duplicates."""
+    seen: dict[str, str] = {}
+    for meta in list_layers():
+        try:
+            layer = load_layer(str(meta["layer"]))
+        except KeyError:
+            continue
+        for row in regions(layer):
+            seen.setdefault(row["code"], row["name"])
+    return [{"code": c, "name": seen[c]} for c in sorted(seen)]

@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
-import { GeoJSON, MapContainer, TileLayer, useMapEvents } from "react-leaflet";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { GeoJSON, MapContainer, Marker, TileLayer, useMap, useMapEvents } from "react-leaflet";
+import L from "leaflet";
 import type { PolylineOptions } from "leaflet";
 import {
   getBoardGeojson,
@@ -7,6 +8,16 @@ import {
   getBoardLookup,
   getBoardPalettes,
   getBoardRegion,
+  getBoardCase,
+  getBoardCases,
+  getBoardLadder,
+  getBoardRegionAll,
+  getBoardRegionNames,
+  caseFigureUrl,
+  fmtHighlight,
+  fmtStatusCounts,
+  headlineLabel,
+  headlineUnits,
   changePieceStyle,
   fmtChange,
   isChangeLayer,
@@ -23,7 +34,14 @@ import {
   type BoardLookup,
   type BoardMeta,
   type BoardRegion,
+  type BoardRegionAll,
+  type BoardRegionName,
+  type BoardRegionRow,
+  type BoardCase,
+  type BoardCaseSummary,
   type BoardStatus,
+  type LadderId,
+  type LadderRung,
 } from "../lib/board";
 import { OFFLINE_MAP_NOTE, useOffline } from "../lib/offline";
 
@@ -104,6 +122,204 @@ function ExposureTable({ exposure, sum }: { exposure: BoardExposure; sum?: boole
   );
 }
 
+const CASE_TRANSITION_NOTICE = "사례 트윈으로 전환합니다. 해상도와 방법이 달라 전국 결과와 합산·비교할 수 없습니다.";
+
+/** Number text for the min–max line: a computed 0 stays "0" (null is handled by the caller). */
+const fmtNum = (v: number) => String(Number(v.toFixed(2)));
+
+function fmtRange(r: { min: number; max: number }, units: string, ratio: boolean): string {
+  if (ratio) return `×${fmtNum(r.min)} – ×${fmtNum(r.max)}`;
+  return `${fmtNum(r.min)} – ${fmtNum(r.max)}${units && units !== "-" ? ` ${units}` : ""}`;
+}
+
+/** Search option text: the name, plus the code only where several 시군구 share the name. */
+function regionOptions(names: BoardRegionName[]): { value: string; code: string }[] {
+  const count = new Map<string, number>();
+  for (const n of names) count.set(n.name, (count.get(n.name) ?? 0) + 1);
+  return names.map((n) => ({ value: (count.get(n.name) ?? 0) > 1 ? `${n.name} (${n.code})` : n.name, code: n.code }));
+}
+
+/** Fit the map to the chosen 시군구's pieces whenever the selection changes. */
+function FitTo({ features, token }: { features: BoardFeature[]; token: string }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!features.length) return;
+    const bounds = L.geoJSON(features as never).getBounds();
+    if (bounds.isValid()) map.fitBounds(bounds, { maxZoom: 11, padding: [20, 20] });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, features.length > 0]);
+  return null;
+}
+
+function CasePin({ c, onOpen }: { c: BoardCaseSummary; onOpen: (id: string) => void }) {
+  const label = `사례 트윈: ${c.name}`;
+  const icon = useMemo(
+    () =>
+      L.divIcon({
+        className: "",
+        html: '<span style="display:block;width:16px;height:16px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:var(--accent);border:2px solid var(--bg)"></span>',
+        iconSize: [16, 16],
+        iconAnchor: [8, 16],
+      }),
+    [],
+  );
+  return (
+    <Marker
+      position={[c.lat, c.lon]}
+      icon={icon}
+      title={label}
+      keyboard
+      eventHandlers={{
+        add: (e) => e.target.getElement()?.setAttribute("aria-label", label),
+        click: () => onOpen(c.id),
+      }}
+    />
+  );
+}
+
+function ResolutionLadder({
+  rungs,
+  active,
+  meta,
+  cases,
+}: {
+  rungs: LadderRung[];
+  active: LadderId;
+  meta: BoardMeta | null;
+  cases: BoardCaseSummary[];
+}) {
+  if (rungs.length === 0) return null;
+  const extra = (id: LadderId): string => {
+    if (id === "national" && meta) return `현재 층 격자 약 ${meta.cell_km_ns.toFixed(1)}×${meta.cell_km_ew.toFixed(1)} km`;
+    if (id === "case" && cases.length > 0) return cases.map((c) => `${c.name.split(" · ")[0]} ${c.cell_m} m`).join(" · ");
+    return "";
+  };
+  return (
+    <div>
+      <div className="section-title">해상도 사다리 · Resolution ladder</div>
+      <ol data-testid="resolution-ladder" style={{ listStyle: "none", margin: "6px 0 0", padding: 0, display: "flex", flexDirection: "column", gap: 4 }}>
+        {rungs.map((r) => {
+          const on = r.id === active;
+          return (
+            <li
+              key={r.id}
+              data-testid={`ladder-${r.id}`}
+              aria-current={on ? "step" : undefined}
+              style={{
+                border: `1px solid ${on ? "var(--accent)" : "var(--border)"}`,
+                borderRadius: 6,
+                padding: "4px 8px",
+                fontSize: 12,
+                fontWeight: on ? 600 : 400,
+              }}
+            >
+              {r.label_ko} <span className="hint">· {r.label_en}</span>
+              <div className="hint" style={{ fontWeight: 400 }}>{r.note_ko}</div>
+              {extra(r.id) && <div className="hint" style={{ fontWeight: 400 }}>{extra(r.id)}</div>}
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
+
+function CasePage({
+  data,
+  rungs,
+  meta,
+  cases,
+  onBack,
+}: {
+  data: BoardCase;
+  rungs: LadderRung[];
+  meta: BoardMeta | null;
+  cases: BoardCaseSummary[];
+  onBack: () => void;
+}) {
+  const check = data.summary.check;
+  return (
+    <div className="sidepanel" data-testid="case-page" style={{ width: "auto", maxWidth: 900, margin: "0 auto", display: "flex", flexDirection: "column", gap: 12 }}>
+      <div>
+        <button className="btn secondary" onClick={onBack}>← 전국 지도로</button>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <h2 style={{ margin: 0 }}>{data.name}</h2>
+        <span
+          data-testid="case-badge"
+          style={{ border: "2px solid var(--danger)", color: "var(--danger)", borderRadius: 6, padding: "2px 10px", fontWeight: 700 }}
+        >
+          {data.badge}
+        </span>
+      </div>
+      <div className="hint" data-testid="case-resolution">
+        {meta ? `전국 격자(${meta.label ?? meta.layer}) 약 ${meta.cell_km_ns.toFixed(1)}×${meta.cell_km_ew.toFixed(1)} km vs 사례 ${data.cell_m} m` : `사례 ${data.cell_m} m`} — 해상도와 방법이 달라 전국 결과와 합산·비교할 수 없습니다.
+      </div>
+      <ResolutionLadder rungs={rungs} active="case" meta={meta} cases={cases} />
+
+      <div>
+        <div className="section-title">핵심 값 · Highlights</div>
+        <table data-testid="case-highlights" style={{ fontSize: 13, width: "100%" }}>
+          <tbody>
+            {data.highlights.map((h) => (
+              <tr key={h.label_ko}>
+                <td>{h.label_ko}</td>
+                <td style={{ textAlign: "right" }}>{fmtHighlight(h.value, h.unit)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div className="hint" data-testid="case-check" style={check?.warning ? { color: "var(--danger)" } : undefined} role={check?.warning ? "alert" : undefined}>
+          {check === undefined
+            ? "보조 점검 기록 없음"
+            : check.warning
+              ? "보조 점검 경고: 주 방법과 보조 점검이 크게 어긋납니다. 결과를 조심해서 읽으세요."
+              : "보조 점검(진단용): 경고 없음"}
+        </div>
+      </div>
+
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+        {data.figures.map((f) => (
+          <figure key={f.file} style={{ margin: 0, flex: "1 1 320px" }}>
+            <img src={caseFigureUrl(data.id, f.file)} alt={f.caption_ko} style={{ width: "100%", height: "auto" }} />
+            <figcaption className="hint">{f.caption_ko}</figcaption>
+          </figure>
+        ))}
+      </div>
+
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+        <div style={{ flex: "1 1 320px" }} data-testid="case-can-say">
+          <div className="section-title">말할 수 있는 것</div>
+          <ul style={{ paddingLeft: 18, margin: "4px 0" }}>{data.can_say.map((t) => <li key={t}>{t}</li>)}</ul>
+        </div>
+        <div style={{ flex: "1 1 320px" }} data-testid="case-cannot-say">
+          <div className="section-title">말할 수 없는 것</div>
+          <ul style={{ paddingLeft: 18, margin: "4px 0" }}>{data.cannot_say.map((t) => <li key={t}>{t}</li>)}</ul>
+        </div>
+      </div>
+
+      <div data-testid="case-next-data">
+        <div className="section-title">다음에 필요한 자료</div>
+        <ul style={{ paddingLeft: 18, margin: "4px 0" }}>{data.next_data.map((t) => <li key={t}>{t}</li>)}</ul>
+      </div>
+
+      <details open data-testid="case-assumptions">
+        <summary style={{ cursor: "pointer", fontWeight: 600 }}>가정 {data.n_assumptions}개</summary>
+        {!data.assumptions_complete && (
+          <div className="hint" role="alert" style={{ color: "var(--danger)" }}>
+            가정 목록이 불완전합니다: {data.n_assumptions}개 중 {data.assumptions.length}개만 기록되어 있습니다.
+          </div>
+        )}
+        <ol style={{ paddingLeft: 22, margin: "4px 0", fontSize: 12 }}>
+          {data.assumptions.map((a) => <li key={a}>{a}</li>)}
+        </ol>
+      </details>
+
+      <div className="hint" data-testid="case-source">출처 문서: {data.source_doc}</div>
+    </div>
+  );
+}
+
 function ClickLookup({ onPick }: { onPick: (lon: number, lat: number) => void }) {
   useMapEvents({ click: (e) => onPick(e.latlng.lng, e.latlng.lat) });
   return null;
@@ -124,6 +340,23 @@ export function BoardView() {
   const [picked, setPicked] = useState<BoardLookup | null>(null);
   const [outside, setOutside] = useState(false);
   const [region, setRegion] = useState<BoardRegion | null>(null);
+  // 시군구 panel (all layers), resolution ladder, case twins
+  const [regionNames, setRegionNames] = useState<BoardRegionName[]>([]);
+  const [searchText, setSearchText] = useState("");
+  const [sigungu, setSigungu] = useState<BoardRegionAll | null>(null);
+  const [rungs, setRungs] = useState<LadderRung[]>([]);
+  const [cases, setCases] = useState<BoardCaseSummary[]>([]);
+  const [pendingCase, setPendingCase] = useState<string | null>(null);
+  const [openCase, setOpenCase] = useState<BoardCase | null>(null);
+  const wantKey = useRef<{ layer: string; key: string } | null>(null);
+
+  // The ladder, search names and case list are side information: a failure leaves them empty
+  // and never blocks the map.
+  useEffect(() => {
+    getBoardLadder().then(setRungs).catch(() => setRungs([]));
+    getBoardRegionNames().then(setRegionNames).catch(() => setRegionNames([]));
+    getBoardCases().then(setCases).catch(() => setCases([]));
+  }, []);
 
   useEffect(() => {
     getBoardPalettes()
@@ -158,10 +391,15 @@ export function BoardView() {
     if (!meta) return;
     if (meta.key_kind === "metric") {
       const ks = (meta.keys ?? []).map((k) => k.key);
-      setKey((cur) => (cur !== null && ks.includes(cur) ? cur : meta.default_key !== undefined && ks.includes(meta.default_key) ? meta.default_key : (ks[0] ?? null)));
+      const want = wantKey.current?.layer === meta.layer ? wantKey.current.key : null;
+      wantKey.current = null;
+      setKey((cur) => (want !== null && ks.includes(want) ? want : cur !== null && ks.includes(cur) ? cur : meta.default_key !== undefined && ks.includes(meta.default_key) ? meta.default_key : (ks[0] ?? null)));
     } else {
       const kept = meta.periods_kept;
+      const want = wantKey.current?.layer === meta.layer ? wantKey.current.key : null;
+      wantKey.current = null;
       setKey((cur) => {
+        if (want !== null && kept.map(rpKey).includes(want)) return want;
         if (cur !== null && kept.map(rpKey).includes(cur)) return cur;
         const pick = kept.filter((p) => p <= 100).pop() ?? kept[kept.length - 1];
         return pick === undefined ? null : rpKey(pick);
@@ -200,12 +438,54 @@ export function BoardView() {
     if (!meta) return;
     setRegion(null);
     setOutside(false);
+    // one focus at a time on the ladder: a clicked point closes the 시군구 panel
+    setSigungu(null);
+    setSearchText("");
     getBoardLookup(meta.layer, lon, lat)
       .then(setPicked)
       .catch(() => {
         setPicked(null);
         setOutside(true);
       });
+  };
+
+  const options = useMemo(() => regionOptions(regionNames), [regionNames]);
+
+  const selectRegion = (code: string) => {
+    setPicked(null);
+    setRegion(null);
+    setOutside(false);
+    getBoardRegionAll(code)
+      .then(setSigungu)
+      .catch((e: Error) => setError(e.message));
+  };
+
+  const onSearch = (text: string) => {
+    setSearchText(text);
+    const hit = options.find((o) => o.value === text) ?? options.find((o) => o.code === text);
+    if (hit) selectRegion(hit.code);
+  };
+
+  // A row of the 시군구 panel makes its layer (and its headline key) the active one.
+  const activateRow = (row: BoardRegionRow) => {
+    if (row.layer === layerName) {
+      const m = layers?.find((l) => l.layer === row.layer);
+      const valid = m?.key_kind === "metric" ? (m.keys ?? []).map((k) => k.key) : (m?.periods_kept ?? []).map(rpKey);
+      if (valid.includes(row.headline_key)) setKey(row.headline_key);
+      return;
+    }
+    wantKey.current = { layer: row.layer, key: row.headline_key };
+    setLayerName(row.layer);
+  };
+
+  const askCase = (id: string) => setPendingCase(id);
+  const confirmCase = () => {
+    const id = pendingCase;
+    setPendingCase(null);
+    if (!id) return;
+    getBoardCase(id)
+      .then(setOpenCase)
+      .catch((e: Error) => setError(e.message));
   };
 
   const loadRegion = () => {
@@ -243,9 +523,24 @@ export function BoardView() {
     [picked, fc],
   );
 
+  const sigunguPieces = useMemo(
+    () => (sigungu && fc ? fc.features.filter((f) => f.properties.code === sigungu.code) : []),
+    [sigungu, fc],
+  );
+  const rung: LadderId = openCase ? "case" : sigungu ? "sigungu" : picked ? "point" : "national";
+  const pendingCaseName = cases.find((c) => c.id === pendingCase)?.name;
+
   const units = meta?.units ?? "";
   // key rows shown in the lookup / region panels: the long-run frequencies + the active year
   const metricShown = metricKeys.filter((k) => k.scale !== "spei" || k.key === key);
+
+  if (openCase) {
+    return (
+      <div data-testid="board-view" style={{ overflow: "auto", height: "100%", padding: 12 }}>
+        <CasePage data={openCase} rungs={rungs} meta={layers?.find((l) => l.layer === openCase.national_layer) ?? meta} cases={cases} onBack={() => setOpenCase(null)} />
+      </div>
+    );
+  }
 
   return (
     <div className="mapview" data-testid="board-view">
@@ -279,12 +574,92 @@ export function BoardView() {
               interactive={false}
             />
           )}
+          {sigungu && palettes && sigunguPieces.length > 0 && (
+            <GeoJSON
+              key={`rg-${sigungu.code}-${fcFor}`}
+              data={{ type: "FeatureCollection", features: sigunguPieces } as never}
+              style={() => ({
+                fill: false,
+                color: palettes.shared.region_outline.color,
+                weight: palettes.shared.region_outline.weight,
+                opacity: 1,
+                smoothFactor: 0,
+              })}
+              interactive={false}
+            />
+          )}
+          {sigungu && <FitTo features={sigunguPieces} token={sigungu.code} />}
+          {cases.map((c) => (
+            <CasePin key={c.id} c={c} onOpen={(id) => c.available && askCase(id)} />
+          ))}
           <ClickLookup onPick={pickPoint} />
         </MapContainer>
       </div>
 
       <aside className="sidepanel" aria-label="시각 보드 패널">
         <div className="section-title">시각 보드 · Visual board</div>
+        {pendingCase && (
+          <div className="card" data-testid="case-transition" role="alertdialog" aria-label="사례 트윈 전환 안내" style={{ border: "2px solid var(--accent)", borderRadius: 8, padding: 10 }}>
+            <div>{CASE_TRANSITION_NOTICE}</div>
+            {pendingCaseName && <div className="hint">{pendingCaseName}</div>}
+            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+              <button className="btn" onClick={confirmCase}>열기</button>
+              <button className="btn secondary" onClick={() => setPendingCase(null)}>취소</button>
+            </div>
+          </div>
+        )}
+        <ResolutionLadder rungs={rungs} active={rung} meta={meta} cases={cases} />
+
+        <div className="field">
+          <label htmlFor="region-search">시군구 검색 · Municipality</label>
+          <input
+            id="region-search"
+            data-testid="region-search"
+            list="region-search-names"
+            value={searchText}
+            placeholder="시군구 이름…"
+            autoComplete="off"
+            onChange={(e) => onSearch(e.target.value)}
+          />
+          <datalist id="region-search-names">
+            {options.map((o) => (
+              <option key={o.code} value={o.value} />
+            ))}
+          </datalist>
+        </div>
+        {sigungu && (
+          <div data-testid="sigungu-panel">
+            <div className="section-title">{sigungu.name} · 재해별 조각 최소–최대 (평균·합산·순위 없음)</div>
+            <ul style={{ listStyle: "none", margin: "6px 0 0", padding: 0, display: "flex", flexDirection: "column", gap: 4 }}>
+              {sigungu.layers.map((row) => {
+                const m = layers?.find((l) => l.layer === row.layer);
+                const on = row.layer === layerName;
+                return (
+                  <li key={row.layer}>
+                    <button
+                      className={`btn secondary${on ? " active" : ""}`}
+                      data-testid={`sigungu-row-${row.layer}`}
+                      aria-pressed={on}
+                      style={{ width: "100%", textAlign: "left", fontSize: 12, ...(on ? { borderColor: "var(--accent)" } : {}) }}
+                      onClick={() => activateRow(row)}
+                    >
+                      <strong>{row.label}</strong>
+                      <div className="hint">
+                        {headlineLabel(m, row.headline_key)} · 조각 {row.n_pieces}개 ·{" "}
+                        {row.headline === null
+                          ? fmtStatusCounts(palettes, row.headline_status) || "자료 없음"
+                          : fmtRange(row.headline, headlineUnits(m, row.headline_key), row.quantity === "change")}
+                        {row.headline !== null && fmtStatusCounts(palettes, row.headline_status)
+                          ? ` · ${fmtStatusCounts(palettes, row.headline_status)}`
+                          : ""}
+                      </div>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
         {error && <div className="hint" role="alert" style={{ color: "var(--danger)" }}>{error}</div>}
         {layers && layers.length === 0 && (
           <div className="hint">
@@ -558,12 +933,33 @@ export function BoardView() {
               )}
             </div>
 
-            <div className="card" style={{ border: "1px dashed var(--border)", borderRadius: 8, padding: 10 }}>
-              <strong>사례 트윈: 강남역 (미검증)</strong>
-              <div className="hint">사례 트윈 페이지는 이후 단계에서 제공됩니다. 전국 격자 결과와 합산·비교하지 않습니다. (Case twin page: later step.)</div>
-            </div>
           </>
         )}
+
+        <div data-testid="case-section">
+          <div className="section-title">사례 트윈 · Case twins</div>
+          <div className="hint">고해상도 사례 페이지입니다. 전국 격자 결과와 합산·비교하지 않으며 금액은 내지 않습니다.</div>
+          <ul data-testid="case-list" style={{ listStyle: "none", margin: "6px 0 0", padding: 0, display: "flex", flexDirection: "column", gap: 6 }}>
+            {cases.map((c) => (
+              <li key={c.id}>
+                <button
+                  className="btn secondary"
+                  data-testid={`case-open-${c.id}`}
+                  disabled={!c.available}
+                  title={c.available ? undefined : "아직 만들어지지 않은 사례입니다"}
+                  style={{ width: "100%", textAlign: "left" }}
+                  onClick={() => askCase(c.id)}
+                >
+                  {c.name} <span className="hint">· {c.badge} · {c.cell_m} m{c.available ? "" : " · 미생성"}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          <div className="card" style={{ border: "1px dashed var(--border)", borderRadius: 8, padding: 10, marginTop: 6 }}>
+            <strong>사례 트윈: 강남역 (미검증)</strong>
+            <div className="hint">강남역 사례 페이지는 이후 단계에서 제공됩니다. (Gangnam case twin: later step.)</div>
+          </div>
+        </div>
       </aside>
     </div>
   );

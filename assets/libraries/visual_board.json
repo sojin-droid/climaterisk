@@ -318,5 +318,31 @@
   "rp_check": {
     "rel_tol": 0.25,
     "warn_share": 0.1
-  }
+  },
+  "resolution_ladder": [
+    {
+      "id": "national",
+      "label_ko": "전국 격자",
+      "label_en": "National grid",
+      "note_ko": "재해 자료 격자 그대로(약 1–5 km), 보간 없음"
+    },
+    {
+      "id": "sigungu",
+      "label_ko": "시군구 (격자 조각 모음)",
+      "label_en": "Municipality (pieces)",
+      "note_ko": "조각 수·최소–최대만, 평균 없음"
+    },
+    {
+      "id": "point",
+      "label_ko": "지점 (격자 한 칸)",
+      "label_en": "Point (one cell)",
+      "note_ko": "지점이 들어간 격자 한 칸의 값"
+    },
+    {
+      "id": "case",
+      "label_ko": "사례 트윈",
+      "label_en": "Case twin",
+      "note_ko": "대상지만 고해상도(수 m–수십 m), 전국 결과와 합산·비교 불가"
+    }
+  ]
 }

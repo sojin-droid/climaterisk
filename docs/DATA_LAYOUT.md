@@ -31,6 +31,7 @@ backend, the CLIMADA worker, the scripts and the tests). No other code builds a 
     calibrations/                     persisted impact-function calibrations (next to hazard_db)
     municipality/                     derived municipality products (V0.3 office points)
     board/                            visual-board national layers (<layer>.geojson + <layer>.meta.json; scripts/board_layer.py)
+    case_twins/                       case-twin summaries + figures (<id>/summary.json, PNGs; built on the twin branch, read-only on the board)
     drought/                          agricultural drought v0 (pieces, per-year SPEI stage, 시군구 summary; scripts/drought_agri.py)
   cache/                              regenerable caches
     aqueduct/                         WRI Aqueduct coastal-flood depth stacks (<dataset>__<bbox>.npz; read by the coastal board layers)
