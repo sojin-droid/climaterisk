@@ -14,6 +14,7 @@
   "observations": [
     {
       "id": "indeok_overtopped",
+      "label_ko": "인덕교 월류",
       "kind": "overtopped_by",
       "point": "인덕교",
       "when": "2022-09-06T06:20",
@@ -21,6 +22,7 @@
     },
     {
       "id": "apt_0630",
+      "label_ko": "아파트 입구 수심 06:30",
       "kind": "depth_at_time",
       "point": "우방신세계타운1차 입구(최저지반)",
       "when": "2022-09-06T06:30",
@@ -30,6 +32,7 @@
     },
     {
       "id": "apt_0645",
+      "label_ko": "아파트 입구 수심 06:45",
       "kind": "depth_at_time",
       "point": "우방신세계타운1차 입구(최저지반)",
       "when": "2022-09-06T06:45",

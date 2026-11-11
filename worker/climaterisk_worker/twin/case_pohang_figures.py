@@ -73,6 +73,7 @@ BLUE_LIGHT = "#6baed6"
 OBS = "#d95f02"
 GREY = "#7f7f7f"
 GREY_LIGHT = "#d9d9d9"
+CHANNEL = "#ff7f00"  # burnt channel: the one colour drawn on the map and shown in the legend
 
 # ---------------------------------------------------------------------------------------------
 # pure functions
@@ -301,6 +302,42 @@ def long_profile(
     }
 
 
+def flag_profile_spikes(surface_m: Sequence[float], window: int, tol_m: float) -> list[bool]:
+    """Flag isolated cells whose surface stands far above the running median of their neighbours.
+
+    Algorithm:
+        $$ s_i - \\mathrm{median}(s_{i-k..i+k}) > tol, \\quad k = (w - 1)/2 $$
+        with $s_i$ the maximum water surface of cell $i$ (m), $w$ the window (cells, odd),
+        $tol$ the tolerance (m); the window is truncated at both ends of the profile.
+        ASCII: flag_i = (surface_i - median(surface[i-k .. i+k])) > tol_m.
+
+    Args:
+        surface_m: Maximum water surface along the profile (m).
+        window: Odd window length in cells, at least 3.
+        tol_m: Tolerance (m), strictly positive; an excess of exactly ``tol_m`` is not flagged.
+
+    Returns:
+        One bool per cell (same length as ``surface_m``).
+
+    Raises:
+        ValueError: If ``window`` is even or below 3, or ``tol_m`` is not positive.
+    """
+    excess = _surface_excess(surface_m, window, tol_m)
+    return [bool(v > tol_m) for v in excess]
+
+
+def _surface_excess(surface_m: Sequence[float], window: int, tol_m: float) -> np.ndarray:
+    """Surface minus its centred running median (m); validates ``window`` and ``tol_m``."""
+    if window < 3 or window % 2 == 0:
+        raise ValueError(f"window must be odd and >= 3, got {window}")
+    if not tol_m > 0:
+        raise ValueError(f"tol_m must be > 0, got {tol_m}")
+    s = np.asarray(surface_m, dtype=float)
+    k = (window - 1) // 2
+    med = np.array([np.median(s[max(i - k, 0) : i + k + 1]) for i in range(s.size)])
+    return s - med
+
+
 def lower_reach_box(
     stem_rc: np.ndarray, k_from: int, extra_rc: Sequence[tuple[int, int]], pad: int
 ) -> tuple[int, int, int, int]:
@@ -453,6 +490,7 @@ def plot_study_area(
     box: tuple[int, int, int, int],
     label_offsets: Mapping[str, tuple[float, float]],
     title: str,
+    full_offsets: Mapping[str, tuple[float, float]] | None = None,
 ) -> None:
     """Study area: catchment, burnt channel, points and a box on the lower reach (+ zoom).
 
@@ -467,14 +505,19 @@ def plot_study_area(
         box: Lower reach box ``(row0, row1, col0, col1)``.
         label_offsets: ``{name: (dx, dy)}`` label offsets in points (zoom panel).
         title: Figure title.
+        full_offsets: ``{name: (dx, dy)}`` label offsets in points (left, whole-catchment panel).
     """
     plt = _plt()
+    from matplotlib import patheffects
+    from matplotlib.colors import ListedColormap
     from matplotlib.lines import Line2D
     from matplotlib.patches import Rectangle
 
+    full_offsets = full_offsets or {}
     ext = _imshow_extent(grid, ground.shape)
     shade = _hillshade(ground, grid.cell_m)
     ch = np.ma.masked_where(~channel, np.ones(channel.shape))
+    channel_cmap = ListedColormap([CHANNEL])
     xl, yl = _box_limits(grid, box)
     rows = np.flatnonzero(mask.any(axis=1))
     cols = np.flatnonzero(mask.any(axis=0))
@@ -510,7 +553,9 @@ def plot_study_area(
             ch,
             origin="lower",
             extent=ext,
-            cmap="autumn",
+            cmap=channel_cmap,
+            vmin=0.0,
+            vmax=1.0,
             alpha=0.9,
             zorder=2,
             interpolation="nearest",
@@ -535,6 +580,19 @@ def plot_study_area(
                     ha="left" if dx >= 0 else "right",
                     bbox={"fc": "white", "ec": "none", "alpha": 0.75, "pad": 1.2},
                 )
+            else:
+                dx, dy = full_offsets.get(name, (5, 4))
+                ax.annotate(
+                    name.split(" 입구")[0],
+                    (lon, lat),
+                    textcoords="offset points",
+                    xytext=(dx, dy),
+                    fontsize=7,
+                    zorder=7,
+                    ha="left" if dx >= 0 else "right",
+                    va="bottom" if dy >= 0 else "top",
+                    path_effects=[patheffects.withStroke(linewidth=2.2, foreground="white")],
+                )
     axes[0].set_xlim(*full_lim[0])
     axes[0].set_ylim(*full_lim[1])
     axes[0].set_title("냉천 유역 (검은 윤곽)")
@@ -549,7 +607,7 @@ def plot_study_area(
         sub.boundary.plot(ax=axes[1], color="#444444", linewidth=0.25, zorder=4)
     handles = [
         Line2D([], [], color="k", lw=1.0, label="유역 경계"),
-        Line2D([], [], color="#ff7f00", lw=4, label="굴착한 하도 (OSM)"),
+        Line2D([], [], color=CHANNEL, lw=4, label="굴착한 하도 (OSM)"),
         Line2D([], [], marker="o", color="w", mfc=OBS, ms=7, label="보고 지점"),
         Line2D([], [], color="#444444", lw=0.5, label="건물 외곽 (OSM)"),
     ]
@@ -876,7 +934,15 @@ def plot_point_series(
     a1.legend(loc="upper left", fontsize=10)
     a2.plot(clock, indeok_above, color=BLUE, lw=2, label="모형 수위 - 제방고")
     a2.axhline(0.0, color=GREY, ls="--", lw=1)
-    a2.text(clock[0], 0.0, " 제방 높이 (0 = 월류 시작)", va="bottom", fontsize=9, color="#444444")
+    a2.text(
+        0.005,
+        0.0,
+        " 제방 높이 (0 = 월류 시작)",
+        transform=a2.get_yaxis_transform(),
+        va="bottom",
+        fontsize=9,
+        color="#444444",
+    )
     for ob in observations:
         if ob["kind"] == "overtopped_by":
             when = _as_datetime(ob["when"])
@@ -908,20 +974,27 @@ def plot_long_profile(
     profile: Mapping[str, Sequence[float]],
     bridges_km: Mapping[str, float],
     title: str,
+    flags: Sequence[bool] | None = None,
 ) -> None:
     """Classic longitudinal profile: bed, bank ground and maximum water surface vs distance.
+
+    Suspect cells (``flags``) are not removed: the surface line and the water fill are broken
+    there and the cells are drawn as their own marker series; the zoom limits ignore them.
 
     Args:
         path: Output ``.png``.
         profile: Result of :func:`long_profile` (mouth upstream).
         bridges_km: ``{bridge name: distance from the mouth (km)}``.
         title: Figure title.
+        flags: Suspect-cell flags from :func:`flag_profile_spikes` (None: nothing marked).
     """
     plt = _plt()
     x = np.asarray(profile["distance_km"])
     bed = np.asarray(profile["bed_m"])
     bank = np.asarray(profile["bank_m"])
-    wse = np.asarray(profile["max_surface_m"])
+    wse_all = np.asarray(profile["max_surface_m"])
+    bad = np.zeros(wse_all.shape, dtype=bool) if flags is None else np.asarray(flags, dtype=bool)
+    wse = np.where(bad, np.nan, wse_all)
     fig, (a1, a2) = plt.subplots(2, 1, figsize=(12, 9), constrained_layout=True)
     x_zoom = max(bridges_km.values()) + 1.5
     for k, ax in enumerate((a1, a2)):
@@ -929,7 +1002,7 @@ def plot_long_profile(
             x,
             bed,
             wse,
-            where=wse > bed + 0.01,
+            where=~bad & (wse_all > bed + 0.01),
             color=BLUE_LIGHT,
             alpha=0.8,
             lw=0,
@@ -937,6 +1010,18 @@ def plot_long_profile(
             zorder=2,
         )
         ax.plot(x, wse, color=BLUE, lw=1.6, label="최대 수면", zorder=3)
+        if bad.any():
+            ax.plot(
+                x[bad],
+                wse_all[bad],
+                "x",
+                color=OBS,
+                ms=7,
+                mew=1.6,
+                ls="none",
+                zorder=6,
+                label=f"수치 불안정 의심 셀 ({int(bad.sum())}개, 값은 그대로 둠)",
+            )
         ax.plot(x, bank, color=GREY, lw=1.4, label="제방 지반고 (하도 옆 최저)", zorder=3)
         ax.plot(x, bed, color="#5b3a1e", lw=1.8, label="굴착한 하상", zorder=4)
         ax.axhline(0.0, color=GREY, lw=0.6, ls=":")
@@ -960,7 +1045,7 @@ def plot_long_profile(
         ax.grid(color=GREY_LIGHT, lw=0.5)
     sel = x <= x_zoom
     lo = float(min(bed[sel].min(), 0.0)) - 1.0
-    hi = float(max(bank[sel].max(), wse[sel].max())) + 2.0
+    hi = float(max(bank[sel].max(), np.nanmax(wse[sel]))) + 2.0
     a2.set_xlim(0, x_zoom)
     a2.set_ylim(lo, hi)
     a1.set_xlim(0, float(x[-1]))
@@ -1158,6 +1243,15 @@ def build_pack(out_dir: Path, obs_path: Path = ASSETS_OBS) -> dict[str, Any]:
             "above_bank": pts.get(f"{name}_water_surface_above_bank_m"),
         }
     rows = validation_rows(obs["observations"], series, start)
+    by_id = {o["id"]: o for o in obs["observations"]}
+    rows = [
+        {
+            **r,
+            "label_ko": by_id[r["id"]]["label_ko"],
+            "unit": "m" if r["kind"] == "depth_at_time" else "시각",
+        }
+        for r in rows
+    ]
     n_ok = sum(1 for r in rows if r["ok"])
 
     # terrain rebuild (channel, outline, profile) and the max-depth grid
@@ -1230,6 +1324,38 @@ def build_pack(out_dir: Path, obs_path: Path = ASSETS_OBS) -> dict[str, Any]:
     prof = long_profile(
         [tuple(c) for c in order.tolist()], burn["bed"], bank_r, h_full, grid.cell_m
     )
+    fig_cfg = spec["figures"]
+    spike_window = int(fig_cfg["profile_spike_window"])
+    spike_tol = float(fig_cfg["profile_spike_tol_m"])
+    # A cell is suspect only when BOTH its surface and its depth (surface - bed) stand above
+    # the running median: the surface test alone marks steep bed steps at the truncated ends,
+    # the depth test alone marks pools behind bed steps.
+    prof_depth = (np.asarray(prof["max_surface_m"]) - np.asarray(prof["bed_m"])).tolist()
+    flags = [
+        a and b
+        for a, b in zip(
+            flag_profile_spikes(prof["max_surface_m"], spike_window, spike_tol),
+            flag_profile_spikes(prof_depth, spike_window, spike_tol),
+            strict=True,
+        )
+    ]
+    excess = _surface_excess(prof["max_surface_m"], spike_window, spike_tol)
+    flagged = np.asarray(flags, dtype=bool)
+    profile_flags = {
+        "n_cells": len(flags),
+        "n_flagged": int(flagged.sum()),
+        "window": spike_window,
+        "tol_m": spike_tol,
+        "max_excess_m": round(float(excess[flagged].max()), 2) if flagged.any() else None,
+        "note_ko": (
+            "하구에서 상류로 본 종단면에서, 최대 수면과 최대 수심(수면 - 하상)이 모두 "
+            "앞뒤 셀의 중앙값보다 "
+            f"{spike_tol:g} m를 넘게 솟은 셀 {int(flagged.sum())}개는 수치 불안정(가정 A26)으로 "
+            "보인다. 이 셀들은 자료에서 지우거나 매끄럽게 하지 않고 그대로 두었으며, "
+            "그림에서 표시만 했다."
+        ),
+    }
+    logger.info("long profile: %d of %d cells flagged", profile_flags["n_flagged"], len(flags))
     n_stem = stem_rc.shape[0]
     bridges_km = {n: float(prof["distance_km"][n_stem - 1 - k]) for n, k in k_br.items()}
 
@@ -1252,6 +1378,13 @@ def build_pack(out_dir: Path, obs_path: Path = ASSETS_OBS) -> dict[str, Any]:
         "POSCO": (10, -34),
         apt1: (34, 34),
         apt2: (34, -34),
+    }
+    off_full = {
+        "냉천교": (-8, 2),
+        "인덕교": (-8, 2),
+        "POSCO": (6, -4),
+        apt1: (9, 8),
+        apt2: (9, -10),
     }
     sm = summary
     mouth_over = {
@@ -1292,6 +1425,7 @@ def build_pack(out_dir: Path, obs_path: Path = ASSETS_OBS) -> dict[str, Any]:
         box,
         off_zoom,
         f"연구 지역: 냉천 유역과 하류부 — {badge}",
+        off_full,
     )
     plot_rain(
         out_dir / FIGURE_FILES[1],
@@ -1339,7 +1473,11 @@ def build_pack(out_dir: Path, obs_path: Path = ASSETS_OBS) -> dict[str, Any]:
         f"지점별 시계열과 관측 — {badge}",
     )
     plot_long_profile(
-        out_dir / FIGURE_FILES[5], prof, bridges_km, f"본류 종단면 (하구에서 상류로) — {badge}"
+        out_dir / FIGURE_FILES[5],
+        prof,
+        bridges_km,
+        f"본류 종단면 (하구에서 상류로) — {badge}",
+        flags,
     )
     plot_depth_classes(
         out_dir / FIGURE_FILES[6], classes, f"최대 침수심 구간별 침수 면적 — {badge}"
@@ -1370,7 +1508,11 @@ def build_pack(out_dir: Path, obs_path: Path = ASSETS_OBS) -> dict[str, Any]:
             "우방신세계타운1차 침수심과 인덕교 제방 대비 수위의 시계열, 관측 표식.",
             "Hwang 외 (2024) Fig. 11, Table 1",
         ),
-        ("본류 종단면: 하상, 제방 지반고, 최대 수면, 교량.", "HEC-RAS 종단면 (Jang 외 2025 유형)"),
+        (
+            "본류 종단면: 하상, 제방 지반고, 최대 수면, 교량. 수치 불안정이 의심되는 셀은 "
+            "× 표시로 따로 보이고 수면선은 그 자리에서 끊는다(값은 그대로 둠).",
+            "HEC-RAS 종단면 (Jang 외 2025 유형)",
+        ),
         (
             "하도 제외 지반고 20 m 미만 육지의 최대 침수심 구간별 면적.",
             "Jang 외 (2025): 얕은 침수 대 깊은 침수",
@@ -1382,6 +1524,7 @@ def build_pack(out_dir: Path, obs_path: Path = ASSETS_OBS) -> dict[str, Any]:
         "clock_start": start.isoformat(timespec="minutes"),
         "clock_anchor_note": note,
         "validation": rows,
+        "profile_flags": profile_flags,
         "depth_classes": classes,
         "other_models": obs["other_models"],
         "not_compared": obs["not_compared"],
@@ -1416,6 +1559,7 @@ __all__ = [
     "depth_at_clock",
     "depth_class_areas",
     "first_crossing_h",
+    "flag_profile_spikes",
     "long_profile",
     "peak_window_center_h",
     "to_clock",

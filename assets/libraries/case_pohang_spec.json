@@ -138,6 +138,11 @@
     "damage": "Pohang house/shop flooding 8,500 / 3,550 (provisional, 2022-09-08 press); POSCO flooding 1-1.5 m (press, low confidence); overtopping about 06:00 (low confidence); car-park alert 06:30; contact lost 09:10; 7 dead in the 인덕동 apartment car park and 1 in 오천읍 (press reports)",
     "apartment": "인덕동 우방신세계타운 (1차 as the reference point, 2차 alongside): identified by the OSM names 우방신세계타운1차아파트 and 우방신세계타운2차아파트 and by the press reports of the car-park deaths"
   },
+  "figures": {
+    "_note": "Figure pack only (twin/case_pohang_figures.py). A cell of the long profile is marked as a suspect numerical spike (A26) when both its maximum water surface and its maximum depth (surface minus burnt bed) exceed the centred running median over profile_spike_window cells by more than profile_spike_tol_m metres. Cells are only marked in the figure, never removed or smoothed.",
+    "profile_spike_window": 41,
+    "profile_spike_tol_m": 2.0
+  },
   "assumptions": [
     "A1 Rain is uniform in space: the Pohang ASOS (station 138) depth-duration values apply to every active cell of the domain (catchment, floodplain buffer and the land of POSCO inside it); no gauge or radar field is used (the AWS peaks of 110-116 mm/h and the 509.5 mm at 오천 show the real field was not uniform).",
     "A2 The storm is the nested alternating-block hyetograph of the published maximum depths per duration: peak block in the middle, blocks alternating to the right and left. This is the worst-case arrangement for every listed duration at once, not the observed time order of the rain.",
