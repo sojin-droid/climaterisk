@@ -1026,10 +1026,6 @@ export function BoardView({
               </li>
             ))}
           </ul>
-          <div className="card" style={{ border: "1px dashed var(--border)", borderRadius: 8, padding: 10, marginTop: 6 }}>
-            <strong>사례 트윈: 강남역 (미검증)</strong>
-            <div className="hint">강남역 사례 페이지는 이후 단계에서 제공됩니다. (Gangnam case twin: later step.)</div>
-          </div>
         </div>
       </aside>
     </div>

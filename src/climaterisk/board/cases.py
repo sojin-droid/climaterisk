@@ -88,12 +88,18 @@ def list_cases() -> list[dict[str, Any]]:
     return out
 
 
-def _dig(summary: dict[str, Any], path: list[str]) -> Any:
+def _dig(summary: dict[str, Any], path: list[str | int]) -> Any:
+    """Value at ``path`` (dict keys, or int indexes into lists); ``None`` when absent."""
     cur: Any = summary
     for key in path:
-        if not isinstance(cur, dict) or key not in cur:
+        if isinstance(key, int) and not isinstance(key, bool):
+            if not isinstance(cur, list) or not -len(cur) <= key < len(cur):
+                return None
+            cur = cur[key]
+        elif isinstance(cur, dict) and key in cur:
+            cur = cur[key]
+        else:
             return None
-        cur = cur[key]
     return cur
 
 

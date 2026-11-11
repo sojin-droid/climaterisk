@@ -188,6 +188,101 @@
         "대상지 안 추가 기온 관측",
         "지표면 온도·복사 관측"
       ]
+    },
+    {
+      "id": "gangnam",
+      "name": "강남역 일대 · 집중호우 (2022-08-08 보정, 빈도 강우)",
+      "peril": "pluvial_flood",
+      "lon": 127.0276,
+      "lat": 37.4979,
+      "cell_m": 10,
+      "national_layer": "river_flood_hist_kor",
+      "source_doc": "docs/reports/twin_threshold_fixed95_limits_ko.md (feat/city-digital-twin)",
+      "figures": [
+        {
+          "file": "threshold_map.png",
+          "caption_ko": "무피해문턱 0.15 m 적용 / 미적용 연평균 손실 배율 (용도 확인 243동 색칠, 용도 미상 637동 외곽선)"
+        },
+        {
+          "file": "threshold_effect.png",
+          "caption_ko": "문턱별 연평균 손실 변화 (%, pure vs climada 곡선)"
+        }
+      ],
+      "highlights": [
+        {
+          "label_ko": "트윈 CSI (2022-08-08)",
+          "path": [
+            "check",
+            "csi_model"
+          ],
+          "unit": ""
+        },
+        {
+          "label_ko": "단순 규칙 CSI (가장 낮은 건물이 잠긴다)",
+          "path": [
+            "check",
+            "csi_lowest_ground"
+          ],
+          "unit": ""
+        },
+        {
+          "label_ko": "평가 건물 (용도 확인)",
+          "path": [
+            "n_evaluated"
+          ],
+          "unit": "동"
+        },
+        {
+          "label_ko": "평가 제외 (용도 미상)",
+          "path": [
+            "n_excluded"
+          ],
+          "unit": "동"
+        },
+        {
+          "label_ko": "문턱 0.15 m 연평균 손실 변화 (pure)",
+          "path": [
+            "threshold_effect",
+            "pure_eal_change_pct",
+            1
+          ],
+          "unit": "%"
+        },
+        {
+          "label_ko": "문턱 0.30 m 연평균 손실 변화 (pure)",
+          "path": [
+            "threshold_effect",
+            "pure_eal_change_pct",
+            2
+          ],
+          "unit": "%"
+        },
+        {
+          "label_ko": "문턱 0.15 m 연평균 손실 변화 (climada 곡선)",
+          "path": [
+            "threshold_effect",
+            "climada_eal_change_pct",
+            1
+          ],
+          "unit": "%"
+        }
+      ],
+      "can_say": [
+        "무피해문턱을 넣으면 연평균 손실이 줄고, 잦은 비일수록 효과가 크다(모든 모델 상태에서 방향이 같음)",
+        "잦은 비(10년 빈도)에서는 평가 건물 대부분(78 %)이 건물 앞 5 cm 이하로 잠긴다",
+        "건물을 벽으로 넣으면 물길과 고이는 곳이 지형만 쓸 때와 달라진다"
+      ],
+      "cannot_say": [
+        "몇 % 줄어드는지의 크기(지형·하수 가정에 따라 몇 배씩 달라짐)",
+        "어느 건물이 잠기는지(트윈 CSI 0.29 < 단순 규칙 0.57)",
+        "피해액(트윈은 금액을 내지 않음)",
+        "용도 미상 637동의 영향(용도를 가정하지 않아 평가 제외)"
+      ],
+      "next_data": [
+        "5 m 이하 지형(국토지리정보원 수치지도, 로그인 필요)",
+        "하수관망 위치·용량",
+        "건축물대장 용도·층수(건축HUB 키 필요)"
+      ]
     }
   ]
 }

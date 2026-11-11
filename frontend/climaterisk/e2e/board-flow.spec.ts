@@ -97,7 +97,7 @@ test("board: picker → return period → click → panel", async ({ page }) => 
   await expect(page.getByTestId("region-panel")).toContainText("조각 수 8개");
   await expect(page.getByTestId("region-panel")).not.toContainText(/mean|평균 *[0-9]/);
 
-  await expect(page.getByText("사례 트윈: 강남역 (미검증)")).toBeVisible();
+  await expect(page.getByText("사례 트윈 · Case twins")).toBeVisible();
 });
 
 const DROUGHT_META = {
@@ -197,7 +197,7 @@ test("board: drought layer → key selector, badges, exposure", async ({ page })
   await expect(region.getByTestId("exposure-sum")).toContainText("밭 합계");
   await expect(region.getByTestId("exposure-sum")).toContainText("11.5 ha");
   await expect(region).not.toContainText(/mean|평균 *[0-9]/);
-  await expect(page.getByText("사례 트윈: 강남역 (미검증)")).toBeVisible();
+  await expect(page.getByText("사례 트윈 · Case twins")).toBeVisible();
 });
 
 const CHANGE_META = {
