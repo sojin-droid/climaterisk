@@ -309,7 +309,7 @@
         },
         {
           "file": "fig_model_chain.png",
-          "caption_ko": "모형 흐름: OSM 건물·녹지, GLO-30 지형, 빈도 강우, 하수 95 mm/h 가정 → 2차원 계산 → 최대 수심"
+          "caption_ko": "모형 흐름: OSM 건물·녹지, GLO-30 지형, 빈도 강우, 하수 95 mm/h 가정 → 평면 흐름 계산 → 최대 수심"
         }
       ],
       "highlights": [
