@@ -45,6 +45,7 @@ import {
   type BoardRegionName,
   type BoardRegionRow,
   type BoardCase,
+  type BoardLiteratureRow,
   type BoardCaseSummary,
   type BoardStatus,
   type LadderId,
@@ -247,6 +248,22 @@ function CasePage({
   onBack: () => void;
 }) {
   const check = data.summary.check;
+  const lit = data.summary.literature_check;
+  const [zoomFile, setZoomFile] = useState<string | null>(null);
+  const zoomFig = data.figures.find((f) => f.file === zoomFile);
+  useEffect(() => {
+    if (!zoomFile) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setZoomFile(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [zoomFile]);
+  const fmtLit = (r: BoardLiteratureRow, v: number | string): string => {
+    if (r.kind === "depth_at_time" && typeof v === "number") return `${v.toFixed(2)} m`;
+    if (r.kind === "overtopped_by" && typeof v === "string") return v.slice(11, 16);
+    return String(v);
+  };
   return (
     <div className="sidepanel" data-testid="case-page" style={{ width: "auto", maxWidth: 900, margin: "0 auto", display: "flex", flexDirection: "column", gap: 12 }}>
       <div>
@@ -285,16 +302,65 @@ function CasePage({
               ? "보조 점검 경고: 주 방법과 보조 점검이 크게 어긋납니다. 결과를 조심해서 읽으세요."
               : "보조 점검(진단용): 경고 없음"}
         </div>
+        {lit && (
+          <div
+            className="hint"
+            data-testid="case-literature"
+            role={lit.warning ? "alert" : undefined}
+            style={lit.warning ? { color: "var(--danger)" } : undefined}
+          >
+            <div>문헌 점검(진단용): {lit.source.citation}</div>
+            <div>{lit.n_rows}개 중 {lit.n_ok}개 일치</div>
+            {lit.warning && <div>문헌 점검 경고: 모형과 문헌 관측이 어긋나는 항목이 있습니다. 결과를 조심해서 읽으세요.</div>}
+            <div>진단용 점검이며 결과를 관측에 맞추어 조정하지 않았습니다.</div>
+            <div data-testid="case-literature-clock">
+              시계 시작 {lit.clock_start.slice(0, 10)} {lit.clock_start.slice(11, 16)} (가정: 모형의 가장 센 1시간을 관측 최대 강우 시간에 맞춘 값)
+            </div>
+            <table style={{ fontSize: 13, width: "100%" }}>
+              <thead>
+                <tr><th>항목</th><th>관측</th><th>모형</th><th>판정</th></tr>
+              </thead>
+              <tbody>
+                {lit.rows.map((r) => (
+                  <tr key={r.id} data-testid={`case-literature-row-${r.id}`}>
+                    <td>{r.label_ko ?? r.id}</td>
+                    <td>{fmtLit(r, r.observed)}</td>
+                    <td>{fmtLit(r, r.model)}</td>
+                    <td>{r.ok ? "일치" : "불일치"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
         {data.figures.map((f) => (
           <figure key={f.file} style={{ margin: 0, flex: "1 1 320px" }}>
-            <img src={caseFigureUrl(data.id, f.file)} alt={f.caption_ko} style={{ width: "100%", height: "auto" }} />
+            <button
+              type="button"
+              onClick={() => setZoomFile(f.file)}
+              style={{ display: "block", width: "100%", padding: 0, border: "none", background: "none", cursor: "zoom-in" }}
+            >
+              <img src={caseFigureUrl(data.id, f.file)} alt={f.caption_ko} style={{ width: "100%", height: "auto" }} />
+            </button>
             <figcaption className="hint">{f.caption_ko}</figcaption>
           </figure>
         ))}
       </div>
+      {zoomFig && (
+        <div
+          data-testid="case-figure-zoom"
+          role="dialog"
+          aria-modal="true"
+          aria-label={zoomFig.caption_ko}
+          style={{ position: "fixed", inset: 0, zIndex: 2000, background: "color-mix(in srgb, var(--bg) 85%, transparent)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, padding: 16 }}
+        >
+          <img src={caseFigureUrl(data.id, zoomFig.file)} alt={zoomFig.caption_ko} style={{ maxWidth: "100%", maxHeight: "85vh", border: "1px solid var(--border)" }} />
+          <button className="btn" autoFocus onClick={() => setZoomFile(null)}>닫기</button>
+        </div>
+      )}
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
         <div style={{ flex: "1 1 320px" }} data-testid="case-can-say">

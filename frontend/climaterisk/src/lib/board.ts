@@ -369,6 +369,26 @@ export interface BoardCaseHighlight {
   value: number | null;
 }
 
+export interface BoardLiteratureRow {
+  id: string;
+  kind: "depth_at_time" | "overtopped_by" | string;
+  label_ko?: string;
+  unit?: string;
+  observed: number | string;
+  model: number | string;
+  diff?: number;
+  ok: boolean;
+}
+
+export interface BoardLiteratureCheck {
+  source: { citation: string; doi?: string; license?: string };
+  clock_start: string;
+  rows: BoardLiteratureRow[];
+  n_ok: number;
+  n_rows: number;
+  warning: boolean;
+}
+
 export interface BoardCase extends BoardCaseSummary {
   source_doc: string;
   /** National layer of the same peril, for the "national cell vs case cell" line. */
@@ -381,7 +401,11 @@ export interface BoardCase extends BoardCaseSummary {
   assumptions: string[];
   n_assumptions: number;
   assumptions_complete: boolean;
-  summary: { check?: { warning?: boolean; [k: string]: unknown }; [k: string]: unknown };
+  summary: {
+    check?: { warning?: boolean; [k: string]: unknown };
+    literature_check?: BoardLiteratureCheck;
+    [k: string]: unknown;
+  };
 }
 
 export const getBoardRegionNames = () => getJson<BoardRegionName[]>("/api/board/regions");
