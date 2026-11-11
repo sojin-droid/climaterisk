@@ -377,12 +377,15 @@ export interface BoardLiteratureRow {
   observed: number | string;
   model: number | string;
   diff?: number;
+  band?: [number, number];
+  note_ko?: string;
   ok: boolean;
 }
 
 export interface BoardLiteratureCheck {
   source: { citation: string; doi?: string; license?: string };
-  clock_start: string;
+  clock_start?: string;
+  conditions_ko?: string;
   rows: BoardLiteratureRow[];
   n_ok: number;
   n_rows: number;

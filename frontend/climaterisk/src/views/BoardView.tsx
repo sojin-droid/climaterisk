@@ -262,7 +262,15 @@ function CasePage({
   const fmtLit = (r: BoardLiteratureRow, v: number | string): string => {
     if (r.kind === "depth_at_time" && typeof v === "number") return `${v.toFixed(2)} m`;
     if (r.kind === "overtopped_by" && typeof v === "string") return v.slice(11, 16);
+    if (typeof v === "string") return r.unit ? `${v} ${r.unit}` : v;
+    if (r.unit === "m") return `${v.toFixed(2)} m`;
+    if (r.unit === "°C" || r.unit === "mm") return `${v.toFixed(1)} ${r.unit}`;
     return String(v);
+  };
+  const fmtBand = (r: BoardLiteratureRow): string | null => {
+    if (!r.band) return null;
+    const d = r.unit === "m" ? 2 : 1;
+    return `(범위 ${r.band[0].toFixed(d)}–${r.band[1].toFixed(d)}${r.unit ? ` ${r.unit}` : ""})`;
   };
   return (
     <div className="sidepanel" data-testid="case-page" style={{ width: "auto", maxWidth: 900, margin: "0 auto", display: "flex", flexDirection: "column", gap: 12 }}>
@@ -313,9 +321,12 @@ function CasePage({
             <div>{lit.n_rows}개 중 {lit.n_ok}개 일치</div>
             {lit.warning && <div>문헌 점검 경고: 모형과 문헌 관측이 어긋나는 항목이 있습니다. 결과를 조심해서 읽으세요.</div>}
             <div>진단용 점검이며 결과를 관측에 맞추어 조정하지 않았습니다.</div>
-            <div data-testid="case-literature-clock">
-              시계 시작 {lit.clock_start.slice(0, 10)} {lit.clock_start.slice(11, 16)} (가정: 모형의 가장 센 1시간을 관측 최대 강우 시간에 맞춘 값)
-            </div>
+            {lit.clock_start && (
+              <div data-testid="case-literature-clock">
+                시계 시작 {lit.clock_start.slice(0, 10)} {lit.clock_start.slice(11, 16)} (가정: 모형의 가장 센 1시간을 관측 최대 강우 시간에 맞춘 값)
+              </div>
+            )}
+            {lit.conditions_ko && <div data-testid="case-literature-conditions">{lit.conditions_ko}</div>}
             <table style={{ fontSize: 13, width: "100%" }}>
               <thead>
                 <tr><th>항목</th><th>관측</th><th>모형</th><th>판정</th></tr>
@@ -325,7 +336,13 @@ function CasePage({
                   <tr key={r.id} data-testid={`case-literature-row-${r.id}`}>
                     <td>{r.label_ko ?? r.id}</td>
                     <td>{fmtLit(r, r.observed)}</td>
-                    <td>{fmtLit(r, r.model)}</td>
+                    <td>
+                      {fmtLit(r, r.model)}
+                      {fmtBand(r) && <> {fmtBand(r)}</>}
+                      {r.note_ko && (
+                        <div data-testid={`case-literature-note-${r.id}`}>{r.note_ko}</div>
+                      )}
+                    </td>
                     <td>{r.ok ? "일치" : "불일치"}</td>
                   </tr>
                 ))}
