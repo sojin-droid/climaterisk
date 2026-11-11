@@ -54,6 +54,14 @@
         {
           "file": "fig_model_chain.png",
           "caption_ko": "모형 구성과 넣지 않은 것"
+        },
+        {
+          "file": "fig_propagation.png",
+          "caption_ko": "시각별 하류부 침수심 (03:00–07:30, 시각은 가정 A27로 맞춤)"
+        },
+        {
+          "file": "fig_flooded_area_time.png",
+          "caption_ko": "시각별 침수 면적 (하도 제외 저지대, 수심 0.3 m 초과; 시각은 가정 A27)"
         }
       ],
       "highlights": [
