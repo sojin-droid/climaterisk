@@ -282,6 +282,34 @@
         {
           "file": "threshold_effect.png",
           "caption_ko": "문턱별 연평균 손실 변화 (%, pure vs climada 곡선)"
+        },
+        {
+          "file": "fig_study_area.png",
+          "caption_ko": "연구 범위: 용도 확인 건물(색), 용도 미상 건물(외곽선), 녹지, 강남역 출입구(6번 출구 강조)"
+        },
+        {
+          "file": "fig_rain_frequency.png",
+          "caption_ko": "2시간 빈도 강우: 우리 GEV(ASOS 108)와 Keum 외(2022) 표 1 비교, 우리 값이 9–15 % 낮음"
+        },
+        {
+          "file": "fig_ladder_depth.png",
+          "caption_ko": "10/30/100/500년 빈도와 113 mm 강우의 최대 수심 지도 (하수 95 mm/h 가정)"
+        },
+        {
+          "file": "fig_exit6_curve.png",
+          "caption_ko": "강남역 6번 출구 앞 수심과 2시간 강우량: 논문은 113 mm에서 11 cm, 우리 트윈은 1 cm 미만"
+        },
+        {
+          "file": "fig_flooded_area.png",
+          "caption_ko": "빈도별 침수 면적 비율, 논문 값은 영역·기준 수심이 달라 참고로만 표시"
+        },
+        {
+          "file": "fig_validation.png",
+          "caption_ko": "건물 단위 점검 점수(CSI·적중률·오경보율): 트윈 vs 가장 낮은 건물 규칙, 2022·2011·2010"
+        },
+        {
+          "file": "fig_model_chain.png",
+          "caption_ko": "모형 흐름: OSM 건물·녹지, GLO-30 지형, 빈도 강우, 하수 95 mm/h 가정 → 2차원 계산 → 최대 수심"
         }
       ],
       "highlights": [
