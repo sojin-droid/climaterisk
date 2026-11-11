@@ -159,6 +159,42 @@
         {
           "file": "sensor_check.png",
           "caption_ko": "S-DoT 센서 순위 점검"
+        },
+        {
+          "file": "fig_study_area.png",
+          "caption_ko": "연구 범위와 건물 높이 출처(OSM 높이 / 층수×3.3 m 가정 / 높이 미상), S-DoT 센서 위치"
+        },
+        {
+          "file": "fig_ring_days.png",
+          "caption_ko": "2026년 여름 1–3 km 고리 센서 일 최고기온과 모형 전에 고른 가장 더운 5일"
+        },
+        {
+          "file": "fig_height_svf.png",
+          "caption_ko": "건물 높이와 열린 칸의 하늘 열림 비율(SVF), 높이 미상 건물은 그림자 0 가정"
+        },
+        {
+          "file": "fig_mrt_classes.png",
+          "caption_ko": "가장 더운 날 평균복사온도(MRT)를 Kim 외(2022) 위험 등급 경계로 칠한 지도와 날짜별 등급 비율"
+        },
+        {
+          "file": "fig_mrt_vs_svf.png",
+          "caption_ko": "SVF별 MRT(햇빛/그늘)와 Kim 외(2022) 표 A2 서울 지점 값(2018-06-19 10시, 날씨가 달라 참고)"
+        },
+        {
+          "file": "fig_utci_days.png",
+          "caption_ko": "5일 각각의 UTCI 지도, 열 스트레스 등급 32/38/46 °C (풍속 1 m/s 등은 가정)"
+        },
+        {
+          "file": "fig_utci_classes.png",
+          "caption_ko": "날짜별 UTCI 등급 비율, 햇빛 드는 칸 비율, 높이 미상 건물 가정에 따른 민감도"
+        },
+        {
+          "file": "fig_sensor_check.png",
+          "caption_ko": "S-DoT 센서 기온 편차와 모형 UTCI 순위 비교 (진단용, 모형을 맞추지 않음)"
+        },
+        {
+          "file": "fig_model_chain.png",
+          "caption_ko": "모형 흐름: S-DoT 고리 기온, OSM 건물·도로·녹지, 태양 위치 → 그림자·SVF → MRT → UTCI"
         }
       ],
       "highlights": [
