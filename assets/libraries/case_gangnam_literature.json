@@ -1,0 +1,53 @@
+{
+  "_note": "Literature check and figure pack for the Gangnam station rain-flood twin (twin/case_gangnam_figures.py, gate tests/test_case_gangnam_figures.py). Diagnostic only: nothing in the twin is tuned to it. Values copied from the paper's Tables 1-2 and sections 3.2-4.",
+  "source": {
+    "citation": "Keum, Seo, Choo (2022) Evaluation of Inundation Probability and Inundation Depth through Rainfall-Runoff Analysis, Water 14(24), 4076",
+    "doi": "10.3390/w14244076",
+    "license": "CC BY 4.0"
+  },
+  "conditions_ko": "논문은 강남역 주변 5개 배수구역(739.21 ha)을 실제 하수관망(EPA-SWMM 1차원)과 5 m 격자 FLO-2D(2차원)로 모의했고, 2010-09-21 호우로 보정했습니다. 빈도 강우는 서울 관측소 1961-2015년 연최대값, 시간 분포는 Huff 1-4분위입니다. 이 트윈은 하수관망 없이 95 mm/h를 고르게 빼는 10 m 격자이고, 빈도 강우는 같은 관측소(ASOS 108) 1961-2026년 2시간 연최대값의 GEV 중앙값과 90 % 범위, 시간 분포는 설계 우량주상도 하나입니다.",
+  "rain_table_mm": {
+    "_note": "Keum et al. 2022 Table 1: total rainfall (mm) by duration (min) and return period (years), Seoul observatory 1961-2015.",
+    "return_periods_years": [2, 3, 5, 10, 20, 30, 50, 70, 80, 100],
+    "60": [48.7, 56.8, 65.9, 77.2, 88.1, 94.4, 102.2, 107.3, 109.3, 112.7],
+    "120": [70.0, 81.7, 94.8, 111.2, 126.9, 135.9, 147.2, 154.6, 157.6, 162.5],
+    "180": [82.7, 98.8, 116.7, 139.2, 160.8, 173.2, 188.7, 198.9, 202.9, 209.7]
+  },
+  "judged_return_periods_years": [10, 30, 100],
+  "flooded_area_2h_km2": {
+    "_note": "Keum et al. 2022 Table 2, 2 h duration: maximum flooded area (km2) of the 2D run over the 739.21 ha basin; the depth that counts as flooded is not stated. Reference only, never judged.",
+    "basin_area_km2": 7.3921,
+    "return_periods_years": [2, 3, 5, 10, 20, 30, 50, 70, 80, 100],
+    "area_km2": [0.086, 0.118, 0.307, 0.477, 0.566, 0.604, 0.696, 0.769, 0.785, 0.823]
+  },
+  "exit6": {
+    "name_ko": "강남역 6번 출구",
+    "lat": 37.4965253,
+    "lon": 127.0280463,
+    "location_source": "OSM node with railway=subway_entrance and description \"강남역 6번출구\" (Geofabrik extract 2026-10-13)",
+    "onset_rain_2h_mm": 113.0,
+    "depth_m": 0.11,
+    "stair_heights_m": [0.11, 0.12],
+    "search_radius_m": 10.0,
+    "paper_claim_ko": "2시간 강우가 113 mm를 넘으면 6번 출구 앞 격자가 11 cm 넘게 잠긴다 (계단 높이 오른쪽 약 11 cm, 왼쪽 약 12 cm)"
+  },
+  "sweep_rain_2h_mm": [60, 70, 80, 90, 100, 110, 113, 120, 130, 140, 150, 160, 170, 180, 200],
+  "not_compared": [
+    {
+      "what_ko": "침수 면적 (논문 표 2)",
+      "why_ko": "논문은 7.39 km² 배수구역 전체, 이 트윈은 약 1.1 km² 상자이고, 논문은 몇 cm부터 침수로 셌는지 밝히지 않았습니다. 그림에 참고로만 그립니다."
+    },
+    {
+      "what_ko": "2010년 신고 지점 적합도 70 % (118곳 중 82곳)",
+      "why_ko": "재난관리시스템 신고 지점 자료가 공개되지 않았고, 이 트윈의 2010년 점검은 건물 단위 지표(CSI)라 같은 지표가 아닙니다."
+    },
+    {
+      "what_ko": "3시간 131.5 mm 문턱과 침수 확률 7.7 % / 13.3 %",
+      "why_ko": "이 트윈의 빈도 강우는 2시간만 계산하고, 확률은 논문이 서울 전 AWS 강우를 대상지에 모두 내렸다고 가정해 셈한 값이라 같은 질문이 아닙니다."
+    }
+  ],
+  "assumptions": [
+    "A20 문헌 점검(Keum 외 2022)은 진단용입니다. 논문 값(2시간 빈도 강우, 6번 출구 113 mm·11 cm 문턱)을 고정된 참고값으로만 쓰고 트윈을 맞추지 않습니다. 논문은 실제 하수관망과 5 m 격자, 이 트윈은 95 mm/h 균일 하수와 10 m 격자라 같은 강우에서도 수심이 다를 수 있습니다 [Keum et al. 2022, doi:10.3390/w14244076]",
+    "A21 강남역 6번 출구 위치는 OSM 출입구 점(설명 태그 '강남역 6번출구')이고, 출구 앞 수심은 그 점에서 10 m 안의 건물이 아닌 칸 가운데 가장 깊은 값입니다 [OSM Geofabrik 2026-10-13]"
+  ]
+}

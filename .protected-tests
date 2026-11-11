@@ -20,3 +20,4 @@ tests/test_case_pohang_figures.py
 tests/test_case_pohang_profile_flags.py
 tests/test_case_pohang_propagation.py
 tests/test_case_yeongdeungpo_figures.py
+tests/test_case_gangnam_figures.py
