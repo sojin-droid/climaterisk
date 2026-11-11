@@ -1,0 +1,73 @@
+{
+  "_note": "Published observations of the 2022-09-06 Naengcheon flood (Typhoon Hinnamnor), used ONLY as a literature check of the Pohang case twin (diagnostic; nothing is tuned to them). Facts are copied from the cited open paper; nothing is invented. Times are naive local (KST).",
+  "source": {
+    "citation": "Hwang, Kang, Jin, Lee (2024) Simulation of compound flooding using TUFLOW's 1D-2D coupling features, J. Korea Water Resour. Assoc. 57(7), 451-460",
+    "doi": "10.3741/JKWRA.2024.57.7.451",
+    "license": "CC BY"
+  },
+  "rain_peak_hour": {
+    "start": "2022-09-06T04:00",
+    "end": "2022-09-06T05:00",
+    "mm": 79.3,
+    "note_ko": "포항 ASOS 정시 최대 강수량 79.3 mm/h (04:00-05:00). 같은 논문 Fig. 3의 누적 강수량은 379.7 mm, 최대 조위는 El. 1.05 m (07:44; 그림 라벨은 1.077 m)."
+  },
+  "observations": [
+    {
+      "id": "indeok_overtopped",
+      "kind": "overtopped_by",
+      "point": "인덕교",
+      "when": "2022-09-06T06:20",
+      "note_ko": "인덕교 우안 CCTV: 06:20경 하천이 이미 월류한 상태."
+    },
+    {
+      "id": "apt_0630",
+      "kind": "depth_at_time",
+      "point": "우방신세계타운1차 입구(최저지반)",
+      "when": "2022-09-06T06:30",
+      "value_m": 0.3,
+      "tol_m": 0.1,
+      "note_ko": "인덕교 바로 상류 우안 아파트 블랙박스 영상: 06:30경 약 0.3 m (0.1 m 단위로 판독)."
+    },
+    {
+      "id": "apt_0645",
+      "kind": "depth_at_time",
+      "point": "우방신세계타운1차 입구(최저지반)",
+      "when": "2022-09-06T06:45",
+      "value_m": 0.5,
+      "tol_m": 0.1,
+      "note_ko": "같은 블랙박스 영상: 06:45경 약 0.5 m (0.1 m 단위로 판독)."
+    }
+  ],
+  "not_compared": [
+    {
+      "what_ko": "현장 조사 침수심 3개 지점 (C 0.80 m, G 0.95 m, H 0.90 m; 논문 모델값 0.73, 0.89, 0.87 m)",
+      "why_ko": "논문이 좌표 없이 사진으로만 제시하여 모형 격자에 대응시킬 수 없다."
+    },
+    {
+      "what_ko": "조위 (최대 El. 1.05 m, 07:44)",
+      "why_ko": "이 모형의 해수면은 0 m로 고정되어 있어 조위를 비교하지 않는다."
+    }
+  ],
+  "other_models": [
+    {
+      "name": "TUFLOW + XP-SWMM (Hwang et al. 2024)",
+      "grid_m": 5,
+      "inputs_ko": "5 m 격자(약 100,000 셀), 1분 단위 ASOS 강우와 1분 단위 조위, 하수관망(소유역 306개, 관로 459개, 노드 447개), 2023년 하천정비계획의 하천 횡단면과 교량.",
+      "max_depth_ko": "인덕교 우안 최대 침수심 약 1.8 m (약 07:00).",
+      "validation_ko": "사진 9개 지점과 현장 조사 침수심 3개 지점 (C 0.80 m vs 0.73 m, G 0.95 m vs 0.89 m, H 0.90 m vs 0.87 m)에서 검증.",
+      "source": "Hwang, Kang, Jin, Lee (2024), J. Korea Water Resour. Assoc. 57(7), 451-460, doi:10.3741/JKWRA.2024.57.7.451"
+    },
+    {
+      "name": "HEC-RAS 2D (Jang, Yoo, Lee, Kim 2025)",
+      "grid_m": 5,
+      "inputs_ko": "5 m DEM, 맨홀 월류 지점 163곳, HEC-HMS 유출과 XP-SWMM 하수관 결과를 경계조건으로 사용.",
+      "max_depth_ko": "최대 침수심 약 3-4 m.",
+      "validation_ko": "지점별 침수심이 추정값과 ±0.1-0.2 m 이내. 주거지는 얕게(0.5 m 미만), 산업시설·도로·지하차도 부근은 깊게(2 m 초과) 침수.",
+      "source": "Jang, Yoo, Lee, Kim (2025) HEC-RAS 2D를 이용한 냉천 유역 해안도시 복합 침수 모델링, J. Korea Water Resour. Assoc. (KCI ART003283663)"
+    }
+  ],
+  "assumptions": [
+    "A27 The clock time of model t = 0 is not known: it is set by putting the centre of the model's largest 60-min rain window on the middle of the observed peak hour (04:00-05:00 on 2022-09-06, Hwang et al. 2024). The nested hyetograph is not the observed time order of the rain, so clock times before and after the peak are only indicative, and the literature check compares times that depend on this anchor.",
+    "A28 The apartment just upstream of 인덕교 on the right bank, where the dash-cam depths 0.3 m (06:30) and 0.5 m (06:45) were read, is not named in the paper; we take it to be 우방신세계타운1차 (the lowest ground cell of its OSM polygon), which lies on the right bank near 인덕교."
+  ]
+}
