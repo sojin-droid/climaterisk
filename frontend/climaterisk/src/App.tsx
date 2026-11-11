@@ -142,7 +142,7 @@ export function App() {
               onRunLitpop={results.runLitpop}
             />
           )}
-          {view === "board" && <BoardView />}
+          {view === "board" && <BoardView model={model} libraries={libraries} patchModel={patchModel} onGoTo={setView} />}
           {view === "scenarios" && (
             <ScenariosView model={model} libraries={libraries} patchModel={patchModel} />
           )}

@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { GeoJSON, MapContainer, Marker, TileLayer, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
+import type { Asset, Libraries, Portfolio } from "../types";
+import type { ViewId } from "../layout/ActivityBar";
+import { DEFAULT_SECTOR, newAsset } from "../lib/assets";
 import type { PolylineOptions } from "leaflet";
 import {
   getBoardGeojson,
@@ -325,7 +328,17 @@ function ClickLookup({ onPick }: { onPick: (lon: number, lat: number) => void })
   return null;
 }
 
-export function BoardView() {
+export function BoardView({
+  model,
+  libraries,
+  patchModel,
+  onGoTo,
+}: {
+  model: Portfolio;
+  libraries: Libraries;
+  patchModel: (patch: Partial<Portfolio>) => void;
+  onGoTo: (view: ViewId) => void;
+}) {
   const offline = useOffline();
   const [palettes, setPalettes] = useState<PaletteSpec | null>(null);
   const [layers, setLayers] = useState<BoardMeta[] | null>(null);
@@ -338,6 +351,12 @@ export function BoardView() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [picked, setPicked] = useState<BoardLookup | null>(null);
+  // the clicked coordinate (what the lookup was asked for) and the add-as-asset form state
+  const [pickedAt, setPickedAt] = useState<{ lon: number; lat: number } | null>(null);
+  const [assetName, setAssetName] = useState("");
+  const [assetValue, setAssetValue] = useState("");
+  const [assetSector, setAssetSector] = useState(DEFAULT_SECTOR);
+  const [assetAdded, setAssetAdded] = useState(false);
   const [outside, setOutside] = useState(false);
   const [region, setRegion] = useState<BoardRegion | null>(null);
   // 시군구 panel (all layers), resolution ladder, case twins
@@ -442,11 +461,31 @@ export function BoardView() {
     setSigungu(null);
     setSearchText("");
     getBoardLookup(meta.layer, lon, lat)
-      .then(setPicked)
+      .then((p) => {
+        setPicked(p);
+        setPickedAt({ lon, lat });
+        setAssetName(`${p.name} 지점`);
+        setAssetAdded(false);
+      })
       .catch(() => {
         setPicked(null);
         setOutside(true);
       });
+  };
+
+  const valueNum = Number(assetValue);
+  const valueOk = assetValue.trim() !== "" && Number.isFinite(valueNum) && valueNum > 0;
+  const addAsset = () => {
+    if (!picked || !pickedAt || !meta || !valueOk) return;
+    const asset: Asset = {
+      ...newAsset(pickedAt.lat, pickedAt.lon),
+      name: assetName.trim() || `${picked.name} 지점`,
+      value: valueNum,
+      sector: assetSector,
+      properties: { source: "visual_board", board_layer: meta.layer, board_code: picked.code },
+    };
+    patchModel({ assets: [...model.assets, asset] });
+    setAssetAdded(true);
   };
 
   const options = useMemo(() => regionOptions(regionNames), [regionNames]);
@@ -875,6 +914,38 @@ export function BoardView() {
                   )}
                   <div className="hint">
                     이 지점은 격자 한 칸(약 {picked.cell_km_ns.toFixed(1)}×{picked.cell_km_ew.toFixed(1)} km) 값 하나를 읽습니다. 칸 안 어디를 찍어도 같은 값입니다.
+                  </div>
+                  <div data-testid="board-add-asset" style={{ display: "flex", flexDirection: "column", gap: 6, borderTop: "1px solid var(--border)", paddingTop: 8 }}>
+                    <div className="section-title">자산으로 추가</div>
+                    <label style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 12 }}>
+                      자산 이름
+                      <input value={assetName} onChange={(e) => { setAssetName(e.target.value); setAssetAdded(false); }} />
+                    </label>
+                    <label style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 12 }}>
+                      자산 가치 (USD)
+                      <input
+                        type="number"
+                        min="0"
+                        value={assetValue}
+                        onChange={(e) => { setAssetValue(e.target.value); setAssetAdded(false); }}
+                      />
+                    </label>
+                    <label style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 12 }}>
+                      업종
+                      <select value={assetSector} onChange={(e) => setAssetSector(e.target.value)}>
+                        {libraries.sectors.sectors.map((s) => (
+                          <option key={s.id} value={s.id}>{s.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <button className="btn" disabled={!valueOk} onClick={addAsset}>자산으로 추가</button>
+                    <div className="hint">보드는 금액을 계산하지 않습니다. 자산 가치는 직접 넣은 값만 씁니다.</div>
+                    {assetAdded && (
+                      <div data-testid="board-asset-added" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        <div>자산 목록에 추가했습니다 — 계산과 엑셀은 모델 탭의 기존 엔진(가장 가까운 재해 격자, 이 지점 조회와 같은 값)이 합니다.</div>
+                        <button className="btn secondary" onClick={() => onGoTo("models")}>모델 탭에서 실행·엑셀 →</button>
+                      </div>
+                    )}
                   </div>
                   <button className="btn secondary" onClick={loadRegion}>
                     {picked.name} 시군구 요약
