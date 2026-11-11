@@ -18,3 +18,4 @@ tests/test_threshold_compare.py
 tests/test_real_rebuild.py
 tests/test_case_pohang_figures.py
 tests/test_case_pohang_profile_flags.py
+tests/test_case_pohang_propagation.py
