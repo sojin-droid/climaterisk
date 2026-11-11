@@ -143,7 +143,10 @@ def test_max_near_onset_and_exit_row() -> None:
     assert f.exit6_row(0.11, 0.11)["ok"] is True
 
 
-DIR = Path(os.environ.get("CLIMATERISK_DATA_ROOT", "/nonexistent")) / "derived/case_twins/gangnam"
+DIR = (
+    Path(os.environ.get("CLIMATERISK_REAL_DATA_ROOT", str(Path.home() / "Data/climaterisk")))
+    / "derived/case_twins/gangnam"
+)
 
 
 def _no_money(obj: object) -> None:

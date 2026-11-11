@@ -156,8 +156,9 @@ def test_svf_contrast_and_rows() -> None:
     assert a["per_day"]["d1"] == pytest.approx(64.0) and a["note_ko"] and a["label_ko"]
 
 
-DIR = Path(os.environ.get("CLIMATERISK_DATA_ROOT", "/nonexistent")) / (
-    "derived/case_twins/yeongdeungpo"
+DIR = (
+    Path(os.environ.get("CLIMATERISK_REAL_DATA_ROOT", str(Path.home() / "Data/climaterisk")))
+    / "derived/case_twins/yeongdeungpo"
 )
 
 
