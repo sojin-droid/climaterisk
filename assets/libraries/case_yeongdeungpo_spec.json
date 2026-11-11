@@ -1,0 +1,302 @@
+{
+  "_note": "Yeongdeungpo 쪽방촌 street-heat case twin. Gate: tests/test_case_yeongdeungpo.py. Mission: docs/reports/twin_case_sites_mission_ko.md section B.",
+  "site": {
+    "name": "영등포 쪽방촌 (영등포역 동·북동쪽, 영등포동 4가 일대)",
+    "bbox": [
+      126.9035,
+      37.5125,
+      126.914,
+      37.5215
+    ],
+    "cell_m": 5.0,
+    "domain_buffer_m": 150.0,
+    "location_method": "Approximate box (about 0.9 x 1.0 km) centred 300 m north-east of 영등포역 (37.5155 N, 126.9076 E in OSM). Evidence: news places the 쪽방촌 a few steps into the alleys off 영등포역 exit 6 / 롯데백화점, in 영등포동 4가 (영신로, 영등포로34길, 경인로), designated as a public-housing district in 2020 (FnNews, Medigate, Metro Seoul); OSM has no 쪽방 tag, the 요셉의원 point (37.5153, 126.9049) and the 영등포동 address cluster lie on its west edge; the box also takes in the S-DoT sensor at 영등포로46길 4 (77 m from its centre). The exact parcel boundary was not found in a public source and is NOT used: the box is the study area, not the 쪽방촌 outline."
+  },
+  "sdot": {
+    "locations_file": "sdot_locations_20260310.xlsx",
+    "files_glob": "S_DOT_ENV_2026.*.csv",
+    "radius_m": 1000,
+    "ring_inner_m": 1000,
+    "ring_outer_m": 3000,
+    "min_ring_sensors": 15,
+    "source": "서울 열린데이터광장 OA-22833 (S-DoT 도시데이터 센서)",
+    "licence": "공공누리 제1유형"
+  },
+  "days": [
+    "2026-08-06",
+    "2026-08-07",
+    "2026-08-05",
+    "2026-08-03",
+    "2026-08-08"
+  ],
+  "days_rule": "Chosen from S-DoT before any modelling: for each date 2026-05-25..2026-09-06, take the median over the S-DoT sensors in the 1-3 km ring around the site centre (site sensors within 1 km excluded, at least 15 ring sensors reporting in the hour) of the hourly mean air temperature; the daily maximum of that median over local hours 10-17 ranks the days; the 5 hottest dates are used (ring-median daily max 39.7, 38.6, 38.4, 38.1, 38.0 degC). The hour of that maximum is the modelling hour. Model fit played no part.",
+  "n_days": 5,
+  "daylight_hours": [
+    10,
+    17
+  ],
+  "height_policy": "osm_only",
+  "floor_to_floor_m": 3.3,
+  "check": {
+    "min_spearman": 0.5
+  },
+  "landcover": {
+    "green_tags": {
+      "leisure": [
+        "park",
+        "garden",
+        "playground",
+        "pitch"
+      ],
+      "landuse": [
+        "grass",
+        "forest",
+        "meadow",
+        "recreation_ground",
+        "village_green"
+      ],
+      "natural": [
+        "wood",
+        "scrub",
+        "grassland"
+      ]
+    }
+  },
+  "road_widths_m": {
+    "primary": 20,
+    "secondary": 16,
+    "tertiary": 12,
+    "residential": 6,
+    "unclassified": 6,
+    "service": 4,
+    "pedestrian": 5,
+    "living_street": 5,
+    "trunk": 24
+  },
+  "model": {
+    "shade_reach_m": 150.0,
+    "sensor_search_radius_m": 10.0,
+    "wind_10m_ms": 1.0,
+    "diffuse_fraction": 0.2,
+    "abs_short": 0.7,
+    "abs_long": 0.97,
+    "emissivity_surface": 0.95,
+    "wall_excess_c": 4.0,
+    "offset_radius_m": 100.0,
+    "t_air_offset_per_built_fraction_c": 0.0,
+    "t_air_offset_per_green_fraction_c": 0.0,
+    "surface": {
+      "road": {
+        "albedo": 0.1,
+        "dT_sun_c": 20.0,
+        "dT_shade_c": 3.0
+      },
+      "other": {
+        "albedo": 0.25,
+        "dT_sun_c": 14.0,
+        "dT_shade_c": 2.0
+      },
+      "green": {
+        "albedo": 0.2,
+        "dT_sun_c": 5.0,
+        "dT_shade_c": 1.0
+      }
+    }
+  },
+  "assumptions": [
+    "Building height policy osm_only: OSM height tag, else building:levels x floor_to_floor_m = 3.3 m (storey height is an assumption, typical 3.0-3.6 m for Korean buildings); otherwise the height is unknown (None). No default storey count is ever applied. Unknown buildings are an explicit footprint-only obstacle with no shadow in the main run; low (1 storey = floor_to_floor) and high (90th percentile of the known OSM heights in the site) are sensitivity runs, not results.",
+    "Terrain is flat: the Copernicus GLO-30 ground relief (a few metres across the site) is ignored; shade and SVF use building heights above a level ground.",
+    "Site box is an approximate study area around 영등포역 east/north-east (OSM + news), not the surveyed 쪽방촌 boundary. Sensors within 1000 m of the box centre are the 'site' sensors; most are therefore neighbourhood sensors, not alley sensors.",
+    "Background air temperature and humidity at the chosen hour = median of the S-DoT sensors in a 1-3 km ring around the site (site sensors excluded). This is a method choice: KMA 1 km TAMAX is local only to 2019 and as an SSP mean, so it cannot give summer 2026. The ring is itself S-DoT (urban, ~3 m high, reads about 1-1.15 degC above AWS), so absolute values carry that bias.",
+    "S-DoT timestamps (HH:07, assumed KST, assumed to label the hour) are used as the observation hour; solar position is computed at HH:07 KST. A one-hour error in this convention would shift the sun by up to about 15 degrees of hour angle.",
+    "Air-temperature offset from local built/green fraction is 0 degC per unit fraction: no Seoul S-DoT/UHI regression coefficient could be cited here, so the spatial signal in the main output is radiative (shade, SVF, surface type) only; the model reproduces none of the observed air-temperature difference by construction.",
+    "Clear sky: Haurwitz (1945) global irradiance with a fixed diffuse share of 0.2; no clouds, no aerosol. The chosen days are the hottest of the summer, which makes clear sky plausible but it is not checked against S-DoT illuminance or KMA radiation.",
+    "Wind at 10 m is 1.0 m/s everywhere (S-DoT wind is mostly missing and a street-canyon wind field is not modelled); UTCI is valid for 0.5-17 m/s.",
+    "Relative humidity is the ring median at the chosen hour, uniform over the site.",
+    "Surface classes are OSM green polygons (grass, park, wood, pitch), roads (OSM highway lines buffered by an assumed class width), and everything else; untagged ground is treated as impervious 'other'. Albedo (road 0.10, other 0.25, green 0.20) and surface-minus-air temperature excess in sun (road 20, other 14, green 5 K) and shade (3, 2, 1 K) are assumed constants, not measured.",
+    "Wall surface temperature for long-wave exchange is air temperature + 4 K, constant; wall albedo equals the ground albedo of the cell. Radiation balance uses the Lindberg et al. (2008) standing-person weights (projected area factor, half sky / half ground) in a simplified, non-iterative form.",
+    "Open structures (building = roof, carport, canopy, bridge) and underground buildings are excluded from the footprints, so awnings and canopies provide no shade in the model.",
+    "Sensor comparison samples the mean over open cells within 10 m of the S-DoT coordinate; sensors mounted on poles at about 3 m near walls may read differently from a pedestrian-height cell. Observation = hourly mean air temperature of the chosen hour, values outside 5-50 degC dropped.",
+    "The sub check compares modelled UTCI with observed air temperature minus the ring median (not UTCI vs UTCI): S-DoT has no mean radiant temperature, and with a zero air-temperature offset the modelled air temperature is constant so cannot be rank-checked. The check is diagnostic only and never changes the result.",
+    "Indoor temperature is not modelled; the 쪽방 indoor reports in the news are context only. Heat illness counts exist only at 구 level, so they select the site but do not validate the street result.",
+    "Tall buildings or sensors outside the 150 m skirt of the model domain are ignored for shade and SVF (shade reach 150 m).",
+    "A17 Literature check (Kim et al. 2022, doi:10.3390/rs14020260): the paper's MRT class edges 47.6 / 55.5 / 59.4 degC and its Table A2 point values come from a different day and hour (2018-06-19 10:00, cooler than our August afternoons); they are used as fixed reference values only, never to tune the model. Only claims a hotter day cannot fake are judged (high-SVF cells hotter than low-SVF cells; sunlit open cells above 59.4 degC, which a hotter day favours)."
+  ],
+  "literature": {
+    "_note": "Literature check for the figure pack (twin/case_heat_figures.py). Diagnostic only; nothing in the model is tuned to it. Values copied from the paper's abstract, section 4.3 and Table A2 (bare paved rows without SVF left out).",
+    "source": {
+      "citation": "Kim, Yun, Park, Heo, Lee (2022) Estimation of Mean Radiant Temperature in Urban Canyons Using Google Street View: A Case Study on Seoul, Remote Sens. 14(2), 260",
+      "doi": "10.3390/rs14020260",
+      "license": "CC BY 4.0"
+    },
+    "conditions_ko": "논문의 서울 가로 MRT 지도는 2018-06-19 10시, 맑은 하늘 가정, 기온·습도는 가까운 AWS 값입니다. 이 사례는 2026년 8월 가장 더운 날 오후(13-16시, 고리 중앙 기온 38-40 °C)라서 논문보다 덥습니다. 그래서 더운 날이 저절로 만들어 낼 수 없는 주장만 판정합니다.",
+    "mrt_class_edges_c": [
+      47.6,
+      55.5,
+      59.4
+    ],
+    "svf_high": 0.6,
+    "svf_low": 0.4,
+    "reference_points": [
+      {
+        "place": "청량리동 (동대문구)",
+        "urban_form": "compact low-rise",
+        "svf": 0.75,
+        "mrt_c": 66.1,
+        "orientation": "N-S"
+      },
+      {
+        "place": "제기동 안암로24길 (동대문구)",
+        "urban_form": "compact low-rise",
+        "svf": 0.64,
+        "mrt_c": 62.1,
+        "orientation": "E-W"
+      },
+      {
+        "place": "창신1동 (종로구)",
+        "urban_form": "compact low-rise",
+        "svf": 0.41,
+        "mrt_c": 61.3,
+        "orientation": "N-S"
+      },
+      {
+        "place": "방배동 (서초구)",
+        "urban_form": "compact low-rise",
+        "svf": 0.6,
+        "mrt_c": 61.8,
+        "orientation": "E-W"
+      },
+      {
+        "place": "문래동4가 (영등포구)",
+        "urban_form": "compact low-rise",
+        "svf": 0.7,
+        "mrt_c": 65.4,
+        "orientation": "E-W"
+      },
+      {
+        "place": "상도4동 (동작구)",
+        "urban_form": "compact mid-rise",
+        "svf": 0.42,
+        "mrt_c": 43.9,
+        "orientation": "NE-SW"
+      },
+      {
+        "place": "화양동 (광진구)",
+        "urban_form": "compact mid-rise",
+        "svf": 0.38,
+        "mrt_c": 42.2,
+        "orientation": "N-S"
+      },
+      {
+        "place": "대학동 (관악구)",
+        "urban_form": "compact mid-rise",
+        "svf": 0.3,
+        "mrt_c": 40.1,
+        "orientation": "E-W"
+      },
+      {
+        "place": "수유3동 (강북구)",
+        "urban_form": "compact mid-rise",
+        "svf": 0.55,
+        "mrt_c": 44.5,
+        "orientation": "E-W"
+      },
+      {
+        "place": "낙성대공원",
+        "urban_form": "dense tree",
+        "svf": 0.03,
+        "mrt_c": 33.8,
+        "orientation": "E-W"
+      },
+      {
+        "place": "장군봉체육공원",
+        "urban_form": "dense tree",
+        "svf": 0.01,
+        "mrt_c": 35.1,
+        "orientation": "E-W"
+      },
+      {
+        "place": "오금동 (송파구)",
+        "urban_form": "dense tree",
+        "svf": 0.3,
+        "mrt_c": 32.4,
+        "orientation": "NE-SW"
+      },
+      {
+        "place": "몽마르뜨공원",
+        "urban_form": "low plants",
+        "svf": 0.99,
+        "mrt_c": 70.2,
+        "orientation": "NE-SW"
+      },
+      {
+        "place": "여의도한강공원",
+        "urban_form": "low plants",
+        "svf": 0.96,
+        "mrt_c": 69.1,
+        "orientation": "N-S"
+      },
+      {
+        "place": "평화의공원",
+        "urban_form": "low plants",
+        "svf": 0.95,
+        "mrt_c": 68.8,
+        "orientation": "E-S"
+      },
+      {
+        "place": "홍제동 (서대문구)",
+        "urban_form": "high density",
+        "svf": 0.55,
+        "mrt_c": 47.1,
+        "orientation": "E-W"
+      },
+      {
+        "place": "가락동 (송파구)",
+        "urban_form": "high density",
+        "svf": 0.4,
+        "mrt_c": 43.8,
+        "orientation": "N-S"
+      },
+      {
+        "place": "도곡동 (강남구)",
+        "urban_form": "high density",
+        "svf": 0.42,
+        "mrt_c": 44.2,
+        "orientation": "N-S"
+      },
+      {
+        "place": "상도2동 (동작구)",
+        "urban_form": "high density",
+        "svf": 0.52,
+        "mrt_c": 46.8,
+        "orientation": "E-W"
+      }
+    ],
+    "not_compared": [
+      {
+        "what_ko": "고밀 건물·수목 지역의 낮은 MRT(47.6 °C 미만)",
+        "why_ko": "논문은 6월 오전, 이 사례는 8월 가장 더운 오후라서 기온이 훨씬 높습니다. 낮은 등급이 나오지 않아도 모형 탓인지 날씨 탓인지 가릴 수 없어 판정하지 않습니다. 이 사례에는 가로수(수목 시야율)도 없습니다."
+      },
+      {
+        "what_ko": "동-서 방향 가로의 높은 MRT",
+        "why_ko": "이 모형은 칸마다 가로 방향을 계산하지 않습니다."
+      },
+      {
+        "what_ko": "문래동4가 지점 값(SVF 0.7, MRT 65.4 °C)",
+        "why_ko": "사례 영역 밖(서쪽 약 1.5 km)이고 날짜·시각·기온이 달라 같은 지점 비교가 아닙니다. 그림에 참고 표시만 합니다."
+      },
+      {
+        "what_ko": "논문의 현장 복사 측정(7곳, 2018년 4-6월)",
+        "why_ko": "측정 시계열이 공개되지 않았고 장소도 이 사례 영역 밖입니다."
+      }
+    ]
+  },
+  "figures": {
+    "_note": "UTCI heat-stress class edges (Bröde et al. 2012): strong 32, very strong 38, extreme 46 degC.",
+    "utci_edges_c": [
+      32,
+      38,
+      46
+    ]
+  }
+}
