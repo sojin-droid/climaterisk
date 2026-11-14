@@ -51,3 +51,10 @@ worker/.climada_cache/
 # Analysis outputs (tc_capture_kr, …) — derived from observed loss data fetched at run
 # time; regenerate with the script that made them rather than committing the numbers.
 outputs/
+
+# 환경부 홍수위험지도 (공공누리 제4유형): never commit the maps or anything cut from them.
+RFM_*.zip
+CFM_*.zip
+RFM_*.shp
+CFM_*.shp
+**/floodmap/
