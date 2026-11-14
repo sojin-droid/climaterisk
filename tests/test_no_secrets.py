@@ -89,7 +89,7 @@ def test_env_templates_have_blank_keys() -> None:
         for n, line in enumerate(path.read_text(errors="ignore").splitlines(), 1):
             m = _ENV_LINE.match(line)
             if m:
-                offenders.append(f"{path.relative_to(ROOT)}:{n} {m.group(1)}")
+                offenders.append(f"{path.relative_to(ROOT).as_posix()}:{n} {m.group(1)}")
     assert not offenders, f"key variables with a value in a tracked env file: {offenders}"
 
 
@@ -97,7 +97,7 @@ def test_no_literal_keys_in_tracked_files() -> None:
     """No tracked file assigns a literal key or puts one in a URL query."""
     offenders = []
     for path in _tracked_text_files():
-        rel = str(path.relative_to(ROOT))
+        rel = path.relative_to(ROOT).as_posix()  # posix so the allow-list matches on Windows
         if rel in _ALLOWED or rel == "tests/test_no_secrets.py":
             continue
         for n, line in enumerate(path.read_text(errors="ignore").splitlines(), 1):
