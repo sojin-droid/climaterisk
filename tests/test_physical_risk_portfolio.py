@@ -124,8 +124,11 @@ def test_recommended_models_follow_readiness_and_never_pick_an_unrunnable_cell()
     rec2 = dc.recommended_models(readiness=table)
     assert rec2 == {"RF": K, "TC": G}  # HEAT omitted: nothing can run
     avail = dc.scope_availability()
+    # a trial cell (Korea-local flood, TIERS §4) runs and is shown but is not recommended
+    trial = {"RF": {C: {"status": "READY"}, K: {"status": "READY", "trial": "yes"}}}
+    assert dc.recommended_models(readiness=trial) == {"RF": C}
     assert avail[K] == {
-        "RF": "unavailable",
+        "RF": "available",
         "CF": "unavailable",
         "TC": "unavailable",
         "HEAT": "hazard only",

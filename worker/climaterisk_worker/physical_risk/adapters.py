@@ -652,15 +652,112 @@ class _NotImplementedAdapter:
         return None
 
 
-class KoreaLocalFloodAdapter(_NotImplementedAdapter):
+class KoreaLocalFloodAdapter:
+    """River flood from the 환경부 홍수위험지도 extent + GLO-30 depth at each asset (tier T2).
+
+    The official maps carry extent only; depth at an asset inside the extent is the median
+    ground elevation of the nearby flood edge minus the asset's ground elevation
+    (:mod:`climaterisk_worker.floodmap_depth`, FwDET method). Centroids are the asset
+    points themselves: the polygons are overlaid, never rasterised (공공누리 제4유형;
+    nonprofit internal use, user decision 2026-11-13). One event per return period
+    (100 / 200 / 500 y) with incremental exceedance frequencies, so floods more frequent
+    than 100 y are not represented — the EAL is a lower bound on that side.
+    """
+
+    model_id = ModelId.KOREA_LOCAL.value
+    status = READY
     hazard_type = "RF"
-    source = "환경부 홍수위험지도 (adapter interface only)"
-    reason = (
-        "no domestic flood dataset connected: the 환경부 홍수위험지도 is 공공누리 제4유형 "
-        "(출처표시 + 상업적 이용금지 + 변경금지; confirmed 2026-09-23), which does not permit "
-        "the grid conversion or commercial use without separate permission — the map is not "
-        "downloaded, copied or computed until it is granted"
-    )
+
+    def __init__(self, scenario: str, year: int, iso3: str | None = "KOR") -> None:
+        self.scenario, self.year, self.iso3 = scenario, int(year), iso3
+        self.diagnostics: dict[str, Any] = {}
+
+    def describe(self) -> HazardDescription:
+        return HazardDescription(
+            hazard_type=self.hazard_type,
+            model_id=self.model_id,
+            status=self.status,
+            hazard_source=(
+                "환경부 홍수위험지도 하천범람지도 (국가하천 100/200/500 y, 지방하천 100 y) "
+                "extent overlaid on the assets; depth = flood-edge ground elevation minus asset "
+                "ground (Copernicus GLO-30, FwDET method). 출처: 환경부 (공공누리 제4유형)"
+            ),
+            hazard_dataset="floodmap_rfm_extent__glo30_edge_depth",
+            hazard_data_version="홍수위험지도 download 2026-02 (map files dated 2026-02-09)",
+            hazard_country=self.iso3,
+            requested_scenario=self.scenario,
+            served_scenario="historical",
+            time_horizon="present",
+            detail=(
+                "method tier T2. Present-day maps only (no climate scenario). Depth is "
+                "conservative-low in built-up areas (GLO-30 is a surface model); assets "
+                "outside the mapped reaches read 0 m; 지방하천 100-y depth carried to 200/500 y "
+                "as a lower bound; no event below 100 y"
+            ),
+        )
+
+    def load(
+        self,
+        bbox: tuple[float, float, float, float] | None = None,
+        points: list[tuple[float, float]] | None = None,
+    ) -> Any:
+        import numpy as np
+        from climada.hazard import Hazard
+        from scipy import sparse
+
+        from climaterisk_worker import floodmap_depth as fd
+        from climaterisk_worker import ingest
+        from climaterisk_worker._params import offline
+        from climaterisk_worker._paths import paths
+        from climaterisk_worker.hazard_convert import _centroids
+
+        if not points:
+            raise ValueError("the Korea-local flood adapter reads asset points; none were given")
+        root = paths.floodmap_dir()
+        if not root.is_dir():
+            raise HazardUnavailable(f"홍수위험지도 not found under {root}")
+        index = fd.map_index(root, paths.cache_dir("floodmap", "rfm_index.json"))
+        dem = fd.Glo30Sampler(paths.external_dir("copernicus_dem"), allow_download=not offline())
+        try:
+            res = fd.depths_at_points([(lon, lat) for lat, lon in points], index, dem)
+        finally:
+            dem.close()
+        depth = np.nan_to_num(res["depth"], nan=0.0)  # DEM gaps counted in diagnostics first
+        self.diagnostics = {
+            "inside_dry": res["inside_dry"],
+            "dem_gap": res["dem_gap"],
+            "class_check": fd.class_monotonic(res["class_check"]),
+        }
+        rps = [int(r) for r in res["rps"]]
+        lat = np.array([p[0] for p in points], dtype=float)
+        lon = np.array([p[1] for p in points], dtype=float)
+        hazard = Hazard(
+            haz_type="RF",
+            units="m",
+            centroids=_centroids(lat, lon),
+            event_id=np.arange(1, len(rps) + 1),
+            event_name=[f"rp{rp}" for rp in rps],
+            date=np.zeros(len(rps), dtype=int),
+            frequency=ingest._incremental_frequency(rps),
+            frequency_unit="1/year",
+            intensity=sparse.csr_matrix(depth),
+            fraction=sparse.csr_matrix((depth > 0).astype(float)),
+        )
+        hazard.check()
+        return hazard
+
+    def spatial_resolution(self, hazard: Any) -> dict[str, Any] | None:
+        """Point overlay: the hazard is evaluated at each asset, not on a grid."""
+        if hazard is None:
+            return None
+        return resolution_record(
+            1.0,
+            "arcsec",
+            "asset point (DEM pixel for depth)",
+            source="Copernicus GLO-30 pixel (1 arcsec); flood extent from the original polygons",
+            measured_deg=None,
+            dataset_family="floodmap_rfm_extent__glo30_edge_depth",
+        )
 
 
 class KoreaLocalCoastalFloodAdapter(_NotImplementedAdapter):

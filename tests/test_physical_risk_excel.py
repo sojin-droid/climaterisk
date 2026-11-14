@@ -220,7 +220,7 @@ def test_asset_summary_and_methodology_and_run_info_sheets() -> None:
     assert next(iter(meth)) == "What was assessed"
     info = {r["key"]: r["value"] for r in _sheet_rows(wb["Run Info"])}
     assert info["requested_scenario"] == "rcp60" and info["n_facilities"] == 2
-    assert info[f"readiness.RF.{K}"] == "NOT_IMPLEMENTED"
+    assert info[f"readiness.RF.{K}"] == "READY"
     assert "not treated as Korea-local" in info[f"definition.{C}"]
 
 

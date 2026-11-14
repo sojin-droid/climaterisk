@@ -1,0 +1,63 @@
+{
+  "what": "Cross-check of the FwDET edge depth against the 홍수위험지도 depth classes (SEG_CODE), national rivers, 100 y",
+  "method": "60 random points inside the flood extent of each basin file; depth = median GLO-30 elevation of the flood edge within 500 m minus ground at the point (worker/climaterisk_worker/floodmap_depth.py); median depth per class",
+  "basins": {
+    "RFM_SBSN_NTN_1018_100": {
+      "median_m": 1.12,
+      "p90_m": 6.27,
+      "zero_depth_points": 14,
+      "dem_gap": 0,
+      "median_by_class_m": {
+        "N330": 0.3,
+        "N331": 1.29,
+        "N332": 1.5,
+        "N333": 2.92
+      },
+      "monotonic": true
+    },
+    "RFM_SBSN_NTN_3011_100": {
+      "median_m": 0.65,
+      "p90_m": 3.77,
+      "zero_depth_points": 11,
+      "dem_gap": 0,
+      "median_by_class_m": {
+        "N330": 0.37,
+        "N331": 0.57,
+        "N332": 0.97,
+        "N333": 2.24,
+        "N334": 4.8
+      },
+      "monotonic": true
+    },
+    "RFM_SBSN_NTN_2009_100": {
+      "median_m": 0.55,
+      "p90_m": 2.41,
+      "zero_depth_points": 14,
+      "dem_gap": 0,
+      "median_by_class_m": {
+        "N330": 0.02,
+        "N331": 0.84,
+        "N332": 1.3,
+        "N333": 1.68
+      },
+      "monotonic": true
+    }
+  },
+  "pooled_median_by_class_m": {
+    "N330": 0.16,
+    "N331": 0.73,
+    "N332": 1.21,
+    "N333": 1.82,
+    "N334": 5.46
+  },
+  "published_bands_m": [
+    "<=0.5",
+    "0.5-1.0",
+    "1.0-2.0",
+    "2.0-5.0",
+    ">=5.0"
+  ],
+  "reading": "Edge depths rise with the class code in every basin (monotonic with both code versions). Pooled class medians: N330-N332 and N334 fall inside the published bands in code order; N333 (1.82 m) sits just below its 2-5 m band, consistent with a conservative-low surface DEM. This supports the edge depth and the inferred order N330 = shallowest ... N334 = deepest; the order is not officially confirmed. About 20 % of inside points get 0 m (mostly the shallowest class).",
+  "licence": "Only summary statistics are stored; no polygon, clip or raster derived from the maps is written.",
+  "code_version": "window-clipped extent (commit 7b9f689); per-basin class medians are from the first run (full-outline extent), pooled values from the current code"
+}
