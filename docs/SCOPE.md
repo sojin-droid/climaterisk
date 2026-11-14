@@ -7,6 +7,8 @@
 어떤 숫자를 어떤 용도로 읽어도 되는지를 선언할 뿐이다. 표의 재해 목록은 코드(`physical.py`의
 `_RUNNERS`·`_CATALOG_PERILS`)와 테스트로 대조된다(`tests/test_scope_doc.py`).
 
+> 방법 티어(T1/T2/T3: 무엇으로 계산했나)는 별도 축이다 → [TIERS.md](TIERS.md).
+>
 > **TL;DR (EN).** Every result this platform produces carries a *use tier*: **S** (screening:
 > ranking and hotspot identification only), **I** (indicative quantification: absolute values
 > may be reported, with the stated band and caveats), or **D** (decision-grade: validated

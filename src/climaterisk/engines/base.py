@@ -204,6 +204,8 @@ class PhysicalRunResult(BaseModel):
     result_kind: str = "monetary"
     metric_unit: str | None = None  # label for non-monetary metrics (e.g. "% yield loss")
     interpretation: str | None = None  # plain-language meaning (disambiguates a 0 / error)
+    # Method tier T1/T2/T3 (docs/TIERS.md) — the input level, distinct from the SCOPE use tier.
+    method_tier: str | None = None
     detail: str | None = None
 
 
