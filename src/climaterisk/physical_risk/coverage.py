@@ -89,7 +89,23 @@ def _dataapi(hazard: str, model: str) -> dict[str, Any]:
 
 #: Declared resolution per (hazard key x model). Missing = that cell has no dataset.
 SPATIAL_RESOLUTION: dict[str, dict[str, dict[str, Any]]] = {
-    "RF": {_G: _dataapi("RF", _G), _C: _dataapi("RF", _C)},
+    "RF": {
+        _G: _dataapi("RF", _G),
+        _C: _dataapi("RF", _C),
+        _K: {
+            "hazard": "RF",
+            "model_id": _K,
+            "value": 1.0,
+            "unit": "arcsec",
+            "unit_type": "asset point (DEM pixel for depth)",
+            "description": (
+                "evaluated at each asset point: official flood extent (original polygons) + "
+                f"GLO-30 1 arcsec ({km_class(1.0, 'arcsec')} class) ground elevation for depth"
+            ),
+            "metadata_field": "Copernicus GLO-30 pixel size; no hazard grid is built",
+            "dataset_family": "floodmap_rfm_extent__glo30_edge_depth",
+        },
+    },
     "CF": {
         _G: {
             "hazard": "CF",
