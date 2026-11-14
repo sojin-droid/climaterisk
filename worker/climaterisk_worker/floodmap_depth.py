@@ -78,6 +78,7 @@ def depth_at_point(
     polygons: Iterable[Any],
     dem: Callable[[np.ndarray], np.ndarray],
     params: DepthParams = DEFAULT_PARAMS,
+    border: Any | None = None,
 ) -> tuple[float, bool]:
     """Depth (m) at ``(x, y)`` and whether the point lies inside any polygon.
 
@@ -96,6 +97,8 @@ def depth_at_point(
         dem: Callable mapping an ``(n, 2)`` array of map-CRS points to elevations (m);
             NaN where the DEM has no data.
         params: Edge sampling parameters.
+        border: Artificial outline to ignore (the clip window of :func:`local_extent`);
+            only real flood edges are sampled.
 
     Returns:
         ``(depth_m, inside)``. ``depth_m`` is NaN when inside but the DEM has no data.
@@ -111,14 +114,18 @@ def depth_at_point(
     # (a national-river outline is hundreds of km long; densifying all of it is wasteful).
     parts: list[np.ndarray] = []
     for p in containing:
-        boundary = p.boundary
+        boundary = p.boundary if border is None else p.boundary.difference(border)
+        if boundary.is_empty:
+            continue
         window = max(params.radius_m, boundary.distance(pt) + params.min_samples * params.spacing_m)
         local = boundary.intersection(pt.buffer(window))
         for line in getattr(local, "geoms", [local]):
             if line.is_empty or line.geom_type not in ("LineString", "LinearRing"):
                 continue
             parts.append(np.asarray(line.segmentize(params.spacing_m).coords)[:, :2])
-    if not parts:  # degenerate geometry: fall back to the whole outline
+    if not parts:
+        if border is not None:  # no real edge inside the window: caller widens it
+            return float("nan"), True
         parts = [edge_points(p, params.spacing_m) for p in containing]
     edges = np.vstack(parts)
     d = np.hypot(edges[:, 0] - x, edges[:, 1] - y)
@@ -185,16 +192,15 @@ def map_index(root: Path, cache: Path | None = None) -> list[dict[str, Any]]:
     return rows
 
 
-def _read_polygons(zpath: str) -> tuple[list[Any], list[tuple[str, Any]]]:
-    """``(extent, classes)`` of one map file.
+def _read_polygons(zpath: str) -> list[tuple[str, Any]]:
+    """``[(SEG_CODE, geometry)]`` of one map file, in the map CRS.
 
-    Each file holds one (Multi)Polygon per depth class (``SEG_CODE`` N330–N334; the
-    code ↔ depth-band mapping is not published). The flood **edge** is the outline of their
-    union, so ``extent`` is the union split into its parts; ``classes`` keeps the original
-    class polygons for the cross-check only (in memory, never written).
+    Each file holds one (Multi)Polygon per depth class (``SEG_CODE`` N330–N334; the code ↔
+    depth-band order is not published). The flood **edge** is the outline of their union,
+    which :func:`local_extent` builds around each asset only — the full outlines of a
+    national river are huge and are never merged or written.
     """
     import geopandas as gpd
-    from shapely.ops import unary_union
 
     stem = Path(zpath).stem
     gdf = gpd.read_file(f"zip://{zpath}!{stem}.shp")
@@ -203,10 +209,36 @@ def _read_polygons(zpath: str) -> tuple[list[Any], list[tuple[str, Any]]]:
     elif gdf.crs.to_epsg() != MAP_CRS:
         gdf = gdf.to_crs(MAP_CRS)
     gdf = gdf[gdf.geometry.notna()]
-    union = unary_union(list(gdf.geometry.buffer(0)))
-    extent = list(getattr(union, "geoms", [union]))
     codes = gdf["SEG_CODE"] if "SEG_CODE" in gdf else [""] * len(gdf)
-    return extent, list(zip((str(c) for c in codes), gdf.geometry, strict=True))
+    return list(zip((str(c) for c in codes), gdf.geometry, strict=True))
+
+
+def local_extent(
+    classes: list[tuple[str, Any]], x: float, y: float, half_width_m: float
+) -> tuple[list[Any], Any]:
+    """Flood extent (union of the class polygons) inside a square window around ``(x, y)``.
+
+    Returns ``(parts, border)``: the polygon parts of the clipped union and the window
+    outline (buffered 0.5 m) that :func:`depth_at_point` must not treat as a flood edge.
+    In memory only.
+    """
+    import shapely
+    from shapely.geometry import box
+    from shapely.ops import unary_union
+
+    w = (x - half_width_m, y - half_width_m, x + half_width_m, y + half_width_m)
+    pieces = []
+    for _, g in classes:
+        if g is None or not g.intersects(box(*w)):
+            continue
+        c = shapely.make_valid(shapely.clip_by_rect(g, *w))
+        pieces.extend(
+            p for p in getattr(c, "geoms", [c]) if p.geom_type in ("Polygon", "MultiPolygon")
+        )
+    if not pieces:
+        return [], None
+    u = unary_union(pieces)
+    return list(getattr(u, "geoms", [u])), box(*w).exterior.buffer(0.5)
 
 
 # --------------------------------------------------------------------------- #
@@ -305,9 +337,16 @@ def depths_at_points(
         ]
         if not hit:
             continue
-        extent, classes = _read_polygons(row["path"])
+        classes = _read_polygons(row["path"])
         for i in hit:
-            h, inside = depth_at_point(xs[i], ys[i], extent, dem, params)
+            # Widen the window until a real flood edge lies inside it (max 64 km).
+            half, h, inside = 4 * params.radius_m, 0.0, False
+            while half <= 64_000:
+                parts, border = local_extent(classes, xs[i], ys[i], half)
+                h, inside = depth_at_point(xs[i], ys[i], parts, dem, params, border)
+                if not inside or np.isfinite(h) or border is None:
+                    break
+                half *= 2
             if not inside:
                 continue
             if not np.isfinite(h):

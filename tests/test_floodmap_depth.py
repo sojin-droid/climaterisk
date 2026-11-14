@@ -103,5 +103,17 @@ def test_shapefile_header_bounds_are_read_without_geometry(tmp_path: Path) -> No
         for f in shp_dir.iterdir():
             z.write(f, f.name)
     assert fd._shp_bounds(zp) == (10.0, 20.0, 30.0, 40.0)
-    extent, classes = fd._read_polygons(str(zp))
-    assert len(extent) == 1 and classes[0][0] == "N330"
+    classes = fd._read_polygons(str(zp))
+    assert len(classes) == 1 and classes[0][0] == "N330"
+
+
+def test_clip_window_border_is_not_a_flood_edge() -> None:
+    # Two depth classes side by side make one extent |x| <= 500; the class seam at x = 0
+    # and the clip window must not be read as edges.
+    classes = [("N330", box(-500, -5000, 0, 5000)), ("N331", box(0, -5000, 500, 5000))]
+    parts, border = fd.local_extent(classes, 100.0, 0.0, 200.0)  # window misses every edge
+    h, inside = fd.depth_at_point(100.0, 0.0, parts, v_valley(), border=border)
+    assert inside and np.isnan(h)  # caller widens the window
+    parts, border = fd.local_extent(classes, 100.0, 0.0, 2000.0)
+    h, inside = fd.depth_at_point(100.0, 0.0, parts, v_valley(), border=border)
+    np.testing.assert_allclose(h, 4.0, atol=1e-9)
