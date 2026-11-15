@@ -108,7 +108,8 @@ def test_real_points_when_data_present() -> None:
     if not khoa.exists():
         pytest.skip("KHOA harmonics not on this machine")
     a = adapters.KoreaLocalCoastalFloodAdapter("historical", 2020, "KOR")
-    # 해남 저지대 논 (agrivoltaic analysis: ground -0.11 m, 벽파진 AHHW 2.12 m, sea-connected) and 서울시청
+    # 해남 저지대 논 (agrivoltaic analysis: ground -0.11 m, 벽파진 AHHW 2.12 m,
+    # sea-connected) and 서울시청
     h = a.load(None, points=[(34.6249, 126.4211), (37.5665, 126.978)])
     rows = a.diagnostics["assets"]
     assert rows[0]["connected"] is True and rows[0]["station"] == "벽파진"
