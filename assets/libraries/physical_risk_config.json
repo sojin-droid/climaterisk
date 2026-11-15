@@ -144,7 +144,24 @@
       "min_assets_for_rank": 10,
       "min_spearman_assets": 0.5
     },
-    "note": "Open-field UTCI (heat T2), design DESIGN_UTCI_T2. Off by default: the 95th-percentile layer stays the heat default until the trial passes. Sources: obs_years / months = overlap of KMA ASOS and MK-PRISM v3.1 (heat_days.json obs_years, months); thresholds 32/38/46 = Brode et al. 2012 stress classes (strong / very strong / extreme); albedo 0.20 [가정 A6], range 0.15-0.25 = sensitivity of one assumption, not a confidence interval (Oke 1987 grass range [미확인]); emissivity_ground 0.95 [가정 A5] = case_yeongdeungpo_spec.json emissivity_surface; absorptivity 0.7, emissivity_person 0.97, angle_factor 0.5 = Di Napoli et al. 2020 / ECMWF thermofeel (code read, original [미확인]); roughness_length 0.01 m = Brode et al. 2012; anemometer height from the KMA station history table, default 10 m [가정 A9] where missing; wind_clip 0.5-17 m/s = pythermalcomfort 4.8.0 UTCI validity range; min_sin_elevation 0.05, ground_fit_min_hours 1000, min_hour_fraction 0.95, min_valid_years 15 = [설계값]; ground_fit_years 2010-2019 because ASOS ground temperature is hourly only from 2010; heat_day_threshold 33 degC = KMA criterion (heat_days.json); check limits = [설계값] (0.3 relative = heat_days check.warn_rel_bias)."
+    "note": "Open-field UTCI (heat T2), design DESIGN_UTCI_T2. Off by default: the 95th-percentile layer stays the heat default until the trial passes. Sources: obs_years / months = overlap of KMA ASOS and MK-PRISM v3.1 (heat_days.json obs_years, months); thresholds 32/38/46 = Brode et al. 2012 stress classes (strong / very strong / extreme); albedo 0.20 [가정 A6], range 0.15-0.25 = sensitivity of one assumption, not a confidence interval (Oke 1987 grass range [미확인]); emissivity_ground 0.95 [가정 A5] = case_yeongdeungpo_spec.json emissivity_surface; absorptivity 0.7, emissivity_person 0.97, angle_factor 0.5 = Di Napoli et al. 2020 / ECMWF thermofeel (code read, original [미확인]); roughness_length 0.01 m = Brode et al. 2012; anemometer height from the KMA station history table, default 10 m [가정 A9] where missing; wind_clip 0.5-17 m/s = pythermalcomfort 4.8.0 UTCI validity range; min_sin_elevation 0.05, ground_fit_min_hours 1000, min_hour_fraction 0.95, min_valid_years 15 = [설계값]; ground_fit_years 2010-2019 because ASOS ground temperature is hourly only from 2010; heat_day_threshold 33 degC = KMA criterion (heat_days.json); check limits = [설계값] (0.3 relative = heat_days check.warn_rel_bias).",
+    "future": {
+      "scenario_keys": {"rcp45": "ssp245", "rcp85": "ssp585"},
+      "base_years": [2021, 2030],
+      "future_years": [2051, 2060],
+      "min_target_year": 2040,
+      "caches": {
+        "ssp245": [
+          "heat_days/ssp245_2021_2030_m5-9_b0.05.npz",
+          "heat_days/ssp245_2051_2060_m5-9_b0.05.npz"
+        ],
+        "ssp585": [
+          "heat_days/ssp585_2021_2030_m5-9_b0.05.npz",
+          "heat_days/ssp585_2051_2060_m5-9_b0.05.npz"
+        ]
+      },
+      "note": "Future open-field UTCI (phase 2): Ta_fut = Ta + monthly delta of the KMA AR6 5ENSMN TAMAX (mean 2051-2060 minus mean 2021-2030, per 0.05 deg cell), the same delta method as heat_days.json; rcp45 -> ssp245, rcp85 -> ssp585, rcp26 and rcp60 have no grid; target years before 2040 get the present period; the 2031-2050 grids are not built [설계값]. Humidity, wind, radiation and the ground fit held at present values [가정 A7]. The 2021-2030 base leaves out the warming between 2000-2019 and 2021-2030, so the change is a direction-and-size reference."
+    }
   },
   "definitions": {
     "probability": "Annual exceedance frequency of the stated return period, taken as 1 / return_period_years. CLIMADA frequency is in 1/year; for rare events this equals annual exceedance probability, for frequent events (freq >= 1/yr) it does not - see methodology 10.",
