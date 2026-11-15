@@ -632,9 +632,11 @@ def _config() -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def test_config_section_present_and_off_by_default() -> None:
+def test_config_section_present_and_switch_follows_the_kdca_check() -> None:
     c = _config()["heat_utci"]
-    assert c["enabled"] is False  # trial first: the 95th-percentile layer stays the default
+    # on since 2026-11-16: the pre-registered KDCA check passed (tests/test_heat_validation.py
+    # re-derives the switch from the recorded numbers)
+    assert c["enabled"] is c["validation"]["result"]["switch"]
     for key in (
         "obs_years",
         "months",
@@ -679,11 +681,14 @@ def test_adapter_for_switches_on_config(monkeypatch: pytest.MonkeyPatch) -> None
     from climaterisk.physical_risk import metrics
 
     base = metrics.load_config()
+    cfgs = {}
+    for flag in (False, True):
+        cfgs[flag] = json.loads(json.dumps(base))
+        cfgs[flag]["heat_utci"]["enabled"] = flag
+    monkeypatch.setattr(metrics, "load_config", lambda *a, **k: cfgs[False])
     off = adapters.adapter_for("HW", "KOREA_LOCAL", "historical", 2050, "KOR")
     assert isinstance(off, adapters.KoreaLocalHeatAdapter)
-    on_cfg = json.loads(json.dumps(base))
-    on_cfg["heat_utci"]["enabled"] = True
-    monkeypatch.setattr(metrics, "load_config", lambda *a, **k: on_cfg)
+    monkeypatch.setattr(metrics, "load_config", lambda *a, **k: cfgs[True])
     on = adapters.adapter_for("HW", "KOREA_LOCAL", "historical", 2050, "KOR")
     assert isinstance(on, adapters.KoreaLocalUtciAdapter)
     hm = adapters.adapter_for("HM", "KOREA_LOCAL", "historical", 2050, "KOR")

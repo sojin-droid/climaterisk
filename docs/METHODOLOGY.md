@@ -84,7 +84,7 @@ bands, sub-peril combination, pluvial absence) and **`docs/RISK_REGISTER.md`** (
 **Which parts are CLIMADA-native vs platform-custom, per peril and per component, is audited in
 `docs/CLIMADA_METHODS.md`** (2026-09-07).
 
-### Heat (HW), Korea-local tier T2 — open-field UTCI (trial, `heat_utci.enabled = false`)
+### Heat (HW), Korea-local tier T2 — open-field UTCI (default since 2026-11-16, `heat_utci.enabled = true`)
 
 Hazard only (no loss). For each asset point: hourly KMA ASOS observations (air temperature,
 humidity, 10 m wind, global radiation `icsr`) of the nearest station with at least 15 valid
@@ -96,7 +96,32 @@ $T_a + a + b\,G$ fitted on 2010-2019 observations); UTCI by `pythermalcomfort` 4
 2012). Headline = mean days per year with daily-max UTCI >= 38 degC, reported with the albedo
 0.15-0.25 sensitivity range (a range for one assumption, not a confidence interval). Assumptions
 A1-A6 are listed in `adapters.KoreaLocalUtciAdapter.describe()`; shade, buildings and indoors are
-not modelled (T3). Only the historical period is served. Sub check (diagnostic only): yearly rank
+not modelled (T3).
+
+Future (phase 2): `rcp45 -> ssp245`, `rcp85 -> ssp585` for target years >= 2040, served as
+2051-2060. Hourly air temperature + the monthly change of the KMA AR6 5ENSMN daily maximum at the
+asset cell, $T^{fut}_a(h) = T_a(h) + (\overline{G}^{2051-2060}_{m} - \overline{G}^{2021-2030}_{m})$;
+relative humidity, wind, radiation and the ground fit held at present values (A7). The change is
+measured from the model 2021-2030 mean, not from 2000-2019, so the warming in between is not in
+it: direction and size reference, as on the heat-days board. `rcp26`, `rcp60` and years < 2040
+are answered with the historical period and the reason. Seoul 108: D38 16.8 -> 31.1 (SSP2-4.5)
+/ 36.6 (SSP5-8.5) days/yr.
+
+Validation (승인), 2026-11-16: KDCA heat-illness cases (data.go.kr 15149889, 2011-2019 May-Sep,
+14,294 cases; region = hospital location up to 2018, place of onset from 2019, so 시도 level
+only) against the station daily maximum UTCI, with the current default's air temperature as the
+comparator, under criteria fixed before the run
+(`docs/superpowers/specs/2026-11-16-heat-utci-phase2-design.md`, commit 4fee26a). Spearman:
+V1 daily national 0.789 vs air temperature 0.807 (pass: >= 0.5 and within 0.02); V2 daily by
+시도, median of 16, 0.565 vs 0.571 (within 0.02); V3 spatial across 16 시도, rate per 100 000
+vs D38 0.044 vs T95 -0.385 / heat days -0.338 (within 0.10 of the better); V4 yearly national
+0.917 (n = 9, record only). All three passed, so UTCI became the default. Reading: UTCI tracks
+the timing of heat illness as well as air temperature, not better; no indicator explains the
+spatial pattern (rates are highest in 전남 and 제주, where the heat indicators are low), which
+points to exposure (outdoor and farm work, age) rather than climate. Script
+`scripts/heat_utci_validate_kdca.py`; record `heat_utci.validation.result`.
+
+Sub check (diagnostic only): yearly rank
 agreement with grid heat days and station distance per asset (C1, C3); hourly vs grid heat days
 once per station at the station's own cell (C2, a memo that never enters an asset's stamp,
 because the asset shift cancels out of that comparison). Seoul 108 baseline: `tests/baselines/heat_utci_seoul108.json` (a regression guard, not

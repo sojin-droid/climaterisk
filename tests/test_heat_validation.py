@@ -233,6 +233,22 @@ def test_config_validation_rules_match_the_design() -> None:
     assert v["months"] == [5, 6, 7, 8, 9]
 
 
+def test_recorded_result_reproduces_the_switch() -> None:
+    """The flip of heat_utci.enabled must follow from the recorded numbers and the rules."""
+    c = _config()["heat_utci"]
+    res = c["validation"]["result"]
+    d = hv.decide(res["V1"], res["V2"], res["V3"], c["validation"])
+    assert d["switch"] is res["switch"] is c["enabled"]
+
+
+def test_adapter_detail_carries_the_validation() -> None:
+    pytest.importorskip("climada")
+    from climaterisk_worker.physical_risk import adapters
+
+    detail = adapters.KoreaLocalUtciAdapter("rcp85", 2050).describe().detail or ""
+    assert "KDCA" in detail and "Validation (2026-11-16)" in detail
+
+
 # --------------------------------------------------------------------------- #
 # Station daily series (heat_utci) — real data opt-in                          #
 # --------------------------------------------------------------------------- #

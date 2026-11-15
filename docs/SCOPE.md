@@ -77,7 +77,7 @@ S → I 는 1·2 없이도 가능하다. 조건은 "취약성 곡선이 **발표
 | `european_windstorm` | 급성 | **I** | 유일하게 **발표 보정 곡선이 기본값**(Schwierz, Welker 토글). 다만 대상국 실측 대조는 이 저장소에 없음 | **D**: 대상국 관측 손실 대조(한국 비적용 재해) + Schwierz↔Welker 밴드 상시 보고 |
 | `earthquake` | 급성(비기후) | **S** | EMS-98/HAZUS 유형의 **지시적 MMI 등급 곡선**, 발표된 CLIMADA 지진 impf 없음; 보정·불확실성·적응 미구현 | **I**: 출처가 있는 취약도(HAZUS/GEM 계열) 채택 + 출처 기록 |
 | `heat_mortality` | 만성 | **I** (100k당 비율·순위·델타) / **S** (절대 사망자 수) | 임계값(Kim 2020 93퍼센타일)·적응 기울기·한국 기저 사망률(KOSIS 2024)은 인용됐으나 **β·안락대 폭 등 16개 상수가 지시적/출처 미상**; 극단 연도 ~2.3배 과소(B2); 한국 검증 인프라 부재 | **I 전면**: β 재적합 + 인구 구조 출처 통일(PROVENANCE §6). **D**: 국내 초과사망 계열 대조 |
-| `heatwave` | 만성 | **S** | 취약성 없음(hazard-only, `NO_IMPACT_FUNCTION`); 램프의 전제 강도(UTCI)와 현재 입력(일평균 TA p95)이 **불일치**(KOREA_1KM §2.2) | **I**: 하자드 정의 결정(UTCI/TA/TAMAX) 후 문헌 생산성 곡선 채택 |
+| `heatwave` | 만성 | **S** | 취약성 없음(hazard-only, `NO_IMPACT_FUNCTION`). 한국 로컬 하자드는 2026-11-16부터 개활지 UTCI(일 최고 ≥38 °C 일수, 질병청 온열질환 대조 통과: 시점은 기온과 같은 수준, 공간 분포는 어떤 지표로도 설명 안 됨) | **I**: UTCI 기준 문헌 생산성 곡선 채택 + 출처 기록 |
 | `drought` | 만성 | **S** | 카탈로그 전용, 지시적 램프(G4) | **I**: 인제스트된 가뭄 지수 + petals `drought` impf 또는 문헌 곡선 |
 | `low_flow` | 만성 | **S** | 카탈로그 전용, 지시적 램프(G4) | **I**: 인제스트 + 문헌 곡선 |
 | `crop_yield` | 만성 | **S** | 카탈로그 전용, 지시적 램프(G4); 작물 노출 소스는 `ExposureUnavailable` | **I**: petals `relative_cropyield` 경로 연결 + 작물 노출 |

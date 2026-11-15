@@ -1559,8 +1559,25 @@ class KoreaLocalUtciAdapter:
                 "Assumptions: A1 grid daily-max difference added to every hour; A2 equal vapour "
                 "pressure at asset and station; A3 irradiance is the preceding-hour mean; "
                 "A4 night cloud fraction = day mean; A5 ground emissivity 0.95; A6 ground "
-                "albedo 0.20 (0.15-0.25 range reported). " + tail
+                "albedo 0.20 (0.15-0.25 range reported). " + tail + self._approval()
             ),
+        )
+
+    @staticmethod
+    def _approval() -> str:
+        """The validation record (승인) from ``heat_utci.validation.result``, if any."""
+        from climaterisk.physical_risk.metrics import load_config
+
+        res = load_config()["heat_utci"].get("validation", {}).get("result")
+        if not res:
+            return ". Validation: none"
+        v1, v2, v3 = res["V1"], res["V2"], res["V3"]
+        return (
+            f". Validation ({res['run_date']}): {res['label']}; KDCA heat-illness cases "
+            f"2011-2019 May-Sep, Spearman V1 daily national UTCI {v1['rho_u']:.2f} vs air "
+            f"temperature {v1['rho_t']:.2f}, V2 daily by 시도 median {v2['median_u']:.2f} vs "
+            f"{v2['median_t']:.2f}, V3 spatial {v3['rho_u']:.2f} vs T95 {v3['rho_t95']:.2f} / "
+            f"heat days {v3['rho_h']:.2f}"
         )
 
     def load(

@@ -176,7 +176,8 @@ def station_map(series: dict[int, Any], cfg: dict[str, Any]) -> tuple[dict[int, 
 
 
 def plot_bars(path: Path, v1: dict[str, Any], v2: dict[str, Any], v3: dict[str, Any]) -> None:
-    """Grouped bars of rho for V1-V3: dark blue = UTCI, light blue = T / T95, grey = heat days."""
+    """Grouped bars of rho for V1-V3: dark blue = UTCI, light blue = air temperature, grey =
+    heat days. The axis spans negative rho so no bar is hidden."""
     import matplotlib
 
     matplotlib.use("Agg")
@@ -184,12 +185,12 @@ def plot_bars(path: Path, v1: dict[str, Any], v2: dict[str, Any], v3: dict[str, 
 
     groups = ["V1 daily national", "V2 daily by region (median)", "V3 spatial"]
     data = [
-        [("UTCI", v1["rho_u"], "#16325c"), ("Tmax", v1["rho_t"], "#8cb8e0")],
-        [("UTCI", v2["median_u"], "#16325c"), ("Tmax", v2["median_t"], "#8cb8e0")],
+        [("UTCI", v1["rho_u"], "#16325c"), ("Air temperature", v1["rho_t"], "#8cb8e0")],
+        [("UTCI", v2["median_u"], "#16325c"), ("Air temperature", v2["median_t"], "#8cb8e0")],
         [
-            ("UTCI D38", v3["rho_u"], "#16325c"),
-            ("T95", v3["rho_t95"], "#8cb8e0"),
-            ("Heat days", v3["rho_h"], "#9a9a9a"),
+            ("UTCI", v3["rho_u"], "#16325c"),
+            ("Air temperature", v3["rho_t95"], "#8cb8e0"),
+            ("Heat days >= 33 degC", v3["rho_h"], "#9a9a9a"),
         ],
     ]
     fig, ax = plt.subplots(figsize=(9, 4.5))
@@ -203,10 +204,22 @@ def plot_bars(path: Path, v1: dict[str, Any], v2: dict[str, Any], v3: dict[str, 
                 continue
             ax.bar(x, val, width * 0.92, color=colour, label=None if label in seen else label)
             seen.add(label)
-            ax.text(x, val + 0.01, f"{val:.2f}", ha="center", va="bottom", fontsize=9)
+            off, va = (0.01, "bottom") if val >= 0 else (-0.01, "top")
+            ax.text(x, val + off, f"{val:.2f}", ha="center", va=va, fontsize=9)
+    vals = [v for bars in data for _, v, _ in bars if v is not None]
     ax.set_xticks(range(len(groups)), groups)
     ax.set_ylabel("Spearman rho (-)")
-    ax.set_ylim(0, 1)
+    ax.set_ylim(min(0.0, min(vals, default=0.0)) - 0.1, 1.0)
+    ax.axhline(0.0, color="#444444", linewidth=0.8)
+    ax.text(
+        0.0,
+        -0.18,
+        "V1/V2 air temperature = daily max; V3 = May-Sep 95th percentile (T95). "
+        "Sources: KDCA 15149889, KOSIS DT_1B040A3, KMA ASOS / MK-PRISM v3.1",
+        transform=ax.transAxes,
+        fontsize=7,
+        color="#555555",
+    )
     ax.set_title("KDCA heat-illness cases vs UTCI, 2011-2019 May-Sep")
     ax.legend(frameon=False)
     for side in ("top", "right"):
