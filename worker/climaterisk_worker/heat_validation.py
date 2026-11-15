@@ -300,15 +300,18 @@ def v1_daily_national(
         (degC). Spearman is computed over the days where both are finite.
 
     Returns:
-        ``rho_u``, ``rho_t`` (None if not computable) and ``n`` (days used for U).
+        ``rho_u``, ``rho_t`` (None if not computable) and ``n`` (days where both U and T are
+        finite; both correlations use exactly these days).
     """
     national = counts.sum(axis=1).astype(float)
-    nu = weighted_national(utci_max, pop).reindex(national.index)
-    nt = weighted_national(tmax, pop).reindex(national.index)
+    nu = weighted_national(utci_max, pop).reindex(national.index).to_numpy(dtype=float)
+    nt = weighted_national(tmax, pop).reindex(national.index).to_numpy(dtype=float)
+    both = np.isfinite(nu) & np.isfinite(nt)  # U and T compared on the same days
+    c = national.to_numpy()[both]
     return {
-        "rho_u": spearman(national.to_numpy(), nu.to_numpy()),
-        "rho_t": spearman(national.to_numpy(), nt.to_numpy()),
-        "n": int(np.isfinite(nu.to_numpy()).sum()),
+        "rho_u": spearman(c, nu[both]),
+        "rho_t": spearman(c, nt[both]),
+        "n": int(both.sum()),
     }
 
 
@@ -336,10 +339,14 @@ def v2_daily_by_sido(
         c = counts[s].to_numpy(dtype=float)
         u = utci_max[s].reindex(counts.index).to_numpy() if s in utci_max.columns else None
         t = tmax[s].reindex(counts.index).to_numpy() if s in tmax.columns else None
+        if u is None or t is None:
+            per[str(s)] = {"rho_u": None, "rho_t": None, "n_days": 0}
+            continue
+        both = np.isfinite(u) & np.isfinite(t)  # U and T compared on the same days
         per[str(s)] = {
-            "rho_u": spearman(c, u) if u is not None else None,
-            "rho_t": spearman(c, t) if t is not None else None,
-            "n_days": int(np.isfinite(u).sum()) if u is not None else 0,
+            "rho_u": spearman(c[both], u[both]),
+            "rho_t": spearman(c[both], t[both]),
+            "n_days": int(both.sum()),
         }
     both = [v for v in per.values() if v["rho_u"] is not None and v["rho_t"] is not None]
     return {

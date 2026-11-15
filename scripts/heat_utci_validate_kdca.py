@@ -319,7 +319,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     ap.add_argument(
         "--age-code",
-        default="0",
+        default="",
         help="KOSIS objL2 code of the all-ages class of DT_1B040A3 (empty: send none)",
     )
     args = ap.parse_args(argv)
