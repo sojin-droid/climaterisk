@@ -106,6 +106,21 @@ SPATIAL_RESOLUTION: dict[str, dict[str, dict[str, Any]]] = {
             "dataset_family": "floodmap_rfm_depth_class",
         },
     },
+    "PF": {
+        _K: {
+            "hazard": "PF",
+            "model_id": _K,
+            "value": 1.0,
+            "unit": "arcsec",
+            "unit_type": "asset point (official class polygon)",
+            "description": (
+                "evaluated at each asset point: the official 도시침수지도 depth-class polygon "
+                "that covers it (original polygons, no hazard grid)"
+            ),
+            "metadata_field": "official map polygons; no hazard grid is built",
+            "dataset_family": "floodmap_cfm_depth_class",
+        },
+    },
     "CF": {
         _G: {
             "hazard": "CF",

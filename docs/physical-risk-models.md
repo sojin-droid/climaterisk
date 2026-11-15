@@ -84,6 +84,7 @@ HazardAdapter.load(bbox)  ->  canonical CLIMADA Hazard | None
 | hazard | `GLOBAL_BASELINE` | `DATA_API_COUNTRY` | `KOREA_LOCAL` |
 |---|---|---|---|
 | RF | `GlobalFloodAdapter` — READY | `CountryFloodAdapter` — READY | `KoreaLocalFloodAdapter` — **NOT_IMPLEMENTED** |
+| PF | `_NoPluvialAdapter` — NO_HAZARD_DATA | `_NoPluvialAdapter` — NO_HAZARD_DATA (no pluvial hazard in the Data API / global reference) | `KoreaLocalPluvialAdapter` — **HAZARD_ONLY** (환경부 100-y 도시침수지도 official class; see "Urban pluvial flood" below) |
 | CF | `GlobalCoastalFloodAdapter` — READY (WRI Aqueduct Floods v2 inuncoast, 30 arcsec; the Data API has no coastal-flood type, so the global product is Aqueduct — as in EIOPA's CLIMADA-App) | `_NoCoastalDataApiAdapter` — NO_HAZARD_DATA (live Data API type list, 2026-10-14) | `KoreaLocalCoastalFloodAdapter` — **NOT_IMPLEMENTED** (국립해양조사원 해안침수예상도 not investigated) |
 | TC | `GlobalTCAdapter` — READY | `CountryTCAdapter` — READY | `KoreaLocalTCAdapter` — **NOT_IMPLEMENTED** |
 | HEAT | `_NoHeatDataAdapter` — NO_HAZARD_DATA | `_NoHeatDataAdapter` — NO_HAZARD_DATA | `KoreaLocalHeatAdapter` — HAZARD_ONLY |
@@ -485,6 +486,26 @@ hazard grid size, not model accuracy ([`municipality-physical-risk.md`](municipa
 [x] Heatwave remains HAZARD_ONLY             [x] legacy regression passes
                                              [x] methodology documentation updated
 ```
+
+## Urban pluvial flood, `PF` (2026-11-15; T2, hazard only)
+
+`PF` is the fifth hazard key (after `RF`). Only `KOREA_LOCAL` has data; the global and Data API
+cells are `NO_HAZARD_DATA` ("no pluvial hazard in the CLIMADA Data API / global reference").
+`KoreaLocalPluvialAdapter` reads the 환경부 홍수위험지도 100-year 도시침수지도
+(`유역별_100년_빈도_도시침수지도/CFM_SBSN_<basin>_100.zip`) with the river-map machinery
+(`floodmap_depth.map_index(..., families=URBAN_FAMILIES)`, indexed apart in
+`cache/floodmap/cfm_index.json`): the deepest official class covering the asset, read as its band's
+representative depth (`flood_map` config). One event `rp100`, frequency 0.01, present day (every
+scenario is served `historical`). The `SEG_CODE` N330–N334 ↔ band order is inferred from the river
+maps. Rows are `HAZARD_ONLY`: depth, null money; the runner skips the flood-defence rule.
+
+Diagnostics (never change the hazard): `sub_check` = the river DEM edge-depth check (shared
+`dem_edge_check`); `validation` = the 서울시 침수흔적도 2010–2025 (공공누리 제1유형, data root
+`external/seoul_flood_traces`): per asset inside 서울특별시, the years with a trace polygon within
+`pluvial_local.trace_buffer_m` (20 m) and the deepest `F_SHIM` (m; meaning inferred from the name).
+It reports `pod` and `share_mapped_observed` and issues no verdict: a 100-y map is not like-for-like
+with observed 2010–2025 events. No loss is computed. The CFM polygons are 공공누리 제4유형: overlaid in
+memory only, never rasterised or written.
 
 ## Coastal flood and flood defences (2026-10-14)
 

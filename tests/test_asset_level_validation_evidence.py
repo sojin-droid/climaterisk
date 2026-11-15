@@ -76,8 +76,9 @@ def test_fixture_portfolio_has_the_five_cases_and_matches_the_evidence(evidence)
         "TC": COUNTRY,
         "HEAT": LOCAL,
     }
-    # river flood became KOREA_LOCAL on 2026-11-15; the captured run predates that switch
-    assert recommended_models() == {**CAPTURED_PICKS, "RF": LOCAL}
+    # river flood became KOREA_LOCAL on 2026-11-15 and the hazard-only pluvial key PF was
+    # added the same day; the captured run predates both
+    assert recommended_models() == {**CAPTURED_PICKS, "RF": LOCAL, "PF": LOCAL}
     assert not any(a["model_id"] == "GLOBAL_BASELINE" for a in evidence["adapters"])
     assert not any("global" in str(a.get("hazard_dataset")) for a in evidence["adapters"])
 

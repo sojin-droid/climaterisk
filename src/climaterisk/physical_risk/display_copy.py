@@ -33,6 +33,7 @@ from climaterisk.physical_risk.municipalities import (
 #: User-facing hazard names. ``HEAT`` is the readiness key; ``HW`` the CLIMADA tag.
 HAZARD_LABEL: dict[str, str] = {
     "RF": "Flood",
+    "PF": "Urban Pluvial Flood",
     "CF": "Coastal Flood",
     "TC": "Tropical Cyclone",
     "HEAT": "Heatwave",
@@ -45,6 +46,10 @@ HAZARD_LABEL: dict[str, str] = {
 #: One-line, non-expert descriptions shown under each hazard checkbox.
 HAZARD_COPY: dict[str, str] = {
     "RF": "Modeled river flooding and inundation risk.",
+    "PF": (
+        "Urban pluvial (도시침수) flooding from the official 100-year urban flood map, Korea "
+        "local data only. Depth is reported; no loss is computed."
+    ),
     "CF": (
         "Modeled coastal inundation from storm tides with sea-level rise and land "
         "subsidence (WRI Aqueduct). Coastal defences are not represented."
@@ -124,6 +129,9 @@ STATUS_SHORT: dict[str, str] = {
 LIMITATIONS: tuple[str, ...] = (
     "Flood: Korea-local domestic source not yet implemented; financial loss is available "
     "where the status is FULL (Data API hazard).",
+    "Urban pluvial flood: official 100-year 도시침수지도 depth class only (one event, "
+    "present day, no loss computed); checked against the 서울시 침수흔적도 as a diagnostic, "
+    "which is not like-for-like with a 100-year map.",
     "Coastal flood: global WRI Aqueduct data only (no Korean coastal-inundation source "
     "connected, no coastal defences represented); river-flood data does not cover the coast.",
     "Tropical cyclone: Korea-local domestic source not yet implemented; financial loss is "
@@ -212,6 +220,11 @@ def method_copy(hazard_tag: str) -> str:
     """The one-line "why" chain for a hazard, for the detail panel's Method section."""
     if hazard_tag == "RF":
         return "Flood risk is based on: Hazard → CLIMADA JRC Impact Function → Asset Value → EAL."
+    if hazard_tag == "PF":
+        return (
+            "Urban pluvial flood: official 100-year 도시침수지도 depth class → representative "
+            "depth is reported (hazard only; no loss computed)."
+        )
     if hazard_tag == "CF":
         return (
             "Coastal flood risk is based on: Aqueduct coastal inundation depth → CLIMADA JRC "

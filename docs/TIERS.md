@@ -64,7 +64,7 @@
 | `coastal_flood` | **T1** | **T3** | KHOA 조화상수 (held), GLO-30 (PF-07, held) | 조화상수, 상세 수심 (apply), 방조제 대장 (CF-03, none) | T2 = 약최고고조면 + 바다 연결성. **T2 시험 연결**: Models 탭 `KOREA_LOCAL` = 약최고고조면(KHOA M2+S2+K1+O1) + GLO-30 90 m 연결성, 수심만 보고하고 손실은 계산하지 않음(hazard-only); 헤드라인은 Aqueduct 그대로. T3 후보: SFINCS + GeoClaw |
 | `tc_surge` | **T1** | **T3** | — | 태풍 경로 (TC-02, held), 상세 수심 (apply), 조위관측 (key) | T3 후보: SFINCS / GeoClaw, 매미·차바 재현 |
 | `tropical_cyclone` | **T1** | **T2** | KDS 기본풍속 지도 (none, 디지털화 필요), ASOS (HT-11, key) | — | 개별 태풍 사례만 WindNinja / OpenFOAM |
-| `tc_rain` | **T1** | **T1** | — | — | 도시 내수 T2/T3는 별도 재해로 추가 예정 (§4) |
+| `tc_rain` | **T1** | **T1** | — | — | 도시 내수는 별도 재해 `PF`(Models 탭 `KOREA_LOCAL`, **T2 hazard-only**, 2026-11-15)로 추가: 도시침수지도 100년 공식 등급 겹침, 수심만 보고하고 손실은 계산하지 않음. T3는 itzi (§4) |
 | `heatwave` | **T2** | **T3** | 기상청 1 km TAMAX (HT-01, held), ASOS (HT-11, key) | 건물 높이 (CO-07, apply), ASOS, GLO-30 | 한국(기상청)일 때만 T2, 유럽(E-OBS)은 T1. T2.5: 도시형태 유형별 보정. T3: SOLWEIG + OpenFOAM 바람 → UTCI |
 | `heat_mortality` | **T2** | **T2** | 기상청 1 km TA (HT-01, held), KOSIS 사망률 (HT-06, held) | — | 한국일 때만 T2, 그 외 T1. β 재적합은 T2 안에서 진행 |
 | `drought` | **T1** | **T2** | TerraClimate (DR-01, held), 저수지 수위 (DR-04, apply) | — | SWAT+ T3는 농업 분석 쪽에서 판단 |
@@ -92,8 +92,9 @@
 2. **T2 구현**: 이미 가진 자료로 되는 것부터 한다. 구현이 끝날 때마다 §3의 "현재"를 올린다.
    - `KOREA_LOCAL` 하천: 홍수위험지도 원문 폴리곤 겹침
    - 해안: 약최고고조면 + 연결성
+   - 도시 내수: 도시침수지도 100년 겹침 (`PF`, hazard-only)
    - 폭염: 개활지 UTCI
-3. **도시 내수**: 새 재해로 추가한다([ADDING_A_PERIL.md](ADDING_A_PERIL.md)). T2는 도시침수지도 겹침, T3는 itzi다. 하수관망은 `restricted`라 배수 용량을 가정으로 명시한다.
+3. **도시 내수**: 새 재해로 추가한다([ADDING_A_PERIL.md](ADDING_A_PERIL.md)). T2는 도시침수지도 겹침(2026-11-15 Models 탭 `PF`로 연결, hazard-only, 서울시 침수흔적도 검증은 진단), T3는 itzi다. 하수관망은 `restricted`라 배수 용량을 가정으로 명시한다.
 4. **T3 시범**: 서울 1 km² SOLWEIG, 한 곳의 SFINCS로 계산 시간을 재고, 같은 사건을 T1·T2와 비교한다.
 
 T3 도구 후보와 라이선스는 2026-11-14 조사 결과(재해별 오픈소스 시뮬레이션 도구)를 따른다.

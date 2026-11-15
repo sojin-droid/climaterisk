@@ -161,6 +161,27 @@ Sub check (diagnostic only): the slr-0 test on the block maximum keeps those str
 `narrow_only` counts assets connected only because the structures are assumed to fail, and warns.
 Per-asset results are in memory and in the run record only.
 
+## Korea-local urban pluvial flood — official 도시침수지도 (method tier T2, hazard-only)
+
+Models tab, `KOREA_LOCAL` x PF (`KoreaLocalPluvialAdapter`; `floodmap_depth.URBAN_FAMILIES`,
+`flood_traces.py`). The global and Data API cells have no pluvial hazard (`NO_HAZARD_DATA`).
+
+$$ d_i = \bar h\big(\max\{c : p_i \in P_c\}\big)\ \text{(m)},\qquad
+POD = \frac{n_{hit}}{n_{obs}},\quad S = \frac{n_{hit}}{n_{map}} $$
+
+ASCII: `depth = band midpoint of the deepest class polygon covering the asset, else 0`;
+`pod = n_hit / n_observed`; `share_mapped_observed = n_hit / n_mapped_wet`. $P_c$ = polygons of
+class $c$ (SEG_CODE N330–N334 = ≤0.5, 0.5–1, 1–2, 2–5, ≥5 m; order inferred from the river maps),
+$\bar h$ = representative depth (m; `flood_map` config), $n_{obs}$ = covered assets with a trace,
+$n_{map}$ = covered assets the map floods, $n_{hit}$ = both.
+
+One 100-y event (frequency 0.01), present day only, no loss computed. Sub check: DEM edge depth vs
+the band (shared with river flood). Validation (diagnostic, no verdict): 서울시 침수흔적도
+2010–2025, `F_SHIM` = depth (m, meaning inferred from the name and values), polygons within
+`pluvial_local.trace_buffer_m` of the asset, only assets inside 서울특별시. A 100-y map against
+observed 2010–2025 events is not like-for-like, so `pod` and `share_mapped_observed` are reported
+without a threshold. CFM polygons: 공공누리 제4유형, overlaid in memory only.
+
 ## Known data caveats
 
 - **IEA WEO** free dataset is **non-commercial** — do not bundle for commercial use without a license.
