@@ -103,7 +103,7 @@ def test_regional_check_quiet_when_provinces_agree() -> None:
     s = fdl.regional_check(1.5, by_region, ["A", "A", "B", "C"], tol=0.25)
     assert s["weighted_factor"] == pytest.approx(4.0 / 3.0)  # C has no factor: left out
     assert s["n_assets_without_factor"] == 1
-    assert s["warn"] is False
+    assert s["warn"] is False and s["explanation"] is None
 
 
 def test_regional_check_warns_when_provinces_depart() -> None:
@@ -111,6 +111,7 @@ def test_regional_check_warns_when_provinces_depart() -> None:
     assert s["weighted_factor"] == pytest.approx(1.0)
     assert s["warn"] is True
     assert "1.00" in s["warn_reason"] and "1.50" in s["warn_reason"]
+    assert "never changes a number" in s["explanation"]
 
 
 def test_regional_check_no_verdict_without_any_provincial_factor() -> None:
@@ -176,3 +177,22 @@ def test_river_headline_is_the_official_map() -> None:
     assert cell["status"] == "READY"
     assert cell.get("trial") != "yes"
     assert display_copy.recommended_models(["RF"]) == {"RF": "KOREA_LOCAL"}
+
+
+def test_run_info_shows_the_warning_and_its_explanation() -> None:
+    from climaterisk.physical_risk.excel_export import run_info_frame
+
+    check = fdl.regional_check(1.5, {"B": 1.0}, ["B", "B", "B"], tol=0.25)
+    out = {
+        "rows": [],
+        "adapters": [
+            {
+                "hazard_type": "RF",
+                "model_id": "KOREA_LOCAL",
+                "climate_delta": {"factor": 1.5, "check": check},
+            }
+        ],
+    }
+    info = {r["key"]: r["value"] for r in run_info_frame(out)}
+    assert info["climate_delta.RF.KOREA_LOCAL.sub_check_warning"] == check["warn_reason"]
+    assert info["climate_delta.RF.KOREA_LOCAL.sub_check_explanation"] == check["explanation"]
