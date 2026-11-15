@@ -59,15 +59,18 @@ READINESS: dict[str, dict[str, dict[str, str]]] = {
             ),
         },
         _K: {
-            "status": "NOT_IMPLEMENTED",
-            "hazard_source": "환경부 홍수위험지도 (adapter interface only)",
+            "status": "READY",
+            "trial": "yes",  # runnable and shown; not the headline until compared (TIERS §4)
+            "hazard_source": (
+                "환경부 홍수위험지도 하천범람지도 official depth class at each asset "
+                "(국가하천 100/200/500 y, 지방하천 100 y; method tier T2)"
+            ),
             "detail": (
-                "adapter defined, no dataset connected. Investigated 2026-09-23 "
-                "(docs/KOREA_FLOODMAP_INVESTIGATION.md): access is open, but the licence is "
-                "공공누리 제4유형 (출처표시 + 상업적 이용금지 + 변경금지) — converting the "
-                "polygons to a hazard grid and using them in a commercial assessment are not "
-                "permitted without separate permission; nothing is downloaded or computed "
-                "until it is granted"
+                "original polygons overlaid on the asset points, never rasterised or "
+                "redistributed (공공누리 제4유형; nonprofit internal use, decided 2026-11-13). "
+                "Depth = the class band's representative value (config flood_map); DEM edge "
+                "depth is a diagnostic sub check only; present-day maps only; same impact "
+                "function as the other models"
             ),
         },
     },
