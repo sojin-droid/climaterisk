@@ -182,6 +182,17 @@ def run_info_frame(output: dict[str, Any]) -> list[dict[str, Any]]:
                     f"{res.get('value')} {res.get('unit')} ({res.get('unit_type')})",
                 )
             )
+        delta = desc.get("climate_delta") if isinstance(desc, dict) else None
+        if delta:
+            tag = f"{desc.get('hazard_type')}.{desc.get('model_id')}"
+            lines.append((f"climate_delta.{tag}.frequency_factor", delta.get("factor")))
+            check = delta.get("check") or {}
+            if check.get("warn"):
+                lines.append((f"climate_delta.{tag}.sub_check_warning", check.get("warn_reason")))
+                if check.get("explanation"):
+                    lines.append(
+                        (f"climate_delta.{tag}.sub_check_explanation", check.get("explanation"))
+                    )
     for model, definition in MODEL_DEFINITIONS.items():
         lines.append((f"definition.{model}", definition))
     for hazard, cells in summary.items():

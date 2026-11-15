@@ -30,6 +30,8 @@ does not hide it — the row carries both and the engine marks the mismatch.
 
 from __future__ import annotations
 
+import copy
+import logging
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -41,6 +43,8 @@ from climaterisk_worker._params import (
     TC_REF_YEARS,
     nearest,
 )
+
+logger = logging.getLogger(__name__)
 
 _SRC = Path(__file__).resolve().parents[3] / "src"
 if str(_SRC) not in sys.path:
@@ -666,6 +670,14 @@ class KoreaLocalFloodAdapter:
     2026-11-13). One event per return period (100 / 200 / 500 y) with incremental
     exceedance frequencies, so floods more frequent than 100 y are not represented — the
     EAL is a lower bound on that side.
+
+    Climate: ``historical`` is the map as is. A future scenario keeps the map depth and
+    multiplies every event frequency by one national ISIMIP change factor (the EAL of the
+    served scenario's window over the EAL of the same RCP's 2010–2030 window, unit exposure
+    at every ISIMIP centroid, JRC Asia residential curve; :mod:`climaterisk_worker.flood_delta`).
+    The 2010–2030 window itself is the present of that chain, so its factor is 1 by
+    definition and nothing is downloaded. Per-시도 factors are a diagnostic sub check. No
+    ISIMIP data (offline, nothing cached) raises ``HazardUnavailable`` — never f = 1.
     """
 
     model_id = ModelId.KOREA_LOCAL.value
@@ -683,9 +695,36 @@ class KoreaLocalFloodAdapter:
         self.check_max = int(cfg.get("check_max_points", 200))
         self.check_min_n = int(cfg.get("check_min_points", 20))
         self.check_min_share = float(cfg.get("check_min_share_in_band", 0.35))
+        self.delta_min_wet = int(cfg.get("delta_min_wet_centroids", 20))
+        self.delta_tol = float(cfg.get("delta_check_tol", 0.25))
         self.diagnostics: dict[str, Any] = {}
+        self.climate_delta = scenario != "historical"
+        self.served_scenario = "historical"
+        self.time_horizon = "present"
+        self.map_dataset = self.dataset
+        self.isimip_future = self.isimip_present = ""
+        if self.climate_delta:
+            geo = self.iso3 or "KOR"
+            self.served_scenario = RF_SCENARIO_MAP.get(scenario, "rcp60")
+            window, present = rf_year_range(self.year), RF_YEAR_RANGES[0]
+            self.time_horizon = window.replace("_", "–")
+            self.isimip_future = f"river_flood_150arcsec_{self.served_scenario}_{geo}_{window}"
+            self.isimip_present = f"river_flood_150arcsec_{self.served_scenario}_{geo}_{present}"
+            self.map_dataset = (
+                f"{type(self).dataset}+freq({self.isimip_future}/{self.isimip_present})"
+            )
 
     def describe(self) -> HazardDescription:
+        if self.climate_delta:
+            climate = (
+                f"Climate: the map depth is the present-day design flood; every event "
+                f"frequency is multiplied by one national ISIMIP change factor "
+                f"({self.isimip_future} / {self.isimip_present}, unit exposure, JRC Asia "
+                "residential curve); the 2010–2030 window is the present of that chain "
+                "(factor 1). Per-시도 factors: diagnostic sub check"
+            )
+        else:
+            climate = "Present-day design-flood maps (levee failure assumed), no climate scenario"
         return HazardDescription(
             hazard_type=self.hazard_type,
             model_id=self.model_id,
@@ -695,17 +734,17 @@ class KoreaLocalFloodAdapter:
                 f"official depth class at each asset, priced at the band {self.mode} "
                 f"(open ≥5 m class at {self.open_depth:g} m). 출처: 환경부 (공공누리 제4유형)"
             ),
-            hazard_dataset=self.dataset,
+            hazard_dataset=self.map_dataset,
             hazard_data_version="홍수위험지도 download 2026-02 (map files dated 2026-02-09)",
             hazard_country=self.iso3,
             requested_scenario=self.scenario,
-            served_scenario="historical",
-            time_horizon="present",
+            served_scenario=self.served_scenario,
+            time_horizon=self.time_horizon,
             detail=(
                 "method tier T2. Depth = official class band (≤0.5 / 0.5–1 / 1–2 / 2–5 / ≥5 m; "
                 "code order inferred, not officially confirmed). Sub check: DEM edge depth vs "
-                "the band, diagnostic only. Present-day design-flood maps (levee failure "
-                "assumed), no climate scenario; assets outside the mapped reaches read 0 m; "
+                f"the band, diagnostic only. {climate}; "
+                "assets outside the mapped reaches read 0 m; "
                 "지방하천 100-y class carried to 200/500 y as a lower bound; no event below 100 y"
             ),
         )
@@ -715,6 +754,34 @@ class KoreaLocalFloodAdapter:
         bbox: tuple[float, float, float, float] | None = None,
         points: list[tuple[float, float]] | None = None,
     ) -> Any:
+        if not points:
+            raise ValueError("the Korea-local flood adapter reads asset points; none were given")
+        key = (tuple((float(a), float(b)) for a, b in points), self.mode, self.open_depth)
+        memo = KoreaLocalFloodAdapter._map_memo
+        if memo is not None and memo[0] == key:
+            # the same assets under the same map (e.g. the 2010–2030 baseline run after a
+            # future run): the overlay takes minutes, so it is not repeated
+            hazard, self.diagnostics = copy.deepcopy(memo[1]), copy.deepcopy(memo[2])
+        else:
+            hazard = self._map_hazard(points)
+            KoreaLocalFloodAdapter._map_memo = (
+                key,
+                copy.deepcopy(hazard),
+                copy.deepcopy(self.diagnostics),
+            )
+        if not self.climate_delta:
+            return hazard
+        from climaterisk_worker import flood_delta as fdl
+
+        delta = self._delta(points)
+        self.diagnostics["climate_delta"] = delta
+        return fdl.scale_frequency(hazard, delta["factor"])
+
+    #: Last map overlay ``(key, hazard, diagnostics)``, reused within one process.
+    _map_memo: tuple[Any, Any, dict[str, Any]] | None = None
+
+    def _map_hazard(self, points: list[tuple[float, float]]) -> Any:
+        """The present-day map hazard at the asset points; sets the map diagnostics."""
         import numpy as np
         from climada.hazard import Hazard
         from scipy import sparse
@@ -725,8 +792,6 @@ class KoreaLocalFloodAdapter:
         from climaterisk_worker._paths import paths
         from climaterisk_worker.hazard_convert import _centroids
 
-        if not points:
-            raise ValueError("the Korea-local flood adapter reads asset points; none were given")
         root = paths.floodmap_dir()
         if not root.is_dir():
             raise HazardUnavailable(f"홍수위험지도 not found under {root}")
@@ -757,6 +822,104 @@ class KoreaLocalFloodAdapter:
         )
         hazard.check()
         return hazard
+
+    def _delta(self, points: list[tuple[float, float]]) -> dict[str, Any]:
+        """The national factor (main) and the per-시도 check at the assets (diagnostic)."""
+        import numpy as np
+
+        from climaterisk_worker import flood_delta as fdl
+        from climaterisk_worker._paths import paths
+
+        record: dict[str, Any] = {
+            "basis": "national",
+            "isimip_present_dataset": self.isimip_present,
+            "isimip_future_dataset": self.isimip_future,
+            "depth": "present-day official map (unchanged)",
+        }
+        if self.isimip_future == self.isimip_present:
+            return {
+                **record,
+                "factor": 1.0,
+                "by_region": {},
+                "check": None,
+                "note": "the 2010–2030 window is the present of this chain: factor 1 by definition",
+            }
+        stats = self._isimip_factors()
+        national = stats["national"]
+        if national is None or national <= 0:
+            raise HazardUnavailable(
+                f"no ISIMIP change factor: present-window EAL is zero ({self.isimip_present})"
+            )
+        check: dict[str, Any]
+        try:
+            shp = paths.external_dir("municipality", "sgis", self.SIDO_SHP)
+            regions = fdl.assign_regions(
+                np.array([p[0] for p in points]), np.array([p[1] for p in points]), shp
+            )
+            check = fdl.regional_check(
+                national, stats["by_region"], [str(r) for r in regions], self.delta_tol
+            )
+        except Exception as exc:  # a diagnostic; never a reason to lose the result
+            check = {"error": f"{type(exc).__name__}: {exc}", "warn": None}
+        return {
+            **record,
+            "factor": float(national),
+            "by_region": stats["by_region"],
+            "n_wet_centroids": stats["n_wet"],
+            "check": check,
+        }
+
+    SIDO_SHP = "bnd_sido_00_2025_2Q.shp"
+
+    def _isimip_factors(self) -> dict[str, Any]:
+        """National and per-시도 factors; cached by dataset names, one download at a time."""
+        import json
+
+        import numpy as np
+
+        from climaterisk_worker import flood_delta as fdl
+        from climaterisk_worker._dataapi import OfflineError
+        from climaterisk_worker._paths import paths
+        from climaterisk_worker.physical_risk.registry import flood_impact_function
+
+        key = f"{self.isimip_future}__over__{self.isimip_present}"
+        cache = paths.cache_dir("floodmap", f"delta_{key}.json")
+        if cache.is_file():
+            try:
+                return dict(json.loads(cache.read_text()))
+            except (OSError, ValueError):
+                pass  # unreadable cache: recompute
+        iso3 = self.iso3 or "KOR"
+        func = flood_impact_function("Asia", "residential")
+        x, mdd, paa = (np.asarray(a, dtype=float) for a in (func.intensity, func.mdd, func.paa))
+        eals: list[Any] = []
+        lat = lon = None
+        try:
+            for window_year in (RF_YEAR_RANGES[0][:4], str(self.year)):
+                hz = CountryFloodAdapter(self.scenario, int(window_year), iso3).load(bbox=None)
+                eals.append(fdl.unit_eal(hz.intensity, hz.fraction, hz.frequency, x, mdd, paa))
+                if lat is None:
+                    lat, lon = hz.centroids.lat, hz.centroids.lon
+                elif len(lat) != len(hz.centroids.lat):
+                    raise ValueError("ISIMIP present and future grids differ")
+                del hz
+        except OfflineError as exc:
+            raise HazardUnavailable(str(exc)) from exc
+        regions = np.full(len(eals[0]), fdl.UNASSIGNED, dtype=object)
+        try:
+            shp = paths.external_dir("municipality", "sgis", self.SIDO_SHP)
+            regions = fdl.assign_regions(lat, lon, shp)
+        except Exception as exc:
+            logger.warning("시도 assignment of ISIMIP centroids failed: %s", exc)
+        out = fdl.change_factor(eals[0], eals[1], regions, self.delta_min_wet)
+        out["by_region"].pop(fdl.UNASSIGNED, None)
+        out["n_wet"].pop(fdl.UNASSIGNED, None)
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps(out, ensure_ascii=False, indent=1))
+        logger.info(
+            "ISIMIP change factor %s: national=%s centroids=%d", key, out["national"], len(lat)
+        )
+        return out
 
     def _check(self, res: dict[str, Any], fd: Any, paths: Any, offline: Any) -> dict[str, Any]:
         """The DEM edge-depth sub check; any failure is reported, never raised."""

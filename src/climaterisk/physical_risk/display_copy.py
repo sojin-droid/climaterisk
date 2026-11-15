@@ -244,7 +244,7 @@ def recommended_models(
     ``READY`` beats ``HAZARD_ONLY``; ``NOT_IMPLEMENTED`` and ``NO_HAZARD_DATA`` are never
     chosen, and neither is a cell marked ``"trial": "yes"`` (runnable and shown, but not the
     headline until it has been compared with the incumbent — docs/TIERS.md §4). For Korea
-    today: RF → DATA_API_COUNTRY, TC → DATA_API_COUNTRY, HEAT → KOREA_LOCAL.
+    today: RF → KOREA_LOCAL (official map; 2026-11-15), TC → DATA_API_COUNTRY, HEAT → KOREA_LOCAL.
     A hazard with no runnable cell is omitted.
     """
     table = readiness or READINESS

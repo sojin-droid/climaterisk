@@ -60,7 +60,6 @@ READINESS: dict[str, dict[str, dict[str, str]]] = {
         },
         _K: {
             "status": "READY",
-            "trial": "yes",  # runnable and shown; not the headline until compared (TIERS §4)
             "hazard_source": (
                 "환경부 홍수위험지도 하천범람지도 official depth class at each asset "
                 "(국가하천 100/200/500 y, 지방하천 100 y; method tier T2)"
@@ -69,8 +68,10 @@ READINESS: dict[str, dict[str, dict[str, str]]] = {
                 "original polygons overlaid on the asset points, never rasterised or "
                 "redistributed (공공누리 제4유형; nonprofit internal use, decided 2026-11-13). "
                 "Depth = the class band's representative value (config flood_map); DEM edge "
-                "depth is a diagnostic sub check only; present-day maps only; same impact "
-                "function as the other models"
+                "depth is a diagnostic sub check only; depth is the present-day map; future "
+                "scenarios multiply every event frequency by one national ISIMIP change factor "
+                "(per-시도 factors are a diagnostic sub check); same impact function as the "
+                "other models"
             ),
         },
     },

@@ -225,6 +225,9 @@ def _rows_for(
     sub_check = (getattr(adapter, "diagnostics", None) or {}).get("sub_check")
     if sub_check is not None:
         record["sub_check"] = sub_check  # diagnostic only; never changes the rows
+    climate_delta = (getattr(adapter, "diagnostics", None) or {}).get("climate_delta")
+    if climate_delta is not None:
+        record["climate_delta"] = climate_delta  # the factor applied; its 시도 check is diagnostic
     if defences is not None:
         record["flood_protection"] = record_defences
     if resolution_error:

@@ -348,11 +348,11 @@ def test_readiness_route_and_table_route_exist(client) -> None:  # type: ignore[
     assert r.status_code == 404
 
 
-def test_korea_local_flood_is_an_overlay_trial_under_the_licence() -> None:
-    """제4유형 maps: overlaid on asset points only (2026-11-13 decision), not yet the headline."""
+def test_korea_local_flood_is_an_overlay_under_the_licence() -> None:
+    """제4유형 maps: overlaid on asset points only (2026-11-13); headline since 2026-11-15."""
     doc = (REPO / "docs" / "KOREA_FLOODMAP_INVESTIGATION.md").read_text(encoding="utf-8")
     assert "제4유형" in doc and "상업적 이용금지" in doc and "변경금지" in doc
     assert "2026-11-13" in doc and "겹쳐" in doc
     cell = READINESS["RF"][K]
-    assert cell["status"] == "READY" and cell["trial"] == "yes"
+    assert cell["status"] == "READY" and cell.get("trial") != "yes"
     assert "제4유형" in cell["detail"] and "never rasterised" in cell["detail"]

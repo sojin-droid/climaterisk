@@ -1,0 +1,13 @@
+{
+ "date": "2026-11-15",
+ "portfolio": "tests/fixtures/sample_portfolio_1000 (1000 OSM buildings, $6.13e9)",
+ "scenario": "historical",
+ "portfolio_eal_usd": {"DATA_API_COUNTRY_isimip_T1": 760597, "KOREA_LOCAL_floodmap_T2": 2081489, "ratio_local_over_isimip": 2.74},
+ "assets_wet_at_100y": {"isimip": 164, "floodmap": 93, "both": 24, "isimip_only": 140, "floodmap_only": 69, "neither": 767},
+ "isimip_100y_depth_median_m_wet": 9.18,
+ "isimip_100y_depth_max_m": 19.69,
+ "floodmap_depth_counts_m": {"0.25": 31, "0.75": 11, "1.5": 18, "3.5": 25, "5.0": 8},
+ "eal_top10_share": {"isimip": 0.43, "floodmap": 0.73},
+ "floodmap_sub_check": {"n": 80, "share_in_band": 0.325, "monotonic": true, "dem": {"ngii_bare_earth_90m": 12, "glo30_surface": 68}, "warn": true},
+ "files": ["raw_historical.json", "river_historical.xlsx", "run.log"]
+}

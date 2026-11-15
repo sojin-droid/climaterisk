@@ -123,6 +123,16 @@ Consequence for use: read per-100k rates and the ranking of locations; do not re
 death counts as estimates of reality until the B-stage parameter work
 (`HEAT_MORTALITY_PROVENANCE.md` §6) is done.
 
+## River flood headline for Korea — official map x ISIMIP change factor (method tier T2)
+
+`KOREA_LOCAL` x RF is the river-flood headline since 2026-11-15 (comparison:
+`docs/evidence/river_headline_comparison_2026-11-15.json`). Present climate = the 환경부 홍수위험지도
+depth classes as they are. A future scenario keeps that depth and multiplies every event frequency
+by one national ISIMIP factor $f = \sum_c EAL_c^{\text{window}} / \sum_c EAL_c^{2010\text{–}2030}$
+(unit exposure per KOR centroid, JRC Asia residential curve, same RCP; ASCII: `f = EAL_window /
+EAL_2010_2030`, dimensionless). Climate change enters as frequency only; per-시도 factors are a
+diagnostic sub check (`flood_delta.regional_check`). See `KOREA_FLOODMAP_INVESTIGATION.md` §10.
+
 ## Korea-local coastal flood — connected bathtub (method tier T2, hazard-only)
 
 Models tab, `KOREA_LOCAL` x CF (`worker/climaterisk_worker/coastal_connectivity.py`). The

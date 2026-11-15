@@ -8,8 +8,9 @@ Runs in the CLIMADA worker environment (it prices with CLIMADA and needs the Dat
         [--scenario rcp60 --year 2050 --country KOR --baseline-scenario present --json raw.json]
 
 ``--models recommended`` (the default) reads the readiness registry and picks, per hazard,
-the most local data scope that can actually run (Korea today: country dataset for flood and
-typhoon, KMA local data for heatwave — hazard only). ``all`` runs the three scopes; ``global``,
+the most local data scope that can actually run (Korea today: the official 홍수위험지도 for
+river flood — future scenarios via an ISIMIP frequency factor — country dataset for typhoon,
+KMA local data for heatwave — hazard only). ``all`` runs the three scopes; ``global``,
 ``country``, ``local`` name them directly. The older ``--facilities`` / ``--out`` spellings and
 RF/TC/HEAT hazard keys keep working.
 
