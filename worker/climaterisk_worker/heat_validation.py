@@ -86,16 +86,39 @@ def normalise_sido(name: str | None) -> str | None:
     text = str(name).strip()
     if not text:
         return None
+    if text.startswith(_MERGED_GWANGJU_JEONNAM):
+        return None  # 2026 merger: 광주 or 전남 needs the district (see station_sido)
     for stem, region in _STEMS:
         if text.startswith(stem):
             return region
     return None
 
 
+# The KMA station table (retrieved 2026-11-15) writes post-2026 names. 전남광주통합특별시
+# joins the former 광주광역시 (its five 구) and 전라남도; the KDCA rows of 2011-2019 keep them
+# apart, so a station there is placed by its district.
+_MERGED_GWANGJU_JEONNAM = "전남광주통합특별시"
+_GWANGJU_DISTRICTS = frozenset({"동구", "서구", "남구", "북구", "광산구"})
+
+
 def station_sido(addr: str) -> str | None:
-    """Region of a station from the first token of its address (None if unknown or empty)."""
-    tokens = str(addr or "").split()
-    return normalise_sido(tokens[0]) if tokens else None
+    """Region of a station from its address (None if unknown or empty).
+
+    The first token names the 시도; a leading ``(산지)`` tag is dropped. Under the merged
+    전남광주통합특별시 the second token decides: one of the five former 광주광역시 구 gives
+    광주, anything else 전남.
+    """
+    text = str(addr or "").strip()
+    if text.startswith("(산지)"):
+        text = text[len("(산지)") :].strip()
+    tokens = text.split()
+    if not tokens:
+        return None
+    if tokens[0] == _MERGED_GWANGJU_JEONNAM:
+        if len(tokens) < 2:
+            return None
+        return "광주" if tokens[1] in _GWANGJU_DISTRICTS else "전남"
+    return normalise_sido(tokens[0])
 
 
 def load_kdca(path: Path) -> tuple[pd.DataFrame, dict[str, int]]:

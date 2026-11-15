@@ -71,6 +71,19 @@ def test_station_sido_from_address() -> None:
     assert hv.station_sido("") is None
 
 
+def test_station_sido_merged_gwangju_jeonnam_by_district() -> None:
+    # KMA station table writes the 2026 merged name; 2011-2019 KDCA rows keep 광주 / 전남 apart
+    assert hv.station_sido("전남광주통합특별시 북구 운암동") == "광주"
+    assert hv.station_sido("전남광주통합특별시 광산구 신촌동") == "광주"
+    assert hv.station_sido("전남광주통합특별시 목포시 연산동") == "전남"
+    assert hv.station_sido("전남광주통합특별시") is None
+    assert hv.normalise_sido("전남광주통합특별시") is None  # ambiguous without the district
+
+
+def test_station_sido_drops_mountain_tag() -> None:
+    assert hv.station_sido("(산지)강원특별자치도 평창군 대관령면 횡계리") == "강원"
+
+
 # --------------------------------------------------------------------------- #
 # Loading the KDCA file                                                        #
 # --------------------------------------------------------------------------- #
