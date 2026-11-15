@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from climaterisk import __version__
-from climaterisk.api.routers import data, libraries, report, run, session, transition
+from climaterisk.api.routers import data, libraries, report, run, session, sheets, transition
 from climaterisk.config import get_settings
 from climaterisk.logger import get_logger
 from climaterisk.runs.manager import WorkerCapacityError
@@ -84,6 +84,7 @@ def create_app() -> FastAPI:
     api.include_router(report.router)
     api.include_router(libraries.router)
     api.include_router(data.router)
+    api.include_router(sheets.router)
     app.include_router(api)
 
     # The built single-page UI, served by the backend itself (Windows bundle; any run without

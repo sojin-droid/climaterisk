@@ -19,13 +19,17 @@ for extra in (REPO / "worker", REPO / "src"):
     if str(extra) not in sys.path:
         sys.path.insert(0, str(extra))
 
-from climaterisk.sheets import validate_sheet  # noqa: E402
 from climaterisk_worker import sheet_builder as sb  # noqa: E402
+
+from climaterisk.sheets import validate_sheet  # noqa: E402
 
 
 def hav_km(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
     p = math.pi / 180
-    a = math.sin((lat2 - lat1) * p / 2) ** 2 + math.cos(lat1 * p) * math.cos(lat2 * p) * math.sin((lon2 - lon1) * p / 2) ** 2
+    a = (
+        math.sin((lat2 - lat1) * p / 2) ** 2
+        + math.cos(lat1 * p) * math.cos(lat2 * p) * math.sin((lon2 - lon1) * p / 2) ** 2
+    )
     return 2 * 6371.0088 * math.asin(math.sqrt(a))
 
 
@@ -47,11 +51,41 @@ def test_cut_line_north_south_keeps_longitude() -> None:
 @pytest.mark.parametrize(
     ("classes", "checks", "state", "agree", "of"),
     [
-        ({"rp100": "N333", "rp200": "N333", "rp500": "N334"}, {"rp100": 4.05, "rp200": 4.05, "rp500": 2.31}, "partial", 2, 3),
-        ({"rp100": "N333", "rp200": "N333", "rp500": "N334"}, {"rp100": 3.0, "rp200": 4.0, "rp500": 6.0}, "agree", 3, 3),
-        ({"rp100": "N331", "rp200": "N331", "rp500": "N331"}, {"rp100": 3.0, "rp200": 3.0, "rp500": 3.0}, "disagree", 0, 3),
-        ({"rp100": "N333", "rp200": "", "rp500": "N334"}, {"rp100": None, "rp200": None, "rp500": None}, "empty", 0, 0),
-        ({"rp100": "", "rp200": "", "rp500": ""}, {"rp100": None, "rp200": None, "rp500": None}, "empty", 0, 0),
+        (
+            {"rp100": "N333", "rp200": "N333", "rp500": "N334"},
+            {"rp100": 4.05, "rp200": 4.05, "rp500": 2.31},
+            "partial",
+            2,
+            3,
+        ),
+        (
+            {"rp100": "N333", "rp200": "N333", "rp500": "N334"},
+            {"rp100": 3.0, "rp200": 4.0, "rp500": 6.0},
+            "agree",
+            3,
+            3,
+        ),
+        (
+            {"rp100": "N331", "rp200": "N331", "rp500": "N331"},
+            {"rp100": 3.0, "rp200": 3.0, "rp500": 3.0},
+            "disagree",
+            0,
+            3,
+        ),
+        (
+            {"rp100": "N333", "rp200": "", "rp500": "N334"},
+            {"rp100": None, "rp200": None, "rp500": None},
+            "empty",
+            0,
+            0,
+        ),
+        (
+            {"rp100": "", "rp200": "", "rp500": ""},
+            {"rp100": None, "rp200": None, "rp500": None},
+            "empty",
+            0,
+            0,
+        ),
     ],
 )
 def test_review_stamp(classes, checks, state, agree, of) -> None:  # type: ignore[no-untyped-def]
@@ -94,7 +128,15 @@ def test_build_sheet_on_the_real_maps_when_present() -> None:
 
     if not paths.floodmap_dir().is_dir():
         pytest.skip("홍수위험지도 not on this machine")
-    sheet = sb.build_sheet(37.547, 127.047, sheet_id="DM-T2", bearing_deg=90.0, half_km=0.5, step_km=0.05, with_global=False)
+    sheet = sb.build_sheet(
+        37.547,
+        127.047,
+        sheet_id="DM-T2",
+        bearing_deg=90.0,
+        half_km=0.5,
+        step_km=0.05,
+        with_global=False,
+    )
     assert validate_sheet(sheet) == []
     assert sheet["site"]["classes"] == {"rp100": "N333", "rp200": "N333", "rp500": "N334"}
     assert sheet["site"]["depth_m"] == {"rp100": 3.5, "rp200": 3.5, "rp500": 5.0}

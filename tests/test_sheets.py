@@ -17,7 +17,9 @@ import pytest
 from climaterisk.sheets import sheet_dirs, validate_sheet
 
 REPO = Path(__file__).resolve().parents[1]
-DM12 = json.loads((REPO / "assets" / "libraries" / "sheets" / "DM-12.json").read_text(encoding="utf-8"))
+DM12 = json.loads(
+    (REPO / "assets" / "libraries" / "sheets" / "DM-12.json").read_text(encoding="utf-8")
+)
 
 
 def test_bundled_example_is_valid() -> None:
