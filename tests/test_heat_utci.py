@@ -666,10 +666,11 @@ def test_config_section_present_and_off_by_default() -> None:
 
 
 def test_utci_adapter_describes_present_only() -> None:
-    d = adapters.KoreaLocalUtciAdapter("rcp45", 2050).describe()
+    # rcp26 has no future grid (phase 2: rcp45/rcp85 from 2040 are served as ssp245/ssp585)
+    d = adapters.KoreaLocalUtciAdapter("rcp26", 2050).describe()
     assert d.hazard_type == "HW" and d.status == "HAZARD_ONLY"
     assert d.hazard_dataset == "kma_asos_open_field_utci"
-    assert d.requested_scenario == "rcp45" and d.served_scenario == "historical"
+    assert d.requested_scenario == "rcp26" and d.served_scenario == "historical"
     assert d.time_horizon == "2000-2019 May-Sep"
     assert "historical" in (d.detail or "").lower()
 

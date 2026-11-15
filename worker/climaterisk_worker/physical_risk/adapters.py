@@ -1512,7 +1512,31 @@ class KoreaLocalUtciAdapter:
         self.scenario, self.year, self.iso3 = scenario, int(year), iso3
         self.diagnostics: dict[str, Any] = {}
 
+    def _window(self) -> dict[str, Any]:
+        """Served scenario and window for the request (``heat_utci.future``, design 4.1)."""
+        from climaterisk.physical_risk.metrics import load_config
+        from climaterisk_worker import heat_utci as hu
+
+        return hu.scenario_window(self.scenario, self.year, load_config()["heat_utci"]["future"])
+
     def describe(self) -> HazardDescription:
+        win = self._window()
+        served = str(win["served_scenario"])
+        future = served != "historical"
+        if future:
+            first, last = win["window"]
+            horizon = f"{first}-{last} May-Sep (delta on 2000-2019 observations)"
+            tail = (
+                f"Future served: {served} {first}-{last}, air temperature = 2000-2019 hourly "
+                "observations + the monthly change of the KMA AR6 5ENSMN daily maximum "
+                "(mean 2051-2060 minus mean 2021-2030) at the asset cell; A7 humidity, wind, "
+                "radiation and the ground fit held at present values. The warming between "
+                "2000-2019 and 2021-2030 is not in the change: direction and size reference"
+            )
+        else:
+            horizon = "2000-2019 May-Sep"
+            why = win["reason"] or "historical period requested"
+            tail = f"Only the historical period is served for this request ({why})"
         return HazardDescription(
             hazard_type=self.hazard_type,
             model_id=self.model_id,
@@ -1527,17 +1551,15 @@ class KoreaLocalUtciAdapter:
             ),
             hazard_country=self.iso3,
             requested_scenario=self.scenario,
-            served_scenario="historical",
-            time_horizon="2000-2019 May-Sep",
+            served_scenario=served,
+            time_horizon=horizon,
             detail=(
                 "method tier T2, hazard only: days per year with daily-max UTCI >= 38 degC for a "
                 "person in the open (no shade, buildings or indoors; no loss computed). "
                 "Assumptions: A1 grid daily-max difference added to every hour; A2 equal vapour "
                 "pressure at asset and station; A3 irradiance is the preceding-hour mean; "
                 "A4 night cloud fraction = day mean; A5 ground emissivity 0.95; A6 ground "
-                "albedo 0.20 (0.15-0.25 range reported). Only the historical period is served; "
-                "future scenarios are not served yet (phase 2), so the requested scenario is "
-                "answered with historical"
+                "albedo 0.20 (0.15-0.25 range reported). " + tail
             ),
         )
 
@@ -1552,13 +1574,17 @@ class KoreaLocalUtciAdapter:
         if not points:
             raise ValueError("the Korea-local UTCI adapter reads asset points; none were given")
         cfg = load_config()["heat_utci"]
+        win = hu.scenario_window(self.scenario, self.year, cfg["future"])
+        future = None if win["served_scenario"] == "historical" else str(win["served_scenario"])
         try:
-            out = hu.open_field_utci(points, cfg)
+            out = hu.open_field_utci(points, cfg, future=future)
         except (FileNotFoundError, OSError) as exc:
             raise HazardUnavailable(f"open-field UTCI input not found: {exc}") from exc
+        # per_asset keeps both the present and the future values of every asset
         self.diagnostics = {"per_asset": out["per_asset"], "sub_check": out["sub_check"]}
         self.record = out["record"]
-        return hu.build_hazard(points, [a["utci_days_ge38"] for a in out["per_asset"]])
+        key = "utci_days_ge38" if future is None else "utci_days_ge38_future"
+        return hu.build_hazard(points, [a[key] for a in out["per_asset"]])
 
     def spatial_resolution(self, hazard: Any) -> dict[str, Any] | None:
         """The 0.05 deg grid that carries the temperature shift."""
