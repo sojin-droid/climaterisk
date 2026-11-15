@@ -1,24 +1,33 @@
-"""Flood depth at asset points from the 환경부 홍수위험지도 extent and a DEM (method tier T2).
+"""River-flood depth at asset points from the 환경부 홍수위험지도 (method tier T2).
 
-The official river-flood maps (하천범람지도, 국가하천 100/200/500 y, 지방하천 100 y) give the
-**extent** only — no depth. Depth at an asset inside the extent is estimated the FwDET way
-(Cohen et al. 2018, *JAWRA* 54(4); 2019 *NHESS* 19): the water surface near the asset is
-the ground elevation along the nearby flood edge, and depth is that surface minus the
-ground at the asset.
+The official river-flood maps (하천범람지도, 국가하천 100/200/500 y, 지방하천 100 y) hold one
+(Multi)Polygon per **depth class** (``SEG_CODE`` N330–N334) and no depth value.
 
-Licence (공공누리 제4유형): the polygons are only **overlaid** on asset points. They are
-never rasterised, clipped, simplified or written out, and nothing derived from them is
-stored except the per-asset depth of the run (user decision 2026-11-13, nonprofit use).
+* **Main method** (:func:`class_depths`): the deepest official class whose polygon covers
+  the asset, read as its published depth band (≤0.5, 0.5–1, 1–2, 2–5, ≥5 m) and priced at
+  a representative depth (band midpoint by default). No DEM is needed.
+* **Sub check** (:func:`edge_check`, diagnostic only): the FwDET depth (Cohen et al. 2018,
+  *JAWRA* 54(4)) — median ground elevation of the nearby flood edge minus the asset ground.
+  It never changes the hazard; it reports how often it lands inside the official band.
+  A bare-earth DEM (국토지리정보원 공개 DEM) is used where it covers the point and its edge
+  samples; otherwise Copernicus GLO-30, a surface model that fails in high-rise areas
+  (2026-11-15: 28 % in band in Seoul vs 45 % rural).
+
+The code ↔ band order (N330 shallowest … N334 deepest) is **inferred**, not officially
+confirmed: edge-depth class medians are monotonic in that order (rural GLO-30; east Seoul
+bare earth 0.14 / 0.32 / 0.99 / 1.67 / 5.58 m).
+
+Licence (공공누리 제4유형): the polygons are only **overlaid** on asset points, in memory.
+They are never rasterised or written out, and nothing derived from them is stored except the
+per-asset class of the run (user decision 2026-11-13, nonprofit use).
 
 Assumptions (also recorded on the Models-tab row):
 
-* Copernicus GLO-30 is a surface model (buildings, trees): in dense urban areas the asset
-  ground reads high and the depth reads **low** (conservative-low).
-* The flood edge may follow a levee crest; the median of the edge samples damps this.
 * An asset outside every mapped polygon gets 0 m for that return period — the maps cover
   the mapped reaches only, so unmapped small streams are not represented.
-* 지방하천 maps exist at 100 y only; at 200 / 500 y their 100-y depth is carried as a lower
+* 지방하천 maps exist at 100 y only; at 200 / 500 y their 100-y class is carried as a lower
   bound (a larger flood is at least as deep).
+* The maps assume levee failure or overtopping (design flood), present day only.
 """
 
 from __future__ import annotations
@@ -54,6 +63,54 @@ class DepthParams:
 
 
 DEFAULT_PARAMS = DepthParams()
+
+#: Published depth band (m) per class code; ``None`` = open upper bound. Order inferred.
+BANDS: dict[str, tuple[float, float | None]] = {
+    "N330": (0.0, 0.5),
+    "N331": (0.5, 1.0),
+    "N332": (1.0, 2.0),
+    "N333": (2.0, 5.0),
+    "N334": (5.0, None),
+}
+REPRESENTATIVE = ("lower", "mid", "upper")
+
+
+def representative_depth(code: str, mode: str = "mid", open_class_depth_m: float = 5.0) -> float:
+    """Depth (m) priced for an official class.
+
+    Algorithm:
+        $$h = \\begin{cases} a & \\text{lower} \\\\ (a+b)/2 & \\text{mid} \\\\ b & \\text{upper}
+        \\end{cases}, \\quad h_{N334} = h_{open}$$
+        ASCII: band [a, b]; lower = a, mid = (a + b) / 2, upper = b; the open class
+        (N334, >= 5 m, no b) is always h_open (default 5.0 m) whatever the mode.
+
+    Args:
+        code: ``SEG_CODE`` (N330–N334); empty string = outside every polygon.
+        mode: ``lower`` | ``mid`` | ``upper``.
+        open_class_depth_m: Depth used for the open class.
+
+    Returns:
+        Depth in metres; 0.0 for an empty code.
+
+    Raises:
+        ValueError: unknown mode or code.
+    """
+    if mode not in REPRESENTATIVE:
+        raise ValueError(f"unknown representative mode {mode!r}")
+    if not code:
+        return 0.0
+    if code not in BANDS:
+        raise ValueError(f"unknown depth class {code!r}")
+    lo, hi = BANDS[code]
+    if hi is None:
+        return float(open_class_depth_m)
+    return float({"lower": lo, "mid": (lo + hi) / 2, "upper": hi}[mode])
+
+
+def in_band(code: str, depth_m: float) -> bool:
+    """Whether ``depth_m`` lies inside the official band of ``code`` (bounds inclusive)."""
+    lo, hi = BANDS[code]
+    return depth_m >= lo and (hi is None or depth_m <= hi)
 
 
 # --------------------------------------------------------------------------- #
@@ -302,7 +359,257 @@ class Glo30Sampler:
 
 
 # --------------------------------------------------------------------------- #
-# Points → depth table                                                           #
+# Main method: official class at each point (no DEM)                            #
+# --------------------------------------------------------------------------- #
+class ClassIndex:
+    """Per map file, an in-memory STRtree over the exploded class-polygon parts.
+
+    Built lazily per file. Whole national-river files are huge, so nothing is merged,
+    repaired or prepared as a whole; parts are queried by bounding box and tested one by
+    one. Nothing is written to disk.
+    """
+
+    def __init__(self) -> None:
+        self._trees: dict[str, tuple[Any, np.ndarray, np.ndarray]] = {}
+
+    def tree(self, path: str) -> tuple[Any, np.ndarray, np.ndarray]:
+        if path not in self._trees:
+            import shapely
+
+            parts: list[np.ndarray] = []
+            codes: list[str] = []
+            for code, g in _read_polygons(path):
+                if g is None:
+                    continue
+                p = shapely.get_parts(g)
+                p = p[shapely.get_type_id(p) == 3]  # polygons only
+                parts.append(p)
+                codes += [code] * len(p)
+            arr = np.concatenate(parts) if parts else np.array([], dtype=object)
+            self._trees[path] = (shapely.STRtree(arr), arr, np.array(codes, dtype=object))
+        return self._trees[path]
+
+    def code_at(self, path: str, x: float, y: float) -> str:
+        """Deepest class code of ``path`` covering map-CRS point ``(x, y)``; '' if none."""
+        import shapely
+
+        tree, parts, codes = self.tree(path)
+        pt = shapely.Point(x, y)
+        best = ""
+        for j in tree.query(pt):
+            try:
+                if shapely.intersects(parts[j], pt):
+                    best = max(best, str(codes[j]))
+            except Exception:  # an invalid part: skip it rather than fail the run
+                continue
+        return best
+
+
+def class_for_return_period(rp: int, per_family: dict[str, dict[int, str]]) -> str:
+    """Deepest class at ``rp``; a family without ``rp`` lends its largest mapped RP ≤ ``rp``."""
+    vals: list[str] = []
+    for codes in per_family.values():
+        usable = [r for r in codes if r <= rp]
+        if usable:
+            vals.append(codes[max(usable)])
+    return max(vals) if vals else ""
+
+
+def classes_at_points(
+    points_lonlat: list[tuple[float, float]], index: list[dict[str, Any]], cidx: ClassIndex
+) -> dict[str, Any]:
+    """Official class per point and return period.
+
+    Returns:
+        ``{"codes": [[code per point] per RP], "rps", "file100": [map file of the 100-y
+        hit per point or None], "xy": (xs, ys) in the map CRS}``.
+    """
+    from pyproj import Transformer
+
+    to_map = Transformer.from_crs(4326, MAP_CRS, always_xy=True)
+    xs, ys = to_map.transform([p[0] for p in points_lonlat], [p[1] for p in points_lonlat])
+    per: list[dict[str, dict[int, str]]] = [{} for _ in points_lonlat]
+    file100: list[str | None] = [None] * len(points_lonlat)
+    for row in index:
+        x0, y0, x1, y1 = row["bounds"]
+        for i, (x, y) in enumerate(zip(xs, ys, strict=True)):
+            if not (x0 <= x <= x1 and y0 <= y <= y1):
+                continue
+            code = cidx.code_at(row["path"], x, y)
+            if not code:
+                continue
+            fam = per[i].setdefault(row["family"], {})
+            fam[row["rp"]] = max(fam.get(row["rp"], ""), code)
+            if row["rp"] == 100 and (file100[i] is None or row["family"] == "national"):
+                file100[i] = row["path"]
+    codes = [
+        [class_for_return_period(rp, per[i]) for i in range(len(per))] for rp in RETURN_PERIODS
+    ]
+    return {"codes": codes, "rps": list(RETURN_PERIODS), "file100": file100, "xy": (xs, ys)}
+
+
+def class_depths(
+    codes: list[list[str]], mode: str = "mid", open_class_depth_m: float = 5.0
+) -> dict[str, np.ndarray]:
+    """Representative, lower and upper depth arrays ``(n_rp, n_pt)`` for class codes.
+
+    ``upper`` is NaN for the open class (no published upper bound); outside = 0.
+    """
+    rep = np.array(
+        [[representative_depth(c, mode, open_class_depth_m) for c in row] for row in codes]
+    )
+    lo = np.array([[BANDS[c][0] if c else 0.0 for c in row] for row in codes])
+    hi = np.array(
+        [
+            [(np.nan if BANDS[c][1] is None else BANDS[c][1]) if c else 0.0 for c in row]
+            for row in codes
+        ]
+    )
+    return {"depth": rep, "lower": lo, "upper": hi}
+
+
+# --------------------------------------------------------------------------- #
+# Sub check: DEM edge depth against the official band (diagnostic only)         #
+# --------------------------------------------------------------------------- #
+class StrictSampler:
+    """Wraps a sampler: if any requested point has no value, every value is NaN.
+
+    Used for the bare-earth DEM so that a depth is computed from it only when it covers
+    the asset *and* all its edge samples; otherwise the check falls back to GLO-30.
+    """
+
+    def __init__(self, inner: Callable[[np.ndarray], np.ndarray]) -> None:
+        self.inner = inner
+
+    def __call__(self, xy: np.ndarray) -> np.ndarray:
+        v = self.inner(xy)
+        return v if np.isfinite(v).all() else np.full(len(xy), np.nan)
+
+
+class RasterSampler:
+    """Nearest-cell values of local rasters (any CRS) at map-CRS points; NaN outside."""
+
+    def __init__(self, paths_: list[Path]) -> None:
+        import rasterio
+        from pyproj import Transformer
+
+        self.ds = [rasterio.open(p) for p in paths_]
+        self.tf = [
+            Transformer.from_crs(MAP_CRS, d.crs if d.crs else MAP_CRS, always_xy=True)
+            for d in self.ds
+        ]
+
+    def __call__(self, xy: np.ndarray) -> np.ndarray:
+        xy = np.asarray(xy, dtype=float)
+        out = np.full(len(xy), np.nan)
+        for d, tf in zip(self.ds, self.tf, strict=True):
+            X, Y = tf.transform(xy[:, 0], xy[:, 1])
+            b = d.bounds
+            ok = (b.left <= X) & (b.right >= X) & (b.bottom <= Y) & (b.top >= Y) & ~np.isfinite(out)
+            if ok.any():
+                v = np.array(
+                    [s[0] for s in d.sample(list(zip(X[ok], Y[ok], strict=True)))], dtype=float
+                )
+                if d.nodata is not None:
+                    v[v == d.nodata] = np.nan
+                v[v < -100] = np.nan
+                out[ok] = v
+        return out
+
+    def close(self) -> None:
+        for d in self.ds:
+            d.close()
+
+
+def edge_depth(
+    x: float,
+    y: float,
+    classes: list[tuple[str, Any]],
+    dem: Callable[[np.ndarray], np.ndarray],
+    params: DepthParams = DEFAULT_PARAMS,
+) -> float:
+    """FwDET depth at a map-CRS point inside one map file's extent; NaN if not computable."""
+    half = 4 * params.radius_m
+    while half <= 64_000:
+        parts, border = local_extent(classes, x, y, half)
+        h, inside = depth_at_point(x, y, parts, dem, params, border)
+        if not inside or np.isfinite(h) or border is None:
+            return h if inside else float("nan")
+        half *= 2
+    return float("nan")
+
+
+def edge_check(
+    xs: Any,
+    ys: Any,
+    codes100: list[str],
+    file100: list[str | None],
+    dems: list[tuple[str, Callable[[np.ndarray], np.ndarray]]],
+    max_points: int = 200,
+    seed: int = 0,
+    params: DepthParams = DEFAULT_PARAMS,
+) -> list[tuple[str, float, str]]:
+    """``(class, edge depth, dem name)`` for up to ``max_points`` assets inside at 100 y.
+
+    ``dems`` is tried in order per point (e.g. strict bare earth, then GLO-30); the first
+    finite depth wins. Points are drawn with a seeded generator when there are more.
+    """
+    inside = [i for i, c in enumerate(codes100) if c and file100[i]]
+    if len(inside) > max_points:
+        rng = np.random.default_rng(seed)
+        inside = sorted(rng.choice(inside, size=max_points, replace=False).tolist())
+    out: list[tuple[str, float, str]] = []
+    cache: dict[str, list[tuple[str, Any]]] = {}
+    for i in inside:
+        path = str(file100[i])
+        if path not in cache:
+            cache[path] = _read_polygons(path)
+        for name, dem in dems:
+            h = edge_depth(float(xs[i]), float(ys[i]), cache[path], dem, params)
+            if np.isfinite(h):
+                out.append((codes100[i], float(h), name))
+                break
+        else:
+            out.append((codes100[i], float("nan"), ""))
+    return out
+
+
+def check_summary(
+    pairs: list[tuple[str, float, str]], min_n: int = 20, min_share: float = 0.35
+) -> dict[str, Any]:
+    """Agreement of the edge depth with the official band; ``warn`` per the documented rule.
+
+    Warn when at least ``min_n`` points have a finite check depth and either the share
+    inside the band is below ``min_share`` or the class medians are not monotonic.
+    """
+    ok = [(c, h, d) for c, h, d in pairs if c and np.isfinite(h)]
+    n = len(ok)
+    share = float(np.mean([in_band(c, h) for c, h, _ in ok])) if n else None
+    mono = class_monotonic([(c, h) for c, h, _ in ok], rising_only=True)
+    dem_counts: dict[str, int] = {}
+    for _, _, d in ok:
+        dem_counts[d] = dem_counts.get(d, 0) + 1
+    reasons = []
+    if n >= min_n and share is not None and share < min_share:
+        reasons.append(f"only {share:.0%} of check depths fall inside the official band")
+    if n >= min_n and mono["monotonic"] is False:
+        reasons.append("check-depth class medians are not monotonic")
+    return {
+        "method": "FwDET edge depth vs official depth band (diagnostic only)",
+        "n_points": n,
+        "n_not_computable": len(pairs) - n,
+        "share_in_band": None if share is None else round(share, 3),
+        "median_by_class": {k: round(v, 2) for k, v in mono["median_by_class"].items()},
+        "monotonic": mono["monotonic"],
+        "dem_used": dem_counts,
+        "warn": bool(reasons),
+        "warn_reason": "; ".join(reasons) or None,
+        "rule": f"warn if n >= {min_n} and (share < {min_share} or medians not monotonic)",
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Points → edge-depth table (the former main method, kept for analysis)          #
 # --------------------------------------------------------------------------- #
 def depths_at_points(
     points_lonlat: list[tuple[float, float]],
@@ -371,13 +678,16 @@ def depths_at_points(
     }
 
 
-def class_monotonic(class_check: list[tuple[str, float]], min_n: int = 5) -> dict[str, Any]:
+def class_monotonic(
+    class_check: list[tuple[str, float]], min_n: int = 5, rising_only: bool = False
+) -> dict[str, Any]:
     """Median edge depth per depth class; ``monotonic`` if it rises with the class code.
 
     The map's five classes are banded depths (≤0.5, 0.5–1, 1–2, 2–5, ≥5 m) whose code
     order is unpublished. If the edge depths sort the same way as the codes (either
-    direction), the two estimates agree on *ordering*; otherwise the cross-check warns.
-    Classes with fewer than ``min_n`` samples are left out.
+    direction, unless ``rising_only``: the order N330 shallowest … N334 deepest), the two
+    estimates agree on *ordering*; otherwise the cross-check warns. Classes with fewer than
+    ``min_n`` samples are left out.
     """
     by: dict[str, list[float]] = {}
     for code, h in class_check:
@@ -387,4 +697,5 @@ def class_monotonic(class_check: list[tuple[str, float]], min_n: int = 5) -> dic
     vals = list(med.values())
     up = all(a <= b for a, b in pairwise(vals))
     down = all(a >= b for a, b in pairwise(vals))
-    return {"median_by_class": med, "monotonic": (up or down) if len(vals) >= 3 else None}
+    ok = up if rising_only else (up or down)
+    return {"median_by_class": med, "monotonic": ok if len(vals) >= 3 else None}

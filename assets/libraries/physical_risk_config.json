@@ -55,6 +55,14 @@
     "bbox_snap_deg": 0.5,
     "note": "Models-tab coastal flood (CF) = WRI Aqueduct Floods v2 inuncoast GeoTIFFs. Future layers use the 50th-percentile sea-level-rise projection (Aqueduct token 0_perc_50; the bare 0 is the 95th); historical layers carry no SLR percentile. wtsub = with land subsidence. The portfolio bbox is padded and snapped outward so nearby portfolios reuse one cached read."
   },
+  "flood_map": {
+    "depth_representative": "mid",
+    "open_class_depth_m": 5.0,
+    "check_max_points": 200,
+    "check_min_points": 20,
+    "check_min_share_in_band": 0.35,
+    "note": "Models-tab Korea-local river flood (RF, KOREA_LOCAL) = 환경부 홍수위험지도 official depth class at each asset. Bands N330 ≤0.5, N331 0.5–1, N332 1–2, N333 2–5, N334 ≥5 m (code order inferred, not officially confirmed). depth_representative lower|mid|upper picks the priced depth inside the band; the open ≥5 m class always uses open_class_depth_m. The DEM edge-depth sub check runs on up to check_max_points inside assets and warns when n ≥ check_min_points and the share inside the band is below check_min_share_in_band (provisional: observed 0.45 rural GLO-30, 0.45 east Seoul bare earth, 0.28–0.30 Seoul GLO-30) or the class medians are not monotonic."
+  },
   "flood_protection": {
     "enabled": true,
     "presumed_defended_return_period_years": 2,

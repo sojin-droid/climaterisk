@@ -653,23 +653,36 @@ class _NotImplementedAdapter:
 
 
 class KoreaLocalFloodAdapter:
-    """River flood from the 환경부 홍수위험지도 extent + GLO-30 depth at each asset (tier T2).
+    """River flood from the 환경부 홍수위험지도 official depth classes at each asset (tier T2).
 
-    The official maps carry extent only; depth at an asset inside the extent is the median
-    ground elevation of the nearby flood edge minus the asset's ground elevation
-    (:mod:`climaterisk_worker.floodmap_depth`, FwDET method). Centroids are the asset
-    points themselves: the polygons are overlaid, never rasterised (공공누리 제4유형;
-    nonprofit internal use, user decision 2026-11-13). One event per return period
-    (100 / 200 / 500 y) with incremental exceedance frequencies, so floods more frequent
-    than 100 y are not represented — the EAL is a lower bound on that side.
+    Main method: the deepest official depth class covering the asset, priced at a
+    representative depth of its published band (``flood_map.depth_representative``, band
+    midpoint by default; the open ≥5 m class at ``flood_map.open_class_depth_m``). No DEM.
+    Sub check (diagnostic only, never changes the hazard): the FwDET edge depth on a sample
+    of inside assets, compared with the band (:mod:`climaterisk_worker.floodmap_depth`).
+
+    Centroids are the asset points themselves: the polygons are overlaid in memory, never
+    rasterised or written (공공누리 제4유형; nonprofit internal use, user decision
+    2026-11-13). One event per return period (100 / 200 / 500 y) with incremental
+    exceedance frequencies, so floods more frequent than 100 y are not represented — the
+    EAL is a lower bound on that side.
     """
 
     model_id = ModelId.KOREA_LOCAL.value
     status = READY
     hazard_type = "RF"
+    dataset = "floodmap_rfm_depth_class"
 
     def __init__(self, scenario: str, year: int, iso3: str | None = "KOR") -> None:
+        from climaterisk.physical_risk.metrics import load_config
+
+        cfg = load_config().get("flood_map", {})
         self.scenario, self.year, self.iso3 = scenario, int(year), iso3
+        self.mode = str(cfg.get("depth_representative", "mid"))
+        self.open_depth = float(cfg.get("open_class_depth_m", 5.0))
+        self.check_max = int(cfg.get("check_max_points", 200))
+        self.check_min_n = int(cfg.get("check_min_points", 20))
+        self.check_min_share = float(cfg.get("check_min_share_in_band", 0.35))
         self.diagnostics: dict[str, Any] = {}
 
     def describe(self) -> HazardDescription:
@@ -678,21 +691,22 @@ class KoreaLocalFloodAdapter:
             model_id=self.model_id,
             status=self.status,
             hazard_source=(
-                "환경부 홍수위험지도 하천범람지도 (국가하천 100/200/500 y, 지방하천 100 y) "
-                "extent overlaid on the assets; depth = flood-edge ground elevation minus asset "
-                "ground (Copernicus GLO-30, FwDET method). 출처: 환경부 (공공누리 제4유형)"
+                "환경부 홍수위험지도 하천범람지도 (국가하천 100/200/500 y, 지방하천 100 y): "
+                f"official depth class at each asset, priced at the band {self.mode} "
+                f"(open ≥5 m class at {self.open_depth:g} m). 출처: 환경부 (공공누리 제4유형)"
             ),
-            hazard_dataset="floodmap_rfm_extent__glo30_edge_depth",
+            hazard_dataset=self.dataset,
             hazard_data_version="홍수위험지도 download 2026-02 (map files dated 2026-02-09)",
             hazard_country=self.iso3,
             requested_scenario=self.scenario,
             served_scenario="historical",
             time_horizon="present",
             detail=(
-                "method tier T2. Present-day maps only (no climate scenario). Depth is "
-                "conservative-low in built-up areas (GLO-30 is a surface model); assets "
-                "outside the mapped reaches read 0 m; 지방하천 100-y depth carried to 200/500 y "
-                "as a lower bound; no event below 100 y"
+                "method tier T2. Depth = official class band (≤0.5 / 0.5–1 / 1–2 / 2–5 / ≥5 m; "
+                "code order inferred, not officially confirmed). Sub check: DEM edge depth vs "
+                "the band, diagnostic only. Present-day design-flood maps (levee failure "
+                "assumed), no climate scenario; assets outside the mapped reaches read 0 m; "
+                "지방하천 100-y class carried to 200/500 y as a lower bound; no event below 100 y"
             ),
         )
 
@@ -717,16 +731,14 @@ class KoreaLocalFloodAdapter:
         if not root.is_dir():
             raise HazardUnavailable(f"홍수위험지도 not found under {root}")
         index = fd.map_index(root, paths.cache_dir("floodmap", "rfm_index.json"))
-        dem = fd.Glo30Sampler(paths.external_dir("copernicus_dem"), allow_download=not offline())
-        try:
-            res = fd.depths_at_points([(lon, lat) for lat, lon in points], index, dem)
-        finally:
-            dem.close()
-        depth = np.nan_to_num(res["depth"], nan=0.0)  # DEM gaps counted in diagnostics first
+        res = fd.classes_at_points([(lon, lat) for lat, lon in points], index, fd.ClassIndex())
+        dep = fd.class_depths(res["codes"], self.mode, self.open_depth)
+        depth = dep["depth"]
         self.diagnostics = {
-            "inside_dry": res["inside_dry"],
-            "dem_gap": res["dem_gap"],
-            "class_check": fd.class_monotonic(res["class_check"]),
+            "classes": {f"rp{rp}": row for rp, row in zip(res["rps"], res["codes"], strict=True)},
+            "depth_lower_m": dep["lower"].tolist(),
+            "depth_upper_m": [[None if np.isnan(v) else v for v in r] for r in dep["upper"]],
+            "sub_check": self._check(res, fd, paths, offline),
         }
         rps = [int(r) for r in res["rps"]]
         lat = np.array([p[0] for p in points], dtype=float)
@@ -746,6 +758,33 @@ class KoreaLocalFloodAdapter:
         hazard.check()
         return hazard
 
+    def _check(self, res: dict[str, Any], fd: Any, paths: Any, offline: Any) -> dict[str, Any]:
+        """The DEM edge-depth sub check; any failure is reported, never raised."""
+        try:
+            dems: list[tuple[str, Any]] = []
+            bare = sorted(paths.external_dir("ngii_dem").glob("**/*.img"))
+            bare_s = fd.RasterSampler(bare) if bare else None
+            if bare_s is not None:
+                dems.append(("ngii_bare_earth_90m", fd.StrictSampler(bare_s)))
+            glo = fd.Glo30Sampler(
+                paths.external_dir("copernicus_dem"), allow_download=not offline()
+            )
+            dems.append(("glo30_surface_model", glo))
+            try:
+                xs, ys = res["xy"]
+                pairs = fd.edge_check(xs, ys, res["codes"][0], res["file100"], dems, self.check_max)
+            finally:
+                glo.close()
+                if bare_s is not None:
+                    bare_s.close()
+            return fd.check_summary(pairs, self.check_min_n, self.check_min_share)
+        except Exception as exc:
+            return {
+                "method": "FwDET edge depth vs official depth band (diagnostic only)",
+                "error": f"{type(exc).__name__}: {exc}",
+                "warn": None,
+            }
+
     def spatial_resolution(self, hazard: Any) -> dict[str, Any] | None:
         """Point overlay: the hazard is evaluated at each asset, not on a grid."""
         if hazard is None:
@@ -753,10 +792,10 @@ class KoreaLocalFloodAdapter:
         return resolution_record(
             1.0,
             "arcsec",
-            "asset point (DEM pixel for depth)",
-            source="Copernicus GLO-30 pixel (1 arcsec); flood extent from the original polygons",
+            "asset point (official class polygon)",
+            source="official depth-class polygons overlaid at each asset point (no grid)",
             measured_deg=None,
-            dataset_family="floodmap_rfm_extent__glo30_edge_depth",
+            dataset_family=self.dataset,
         )
 
 
