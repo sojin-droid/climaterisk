@@ -47,6 +47,9 @@ worker/.climada_cache/
 
 # Env
 .env
+# Any other env file (e.g. .env.local) may hold keys; only the template is tracked.
+.env.*
+!.env.example
 
 # Analysis outputs (tc_capture_kr, …) — derived from observed loss data fetched at run
 # time; regenerate with the script that made them rather than committing the numbers.
