@@ -799,13 +799,241 @@ class KoreaLocalFloodAdapter:
         )
 
 
-class KoreaLocalCoastalFloodAdapter(_NotImplementedAdapter):
+class KoreaLocalCoastalFloodAdapter:
+    """Coastal flood as a connected bathtub at the 약최고고조면, per asset (tier T2, hazard-only).
+
+    Algorithm:
+        $$d = \\max(0,\\ Z_{AHHW} + s - z_{ground})\\ \\text{if the 90 m cell is tidal, else } 0$$
+        ASCII: depth = max(0, AHHW + slr - ground) when the asset's 90 m cell is sea-connected
+
+        where $Z_{AHHW}$ (m above MSL) is the nearest KHOA station's M2+S2+K1+O1 amplitude
+        sum, $s$ (m) the sea-level-rise increment and $z_{ground}$ (m above MSL) the asset
+        ground: bare-earth NGII DEM, else Copernicus GLO-30. Connectivity is
+        :func:`climaterisk_worker.coastal_connectivity.tidal_mask` on GLO-30 reduced to 3 arcsec
+        by the block minimum (structures narrower than ~90 m are removed).
+
+    The hazard is one event ("ahhw", present sea level) at the asset points; the +0.5 / +1.0 m
+    increments are reported in ``diagnostics`` only. No surge, no waves, no loss computed. The
+    sub check re-tests slr 0 on the block *maximum* (narrow structures kept) and flags assets
+    that are connected only because those structures are assumed to fail.
+    """
+
+    model_id = ModelId.KOREA_LOCAL.value
+    status = HAZARD_ONLY
     hazard_type = "CF"
-    source = "국립해양조사원 해안침수예상도 (adapter interface only)"
-    reason = (
-        "no domestic coastal-inundation dataset connected; the licence and access of the "
-        "국립해양조사원 해안침수예상도 have not been investigated"
-    )
+    dataset = "khoa_ahhw_connected_bathtub"
+    _KEYS = ("slr0", "slr0.5", "slr1")
+
+    def __init__(self, scenario: str, year: int, iso3: str | None = "KOR") -> None:
+        from climaterisk.physical_risk.metrics import load_config
+
+        cfg = load_config().get("coastal_local", {})
+        self.scenario, self.year, self.iso3 = scenario, int(year), iso3
+        self.pad_km = float(cfg.get("pad_km", 20.0))
+        self.slr = [float(v) for v in cfg.get("slr_increments_m", [0.0, 0.5, 1.0])]
+        self.diagnostics: dict[str, Any] = {}
+
+    def describe(self) -> HazardDescription:
+        return HazardDescription(
+            hazard_type=self.hazard_type,
+            model_id=self.model_id,
+            status=self.status,
+            hazard_source=(
+                "약최고고조면 (KHOA 조화상수 M2+S2+K1+O1) + 연결성 침수 (connected bathtub): "
+                "land below the nearest station's AHHW that is 8-connected to the sea on "
+                "Copernicus GLO-30 reduced to ~90 m. 출처: 국립해양조사원, ESA Copernicus"
+            ),
+            hazard_dataset=self.dataset,
+            hazard_data_version="KHOA 조화상수 2025-08-12; Copernicus GLO-30; SGIS 2025 2Q",
+            hazard_country=self.iso3,
+            requested_scenario=self.scenario,
+            served_scenario="historical",
+            time_horizon="present",
+            detail=(
+                "method tier T2, hazard only. Depth = max(0, AHHW - ground) where the asset's "
+                "90 m cell is sea-connected. Assumptions: coastal structures narrower than "
+                "~90 m (seawalls, levees) are removed; nearest-station AHHW; present-day tidal "
+                "datum; no storm surge and no waves; ground = bare-earth NGII DEM else GLO-30; "
+                "no loss computed"
+            ),
+        )
+
+    def load(
+        self,
+        bbox: tuple[float, float, float, float] | None = None,
+        points: list[tuple[float, float]] | None = None,
+    ) -> Any:
+        import math
+
+        import numpy as np
+        from climada.hazard import Hazard
+        from scipy import sparse
+
+        from climaterisk_worker import coastal_connectivity as cc
+        from climaterisk_worker._params import offline
+        from climaterisk_worker._paths import paths
+        from climaterisk_worker.hazard_convert import _centroids
+
+        if not points:
+            raise ValueError("the Korea-local coastal adapter reads asset points; none were given")
+        khoa = paths.external_dir("khoa", "tidebed_harmonics_20250812.csv")
+        shp = paths.external_dir("municipality", "sgis", "bnd_sido_00_2025_2Q.shp")
+        for need in (khoa, shp):
+            if not need.exists():
+                raise HazardUnavailable(f"coastal flood input not found: {need}")
+        stations = cc.load_stations(khoa)
+        lat = np.array([p[0] for p in points], dtype=float)
+        lon = np.array([p[1] for p in points], dtype=float)
+        pad_lat = self.pad_km / 111.32
+        pad_lon = pad_lat / math.cos(math.radians(float(lat.mean())))
+        try:
+            mos = cc.build_mosaic(
+                (
+                    float(lon.min()) - pad_lon,
+                    float(lat.min()) - pad_lat,
+                    float(lon.max()) + pad_lon,
+                    float(lat.max()) + pad_lat,
+                ),
+                allow_download=not offline(),
+            )
+        except cc.TerrainUnavailable as exc:
+            raise HazardUnavailable(str(exc)) from exc
+        sea = ~cc.land_mask(mos, shp) | np.isnan(mos.zmin)
+        base = cc.station_threshold_grid(mos, stations)
+        tidal = {
+            f"slr{inc:g}": cc.tidal_mask(mos.zmin, base + np.float32(inc), sea) for inc in self.slr
+        }
+        tidal_max = cc.tidal_mask(mos.zmax, base, sea)  # sub check: structures kept
+        ground, source = self._ground(lat, lon, paths, offline)
+        rows: list[dict[str, Any]] = []
+        for i in range(len(points)):
+            st = cc.nearest_station(float(lat[i]), float(lon[i]), stations)
+            cell = mos.cell(float(lat[i]), float(lon[i]))
+            g = ground[i]
+            depth: dict[str, float | None] = {}
+            connected: bool | None = None
+            for key in self._KEYS:
+                inc = float(key[3:])
+                if np.isnan(g) or cell is None or key not in tidal:
+                    depth[key] = None
+                    continue
+                is_sea = bool(sea[cell])  # an asset on a sea cell is already at the water
+                tid = bool(tidal[key][cell]) or is_sea
+                if key == "slr0":
+                    connected = tid
+                depth[key] = max(0.0, st["ahhw_m"] + inc - float(g)) if tid else 0.0
+            rows.append(
+                {
+                    "station": st["name"],
+                    "ahhw_m": float(st["ahhw_m"]),
+                    "ground_m": None if np.isnan(g) else float(g),
+                    "ground_source": source[i],
+                    "connected": connected,
+                    "depth_m": depth,
+                }
+            )
+        self.diagnostics = {
+            "assets": rows,
+            "sub_check": self._sub_check(rows, points, mos, tidal["slr0"], tidal_max, sea),
+        }
+        d0 = np.array(
+            [[np.nan if r["depth_m"]["slr0"] is None else r["depth_m"]["slr0"] for r in rows]]
+        )
+        hazard = Hazard(
+            haz_type="CF",
+            units="m",
+            centroids=_centroids(lat, lon),
+            event_id=np.array([1]),
+            event_name=["ahhw"],
+            date=np.zeros(1, dtype=int),
+            frequency=np.array([1.0]),
+            frequency_unit="1/year",
+            intensity=sparse.csr_matrix(d0),
+            fraction=sparse.csr_matrix(np.nan_to_num(d0 > 0).astype(float)),
+        )
+        hazard.check()
+        return hazard
+
+    @staticmethod
+    def _ground(lat: Any, lon: Any, paths: Any, offline: Any) -> tuple[Any, list[str | None]]:
+        """Asset ground (m above MSL): bare-earth NGII where it covers the point, else GLO-30."""
+        import numpy as np
+        from pyproj import Transformer
+
+        from climaterisk_worker import floodmap_depth as fd
+
+        to_map = Transformer.from_crs(4326, fd.MAP_CRS, always_xy=True)
+        xs, ys = to_map.transform(lon, lat)
+        xy = np.c_[xs, ys]
+        ground = np.full(len(xy), np.nan)
+        source: list[str | None] = [None] * len(xy)
+        bare = sorted(paths.external_dir("ngii_dem").glob("**/*.img"))
+        bare_s = fd.RasterSampler(bare) if bare else None
+        glo = fd.Glo30Sampler(paths.external_dir("copernicus_dem"), allow_download=not offline())
+        try:
+            for i in range(len(xy)):
+                one = xy[i : i + 1]
+                if bare_s is not None:
+                    v = fd.StrictSampler(bare_s)(one)[0]
+                    if np.isfinite(v):
+                        ground[i], source[i] = v, "ngii_bare_earth_90m"
+                        continue
+                v = glo(one)[0]
+                if np.isfinite(v):
+                    ground[i], source[i] = v, "glo30_surface_model"
+        finally:
+            glo.close()
+            if bare_s is not None:
+                bare_s.close()
+        return ground, source
+
+    @staticmethod
+    def _sub_check(
+        rows: list[dict[str, Any]],
+        points: list[tuple[float, float]],
+        mos: Any,
+        tidal_min: Any,
+        tidal_max: Any,
+        sea: Any,
+    ) -> dict[str, Any]:
+        """Diagnostic only: slr 0 repeated with narrow structures kept (block maximum)."""
+        main = with_structures = narrow = 0
+        for r, (la, lo) in zip(rows, points, strict=True):
+            cell = mos.cell(float(la), float(lo))
+            if cell is None or r["connected"] is None:
+                continue
+            on_min = bool(tidal_min[cell]) or bool(sea[cell])
+            on_max = bool(tidal_max[cell]) or bool(sea[cell])
+            main += on_min
+            with_structures += on_max
+            narrow += on_min and not on_max
+        out: dict[str, Any] = {
+            "method": "slr 0 connectivity on the 90 m block-maximum (narrow structures kept)",
+            "connected_main": int(main),
+            "connected_with_structures": int(with_structures),
+            "narrow_only": int(narrow),
+            "warn": narrow > 0,
+        }
+        if narrow > 0:
+            out["reason"] = (
+                f"{narrow} asset(s) depend on narrow defences: they are sea-connected only "
+                "when structures narrower than ~90 m (seawalls, levees) are removed; the main "
+                "result assumes those structures fail"
+            )
+        return out
+
+    def spatial_resolution(self, hazard: Any) -> dict[str, Any] | None:
+        """Point overlay of a 3 arcsec (~90 m) connectivity grid."""
+        if hazard is None:
+            return None
+        return resolution_record(
+            3.0,
+            "arcsec",
+            "asset point (90 m connectivity cell)",
+            source="GLO-30 block minimum at 3 arcsec; asset ground read at the point",
+            measured_deg=None,
+            dataset_family=self.dataset,
+        )
 
 
 class KoreaLocalTCAdapter(_NotImplementedAdapter):

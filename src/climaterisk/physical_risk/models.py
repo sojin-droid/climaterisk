@@ -98,11 +98,16 @@ READINESS: dict[str, dict[str, dict[str, str]]] = {
             ),
         },
         _K: {
-            "status": "NOT_IMPLEMENTED",
-            "hazard_source": "국립해양조사원 해안침수예상도 (adapter interface only)",
+            "status": "HAZARD_ONLY",
+            "hazard_source": (
+                "약최고고조면 (KHOA 조화상수 M2+S2+K1+O1) + 연결성 침수 (connected bathtub on "
+                "Copernicus GLO-30 at ~90 m)"
+            ),
             "detail": (
-                "adapter defined, no domestic coastal-inundation dataset connected; its "
-                "licence and access have not been investigated"
+                "method tier T2, hazard only: depth = max(0, AHHW - ground) where the asset's "
+                "90 m cell is 8-connected to the sea; structures narrower than ~90 m removed, "
+                "nearest station, present-day tidal datum, no surge, no waves, no loss computed. "
+                "Sub check keeps the structures and flags assets that depend on them"
             ),
         },
     },

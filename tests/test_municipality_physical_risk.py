@@ -224,7 +224,7 @@ def test_core_readiness_table_is_untouched_by_v02() -> None:
     assert HAZARD_KEYS == ("RF", "CF", "TC", "HEAT")
     assert {k: {m: c["status"] for m, c in v.items()} for k, v in READINESS.items()} == {
         "RF": {G: "READY", C: "READY", K: "READY"},
-        "CF": {G: "READY", C: "NO_HAZARD_DATA", K: "NOT_IMPLEMENTED"},
+        "CF": {G: "READY", C: "NO_HAZARD_DATA", K: "HAZARD_ONLY"},
         "TC": {G: "READY", C: "READY", K: "NOT_IMPLEMENTED"},
         "HEAT": {G: "NO_HAZARD_DATA", C: "NO_HAZARD_DATA", K: "HAZARD_ONLY"},
     }

@@ -96,7 +96,7 @@ def _hazard_intensity_at(hazard: Any, lat: float, lon: float) -> float | None:
     idx = int(np.argmin((lats - lat) ** 2 + (lons - lon) ** 2))
     column = hazard.intensity[:, idx]
     peak = float(column.max()) if column.nnz else 0.0
-    return peak
+    return None if np.isnan(peak) else peak  # NaN = unknown, never reported as 0
 
 
 def _potential_loss(impact: Any, return_period: float) -> tuple[float | None, str | None]:
@@ -142,6 +142,8 @@ def calculate(
     config: dict[str, Any] | None = None,
     event_losses: dict[str, Any] | None = None,
     defences: dict[str, Any] | None = None,
+    hazard_only: bool = False,
+    hazard_only_detail: str | None = None,
 ) -> ResultRow:
     """Price one facility against one hazard set, or say why it cannot be priced.
 
@@ -175,6 +177,11 @@ def calculate(
             ``frequent`` (per-centroid bool: the undefended cell floods at the most
             frequent return period → ``undefended_frequent_flooding``) and ``pump_info``
             (river flood: record the nearest located pump station and its 계획빈도).
+
+        hazard_only: The adapter produces a hazard but no loss model exists for it (e.g. the
+            Korea-local coastal flood): the intensity is recorded and the row is
+            ``HAZARD_ONLY`` with null money, as for heat.
+        hazard_only_detail: The row's ``status_detail`` for such a row.
 
     Returns:
         A finalised :class:`ResultRow`; financial fields are null unless the status is
@@ -236,6 +243,13 @@ def calculate(
 
     row.hazard_intensity = _hazard_intensity_at(hazard, lat, lon)
     row.hazard_intensity_unit = str(getattr(hazard, "units", "") or None)
+
+    if hazard_only and hazard_type not in HAZARD_ONLY_HAZARDS:
+        row.calculation_status = CalculationStatus.HAZARD_ONLY.value
+        row.status_detail = hazard_only_detail
+        row.impact_function_source = "none applied"
+        row.confidence = "hazard exposure only — no financial loss computed"
+        return row.finalise(cfg)
 
     if hazard_type in HAZARD_ONLY_HAZARDS:
         heat = registry.heat_status()

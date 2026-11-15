@@ -192,7 +192,12 @@ def _rows_for(
         resolution = None
         resolution_error = f"{type(exc).__name__}: {exc}"
     event_losses: dict[str, Any] | None = {} if curves is not None else None
-    hazard, defences = _with_defences(hazard, tag)
+    if desc.status == adapters.HAZARD_ONLY:
+        defences = (
+            None  # hazard-only sets are not priced; the design-return-period rule is not applied
+        )
+    else:
+        hazard, defences = _with_defences(hazard, tag)
     if defences is not None:
         record_defences = {
             "return_period_years": defences["national_return_period"],
@@ -208,6 +213,8 @@ def _rows_for(
             spatial_resolution=resolution,
             event_losses=event_losses,
             defences=defences,
+            hazard_only=desc.status == adapters.HAZARD_ONLY,
+            hazard_only_detail=desc.detail,
             **common,
         )
         for f in facilities

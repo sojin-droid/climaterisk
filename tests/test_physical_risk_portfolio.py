@@ -129,7 +129,7 @@ def test_recommended_models_follow_readiness_and_never_pick_an_unrunnable_cell()
     assert dc.recommended_models(readiness=trial) == {"RF": C}
     assert avail[K] == {
         "RF": "available",
-        "CF": "unavailable",
+        "CF": "hazard only",
         "TC": "unavailable",
         "HEAT": "hazard only",
     }
