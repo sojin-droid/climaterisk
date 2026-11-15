@@ -84,6 +84,24 @@ bands, sub-peril combination, pluvial absence) and **`docs/RISK_REGISTER.md`** (
 **Which parts are CLIMADA-native vs platform-custom, per peril and per component, is audited in
 `docs/CLIMADA_METHODS.md`** (2026-09-07).
 
+### Heat (HW), Korea-local tier T2 — open-field UTCI (trial, `heat_utci.enabled = false`)
+
+Hazard only (no loss). For each asset point: hourly KMA ASOS observations (air temperature,
+humidity, 10 m wind, global radiation `icsr`) of the nearest station with at least 15 valid
+years 2000-2019 (May-Sep); air temperature shifted by the 0.05 deg MK-PRISM v3.1 daily-maximum
+difference between the asset cell and the station cell, humidity recomputed at constant vapour
+pressure; mean radiant temperature by the ERA5-HEAT formula (Di Napoli et al. 2020; Erbs split
+of the radiation, Prata sky emissivity with a Crawford-Duchon cloud fraction, ground temperature
+$T_a + a + b\,G$ fitted on 2010-2019 observations); UTCI by `pythermalcomfort` 4.8.0 (Brode et al.
+2012). Headline = mean days per year with daily-max UTCI >= 38 degC, reported with the albedo
+0.15-0.25 sensitivity range (a range for one assumption, not a confidence interval). Assumptions
+A1-A6 are listed in `adapters.KoreaLocalUtciAdapter.describe()`; shade, buildings and indoors are
+not modelled (T3). Only the historical period is served. Sub check (diagnostic only): yearly rank
+agreement with grid heat days, heat days from the shifted hourly series vs the grid, station
+distance. Seoul 108 baseline: `tests/baselines/heat_utci_seoul108.json` (a regression guard, not
+a validation). Design: `<DATA_ROOT>/derived/design_utci/DESIGN_UTCI_T2.md`; code:
+`worker/climaterisk_worker/heat_utci.py`.
+
 ### Heat mortality — framework, custom parts and status
 
 **Model framework (CLIMADA).** The risk calculation uses CLIMADA as container and engine:
