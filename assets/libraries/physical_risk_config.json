@@ -70,6 +70,10 @@
     "slr_increments_m": [0.0, 0.5, 1.0],
     "note": "Models-tab Korea-local coastal flood (CF, KOREA_LOCAL) = connected bathtub at the KHOA 약최고고조면 (AHHW = M2+S2+K1+O1 amplitudes of the nearest station), hazard only. The terrain mosaic covers the assets' bounding box padded by pad_km; slr_increments_m are added to the datum and reported in diagnostics (the hazard event is the present-day datum, increment 0). No loss is computed."
   },
+  "pluvial_local": {
+    "trace_buffer_m": 20.0,
+    "note": "Models-tab Korea-local urban pluvial flood (PF, KOREA_LOCAL) = 환경부 홍수위험지도 100-y 도시침수지도 official depth class at each asset, hazard only (the depth band and sub check use the flood_map settings). The 서울시 침수흔적도 2010–2025 validation counts a trace when its polygon lies within trace_buffer_m of the asset; it is a diagnostic and issues no verdict because a 100-y map against observed events is not like-for-like."
+  },
   "flood_protection": {
     "enabled": true,
     "presumed_defended_return_period_years": 2,

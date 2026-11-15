@@ -25,7 +25,13 @@ from climaterisk.physical_risk.models import HAZARD_TAGS, READINESS, readiness
 from climaterisk.physical_risk.results_table import comparison_frame
 
 #: Deterministic hazard reads and loss shares per hazard tag.
-_INTENSITY = {"RF": (1.5, "m"), "CF": (0.8, "m"), "TC": (45.0, "m/s"), "HW": (36.2, "degC")}
+_INTENSITY = {
+    "RF": (1.5, "m"),
+    "PF": (1.5, "m"),
+    "CF": (0.8, "m"),
+    "TC": (45.0, "m/s"),
+    "HW": (36.2, "degC"),
+}
 _EAL_SHARE = {"RF": 0.002, "CF": 0.0001, "TC": 0.0005}
 
 

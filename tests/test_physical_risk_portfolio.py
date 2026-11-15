@@ -106,7 +106,7 @@ def test_display_copy_quotes_the_configured_thresholds() -> None:
 
 def test_recommended_models_follow_readiness_and_never_pick_an_unrunnable_cell() -> None:
     rec = dc.recommended_models()
-    assert rec == {"RF": K, "CF": G, "TC": C, "HEAT": K}
+    assert rec == {"RF": K, "PF": K, "CF": G, "TC": C, "HEAT": K}
     # a registry where local flood is READY flips the recommendation without code changes
     table = {
         "RF": {G: {"status": "READY"}, C: {"status": "READY"}, K: {"status": "READY"}},
@@ -129,6 +129,7 @@ def test_recommended_models_follow_readiness_and_never_pick_an_unrunnable_cell()
     assert dc.recommended_models(readiness=trial) == {"RF": C}
     assert avail[K] == {
         "RF": "available",
+        "PF": "hazard only",
         "CF": "hazard only",
         "TC": "unavailable",
         "HEAT": "hazard only",

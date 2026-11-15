@@ -20,13 +20,15 @@ from typing import Any
 from climaterisk.physical_risk.metrics import MODEL_DEFINITIONS, ModelId
 
 #: Hazard keys of the readiness table. ``RF`` is river flood, ``CF`` coastal flood (WRI
-#: Aqueduct, added 2026-10-14). ``HEAT`` covers both CLIMADA tags the platform uses for
+#: Aqueduct, added 2026-10-14), ``PF`` Korea-local urban pluvial flood (도시침수지도, hazard
+#: only, added 2026-11-15). ``HEAT`` covers both CLIMADA tags the platform uses for
 #: heat (``HW`` season-p95 Tmax, ``HM`` exceedance degree-days).
-HAZARD_KEYS: tuple[str, ...] = ("RF", "CF", "TC", "HEAT")
+HAZARD_KEYS: tuple[str, ...] = ("RF", "PF", "CF", "TC", "HEAT")
 
 #: CLIMADA hazard tags each key maps to.
 HAZARD_TAGS: dict[str, tuple[str, ...]] = {
     "RF": ("RF",),
+    "PF": ("PF",),
     "CF": ("CF",),
     "TC": ("TC",),
     "HEAT": ("HW", "HM"),
@@ -72,6 +74,44 @@ READINESS: dict[str, dict[str, dict[str, str]]] = {
                 "scenarios multiply every event frequency by one national ISIMIP change factor "
                 "(per-시도 factors are a diagnostic sub check); same impact function as the "
                 "other models"
+            ),
+        },
+    },
+    "PF": {
+        _G: {
+            "status": "NO_HAZARD_DATA",
+            "hazard_source": (
+                "none — no pluvial hazard in the CLIMADA Data API / global reference"
+            ),
+            "detail": (
+                "no pluvial hazard in the CLIMADA Data API / global reference (the platform "
+                "has no global surface-water layer either); nothing to fetch"
+            ),
+        },
+        _C: {
+            "status": "NO_HAZARD_DATA",
+            "hazard_source": (
+                "none — no pluvial hazard in the CLIMADA Data API / global reference"
+            ),
+            "detail": (
+                "no pluvial hazard in the CLIMADA Data API / global reference (the live type "
+                "list has no pluvial type); nothing to fetch"
+            ),
+        },
+        _K: {
+            "status": "HAZARD_ONLY",
+            "hazard_source": (
+                "환경부 홍수위험지도 100년 빈도 도시침수지도 (CFM_SBSN, 유역별): official depth "
+                "class at each asset. 출처: 환경부 (공공누리 제4유형, overlay only)"
+            ),
+            "detail": (
+                "method tier T2, hazard only: one 100-year event (no other return period), depth "
+                "= the class band's representative value (config flood_map); the SEG_CODE "
+                "N330–N334 ↔ band order is inferred from the river maps, not confirmed; the "
+                "DEM edge depth is a diagnostic sub check; the 서울시 침수흔적도 2010–2025 is "
+                "a validation (diagnostic, Seoul assets only, not like-for-like with a 100-y "
+                "map); present-day only, no climate scenario; no loss computed; polygons are "
+                "overlaid in memory only (공공누리 제4유형)"
             ),
         },
     },

@@ -40,8 +40,8 @@ import type {
  */
 
 const MODELS = ["GLOBAL_BASELINE", "DATA_API_COUNTRY", "KOREA_LOCAL"] as const;
-const HAZARD_KEYS = ["RF", "CF", "TC", "HEAT"] as const;
-const TAG_OF: Record<string, string> = { RF: "RF", CF: "CF", TC: "TC", HEAT: "HW" };
+const HAZARD_KEYS = ["RF", "PF", "CF", "TC", "HEAT"] as const;
+const TAG_OF: Record<string, string> = { RF: "RF", PF: "PF", CF: "CF", TC: "TC", HEAT: "HW" };
 const LOCAL_FIRST = ["KOREA_LOCAL", "DATA_API_COUNTRY", "GLOBAL_BASELINE"];
 const PAGE = 25;
 type Target = "MUNICIPALITY" | "FACILITY";
@@ -849,7 +849,7 @@ export function ModelsView({ model }: { model: Portfolio }) {
               .map(
                 (h) =>
                   `${display?.hazard_label[h] ?? h} → ${display?.scope_short[recommended[h]] ?? "—"}${
-                    h === "HEAT" ? " (hazard only)" : ""
+                    h === "HEAT" || h === "PF" ? " (hazard only)" : ""
                   }`,
               )
               .join(" · ")}
@@ -1591,7 +1591,9 @@ function PointDetail({
               <div className="hint" style={{ marginTop: 6 }}>
                 {h === "HEAT"
                   ? "Korea Local: hazard available (KMA TAMAX) · financial comparison unavailable — no applicable CLIMADA Impact Function."
-                  : `Korea Local: not implemented for ${label}.`}
+                  : h === "PF"
+                    ? "Korea Local: official 100-year 도시침수지도 depth class · hazard only, no loss computed."
+                    : `Korea Local: not implemented for ${label}.`}
               </div>
 
               {/* Climate change multiplier */}

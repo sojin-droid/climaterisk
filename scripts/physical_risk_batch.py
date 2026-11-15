@@ -142,6 +142,10 @@ _HAZARD_ALIASES = {
     "flood": "RF",
     "rf": "RF",
     "river_flood": "RF",
+    "pluvial": "PF",
+    "urban_pluvial": "PF",
+    "urban_flood": "PF",
+    "pf": "PF",
     "coastal": "CF",
     "coastal_flood": "CF",
     "cf": "CF",
@@ -173,13 +177,15 @@ def _split(tokens: list[str]) -> list[str]:
 
 
 def parse_hazards(tokens: list[str]) -> list[str]:
-    """Hazard keys from user words (``flood``, ``coastal``, ``typhoon``, ``heatwave``, or
-    RF/CF/TC/HEAT)."""
+    """Hazard keys from user words (``flood``, ``pluvial``, ``coastal``, ``typhoon``,
+    ``heatwave``, or RF/PF/CF/TC/HEAT)."""
     out: list[str] = []
     for t in _split(tokens):
         key = _HAZARD_ALIASES.get(t.lower(), t.upper())
-        if key not in ("RF", "CF", "TC", "HEAT"):
-            raise ValueError(f"unknown hazard {t!r}; use flood, coastal, typhoon or heatwave")
+        if key not in ("RF", "PF", "CF", "TC", "HEAT"):
+            raise ValueError(
+                f"unknown hazard {t!r}; use flood, pluvial, coastal, typhoon or heatwave"
+            )
         if key not in out:
             out.append(key)
     return out
@@ -239,7 +245,8 @@ def main(argv: list[str] | None = None) -> int:
         "--hazards",
         nargs="+",
         default=["flood", "coastal", "typhoon", "heatwave"],
-        help="flood coastal typhoon heatwave (comma or space separated; RF/CF/TC/HEAT too)",
+        help="flood pluvial coastal typhoon heatwave (comma or space separated; "
+        "RF/PF/CF/TC/HEAT too)",
     )
     ap.add_argument(
         "--models",

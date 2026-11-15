@@ -43,12 +43,16 @@ from typing import Any
 
 import numpy as np
 
-#: Map families: folder name per (family, return period). 도시침수 (CFM) is pluvial and
-#: belongs to a separate peril, so it is not used here.
+#: River map families: folder name per (family, return period). 도시침수 (CFM) is pluvial and
+#: is read by the separate urban-pluvial adapter through :data:`URBAN_FAMILIES`
+#: (``KoreaLocalPluvialAdapter``), never mixed into these.
 FAMILIES: dict[str, dict[int, str]] = {
     "national": {rp: f"유역별_{rp}년_빈도_국가하천_하천범람지도" for rp in (100, 200, 500)},
     "local": {100: "유역별_100년_빈도_지방하천_하천범람지도"},
 }
+#: 도시침수지도 (CFM_SBSN_<basin>_100.zip, 100 y only). Same ``SEG_CODE`` classes as the river
+#: maps; their code ↔ band order is taken from the river maps (inferred, not confirmed).
+URBAN_FAMILIES: dict[str, dict[int, str]] = {"urban": {100: "유역별_100년_빈도_도시침수지도"}}
 RETURN_PERIODS = (100, 200, 500)
 MAP_CRS = 5186  # Korea 2000 / Central Belt 2010 — the maps' own CRS
 
@@ -230,14 +234,21 @@ def _shp_bounds(zpath: Path) -> tuple[float, float, float, float] | None:
     return xmin, ymin, xmax, ymax
 
 
-def map_index(root: Path, cache: Path | None = None) -> list[dict[str, Any]]:
-    """``[{path, family, rp, bounds}]`` for every map zip under ``root`` (cached as JSON)."""
+def map_index(
+    root: Path, cache: Path | None = None, families: dict[str, dict[int, str]] | None = None
+) -> list[dict[str, Any]]:
+    """``[{path, family, rp, bounds}]`` for every map zip under ``root`` (cached as JSON).
+
+    ``families`` defaults to the river maps (:data:`FAMILIES`); pass :data:`URBAN_FAMILIES`
+    for the 도시침수지도. Use a separate ``cache`` file per family set.
+    """
+    families = FAMILIES if families is None else families
     if cache is not None and cache.exists():
         rows: list[dict[str, Any]] = json.loads(cache.read_text(encoding="utf-8"))
         if all(Path(r["path"]).exists() for r in rows):
             return rows
     rows = []
-    for family, folders in FAMILIES.items():
+    for family, folders in families.items():
         for rp, folder in folders.items():
             for zp in sorted((root / folder).glob("*.zip")):
                 b = _shp_bounds(zp)

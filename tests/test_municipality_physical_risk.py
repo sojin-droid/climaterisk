@@ -153,7 +153,7 @@ def test_coverage_table_is_generated_from_the_registries() -> None:
     assert (
         [r["hazard_key"] for r in table]
         == list(cov.COVERAGE_KEYS)
-        == ["RF", "CF", "TC", "HEAT", "DROUGHT", "SLR"]
+        == ["RF", "PF", "CF", "TC", "HEAT", "DROUGHT", "SLR"]
     )
     by = {r["hazard_key"]: r for r in table}
     assert by["RF"]["Status"] == "READY" and by["RF"]["Financial Loss"] == "Available"
@@ -186,6 +186,7 @@ def test_coverage_lines_match_the_table() -> None:
     lines = cov.coverage_summary_lines()
     assert lines == [
         "✓ Flood — financial risk",
+        "✓ Urban Pluvial Flood — hazard only",
         "✓ Coastal Flood — financial risk",
         "✓ Tropical Cyclone — financial risk",
         "✓ Heatwave — hazard only",
@@ -221,14 +222,15 @@ def test_extended_hazards_carry_import_level_evidence() -> None:
 
 
 def test_core_readiness_table_is_untouched_by_v02() -> None:
-    assert HAZARD_KEYS == ("RF", "CF", "TC", "HEAT")
+    assert HAZARD_KEYS == ("RF", "PF", "CF", "TC", "HEAT")
     assert {k: {m: c["status"] for m, c in v.items()} for k, v in READINESS.items()} == {
         "RF": {G: "READY", C: "READY", K: "READY"},
+        "PF": {G: "NO_HAZARD_DATA", C: "NO_HAZARD_DATA", K: "HAZARD_ONLY"},
         "CF": {G: "READY", C: "NO_HAZARD_DATA", K: "HAZARD_ONLY"},
         "TC": {G: "READY", C: "READY", K: "NOT_IMPLEMENTED"},
         "HEAT": {G: "NO_HAZARD_DATA", C: "NO_HAZARD_DATA", K: "HAZARD_ONLY"},
     }
-    assert dc.recommended_models() == {"RF": K, "CF": G, "TC": C, "HEAT": K}
+    assert dc.recommended_models() == {"RF": K, "PF": K, "CF": G, "TC": C, "HEAT": K}
 
 
 def test_display_bundle_exposes_coverage_resolution_and_why() -> None:
@@ -236,7 +238,7 @@ def test_display_bundle_exposes_coverage_resolution_and_why() -> None:
     assert (
         b["hazard_label"]["DROUGHT"] == "Drought" and b["hazard_label"]["SLR"] == "Sea-level rise"
     )
-    assert set(b["why_unavailable"]) == {"HEAT", "DROUGHT", "SLR"}
+    assert set(b["why_unavailable"]) == {"PF", "HEAT", "DROUGHT", "SLR"}
     assert b["resolution_note"] == cov.RESOLUTION_NOTE
     assert b["municipality"]["status_short"]["NO_EXPOSURE_DATA"] == "No asset value"
     assert b["coverage_table"][0]["Hazard"] == "Flood"
@@ -605,6 +607,7 @@ def test_municipality_workbook_has_the_required_sheets_and_blank_unpriced_cells(
     cov_rows = list(cov_ws.iter_rows(min_row=2, values_only=True))
     assert [r[0] for r in cov_rows] == [
         "Flood",
+        "Urban Pluvial Flood",
         "Coastal Flood",
         "Tropical Cyclone",
         "Heatwave",
@@ -672,7 +675,7 @@ def test_municipalities_endpoint_and_readiness_bundle(client) -> None:  # type: 
     assert client.get("/api/libraries/municipalities?level=METROPOLITAN").json()["municipalities"]
     assert client.get("/api/libraries/municipalities?level=PLANET").status_code == 400
     ready = client.get("/api/libraries/physical-risk-models").json()
-    assert ready["display"]["coverage_table"][4]["Status"] == "NOT_READY"
+    assert ready["display"]["coverage_table"][5]["Status"] == "NOT_READY"
     assert ready["display"]["municipality"]["warning"] == mu.REPRESENTATIVE_POINT_WARNING
 
 

@@ -375,6 +375,7 @@ def export_frames(
 #: Hazard tags the portfolio views show, in column order, with their display names.
 PORTFOLIO_HAZARDS: tuple[tuple[str, str], ...] = (
     ("RF", "Flood"),
+    ("PF", "Urban Pluvial Flood"),
     ("CF", "Coastal Flood"),
     ("TC", "Typhoon"),
     ("HW", "Heatwave"),
@@ -382,8 +383,9 @@ PORTFOLIO_HAZARDS: tuple[tuple[str, str], ...] = (
 
 #: Hazards a view shows only when the run assessed them. Coastal flood was added after
 #: results already existed (2026-10-14); a run without it should not grow a column of
-#: "Not assessed" nor count it in "n of m calculated".
-_OPTIONAL_VIEW_TAGS: frozenset[str] = frozenset({"CF"})
+#: "Not assessed" nor count it in "n of m calculated". Urban pluvial flood (PF, hazard-only,
+#: 2026-11-15) is optional for the same reason.
+_OPTIONAL_VIEW_TAGS: frozenset[str] = frozenset({"CF", "PF"})
 
 
 def view_hazards(

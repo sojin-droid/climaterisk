@@ -15,6 +15,8 @@ an adapter only answers *which dataset* and *what it actually is*:
   reads the global WRI Aqueduct Floods v2 coastal-inundation GeoTIFFs over the portfolio's
   bbox (:class:`GlobalCoastalFloodAdapter`), ``DATA_API_COUNTRY`` has no data and
   ``KOREA_LOCAL`` is an interface only.
+* Urban pluvial flood (``PF``) — only ``KOREA_LOCAL`` has data, the official 100-y 도시침수지도
+  (:class:`KoreaLocalPluvialAdapter`, hazard-only); the global and Data API cells have none.
 * ``KOREA_LOCAL`` — a domestic dataset through a dedicated adapter. For flood and TC the
   adapters exist with ``status = NOT_IMPLEMENTED`` and ``load()`` returns None: the
   환경부 홍수위험지도 licence and access are unresolved and no domestic TC set is on hand,
@@ -656,6 +658,45 @@ class _NotImplementedAdapter:
         return None
 
 
+def dem_edge_check(
+    res: dict[str, Any],
+    fd: Any,
+    paths: Any,
+    offline: Any,
+    check_max: int,
+    check_min_n: int,
+    check_min_share: float,
+) -> dict[str, Any]:
+    """The DEM edge-depth sub check of an official class map; a failure is reported, not raised.
+
+    Shared by the river (RF) and urban-pluvial (PF) Korea-local adapters: FwDET depth on up to
+    ``check_max`` inside assets (bare-earth NGII DEM where it covers, else GLO-30) against the
+    official band of the 100-y class. Diagnostic only.
+    """
+    try:
+        dems: list[tuple[str, Any]] = []
+        bare = sorted(paths.external_dir("ngii_dem").glob("**/*.img"))
+        bare_s = fd.RasterSampler(bare) if bare else None
+        if bare_s is not None:
+            dems.append(("ngii_bare_earth_90m", fd.StrictSampler(bare_s)))
+        glo = fd.Glo30Sampler(paths.external_dir("copernicus_dem"), allow_download=not offline())
+        dems.append(("glo30_surface_model", glo))
+        try:
+            xs, ys = res["xy"]
+            pairs = fd.edge_check(xs, ys, res["codes"][0], res["file100"], dems, check_max)
+        finally:
+            glo.close()
+            if bare_s is not None:
+                bare_s.close()
+        return fd.check_summary(pairs, check_min_n, check_min_share)
+    except Exception as exc:
+        return {
+            "method": "FwDET edge depth vs official depth band (diagnostic only)",
+            "error": f"{type(exc).__name__}: {exc}",
+            "warn": None,
+        }
+
+
 class KoreaLocalFloodAdapter:
     """River flood from the 환경부 홍수위험지도 official depth classes at each asset (tier T2).
 
@@ -923,30 +964,9 @@ class KoreaLocalFloodAdapter:
 
     def _check(self, res: dict[str, Any], fd: Any, paths: Any, offline: Any) -> dict[str, Any]:
         """The DEM edge-depth sub check; any failure is reported, never raised."""
-        try:
-            dems: list[tuple[str, Any]] = []
-            bare = sorted(paths.external_dir("ngii_dem").glob("**/*.img"))
-            bare_s = fd.RasterSampler(bare) if bare else None
-            if bare_s is not None:
-                dems.append(("ngii_bare_earth_90m", fd.StrictSampler(bare_s)))
-            glo = fd.Glo30Sampler(
-                paths.external_dir("copernicus_dem"), allow_download=not offline()
-            )
-            dems.append(("glo30_surface_model", glo))
-            try:
-                xs, ys = res["xy"]
-                pairs = fd.edge_check(xs, ys, res["codes"][0], res["file100"], dems, self.check_max)
-            finally:
-                glo.close()
-                if bare_s is not None:
-                    bare_s.close()
-            return fd.check_summary(pairs, self.check_min_n, self.check_min_share)
-        except Exception as exc:
-            return {
-                "method": "FwDET edge depth vs official depth band (diagnostic only)",
-                "error": f"{type(exc).__name__}: {exc}",
-                "warn": None,
-            }
+        return dem_edge_check(
+            res, fd, paths, offline, self.check_max, self.check_min_n, self.check_min_share
+        )
 
     def spatial_resolution(self, hazard: Any) -> dict[str, Any] | None:
         """Point overlay: the hazard is evaluated at each asset, not on a grid."""
@@ -1199,6 +1219,229 @@ class KoreaLocalCoastalFloodAdapter:
         )
 
 
+class KoreaLocalPluvialAdapter:
+    """Urban pluvial flood from the 환경부 100-y 도시침수지도 official class (tier T2, hazard-only).
+
+    Main method: the deepest official class of the 도시침수지도 (CFM_SBSN_<basin>_100.zip)
+    covering the asset, priced at the representative depth of its band (``flood_map`` config,
+    as the river maps; the ``SEG_CODE`` N330–N334 ↔ band order is inferred from the river
+    maps). One event, 100 y (frequency 0.01); an asset outside every polygon reads 0 m.
+    Present day only: every requested scenario is served ``historical``. No loss is computed.
+
+    Sub check (diagnostic): FwDET edge depth against the band, the river check
+    (:func:`dem_edge_check`). Validation (diagnostic, no verdict): per asset, the years and the
+    deepest depth of the 서울시 침수흔적도 2010–2025 within ``pluvial_local.trace_buffer_m``,
+    for assets inside 서울특별시 only (:mod:`climaterisk_worker.flood_traces`).
+
+    The polygons are overlaid in memory and never rasterised or written (공공누리 제4유형).
+    """
+
+    model_id = ModelId.KOREA_LOCAL.value
+    status = HAZARD_ONLY
+    hazard_type = "PF"
+    dataset = "floodmap_cfm_depth_class"
+    SIDO_SHP = "bnd_sido_00_2025_2Q.shp"
+    SEOUL = "서울특별시"
+
+    def __init__(self, scenario: str, year: int, iso3: str | None = "KOR") -> None:
+        from climaterisk.physical_risk.metrics import load_config
+
+        cfg = load_config()
+        fm, pl = cfg.get("flood_map", {}), cfg.get("pluvial_local", {})
+        self.scenario, self.year, self.iso3 = scenario, int(year), iso3
+        self.mode = str(fm.get("depth_representative", "mid"))
+        self.open_depth = float(fm.get("open_class_depth_m", 5.0))
+        self.check_max = int(fm.get("check_max_points", 200))
+        self.check_min_n = int(fm.get("check_min_points", 20))
+        self.check_min_share = float(fm.get("check_min_share_in_band", 0.35))
+        self.trace_buffer_m = float(pl.get("trace_buffer_m", 20.0))
+        self.diagnostics: dict[str, Any] = {}
+
+    def describe(self) -> HazardDescription:
+        return HazardDescription(
+            hazard_type=self.hazard_type,
+            model_id=self.model_id,
+            status=self.status,
+            hazard_source=(
+                "환경부 홍수위험지도 도시침수지도 (유역별 100년 빈도, CFM_SBSN): official depth "
+                f"class at each asset, priced at the band {self.mode} "
+                f"(open ≥5 m class at {self.open_depth:g} m). 출처: 환경부 (공공누리 제4유형)"
+            ),
+            hazard_dataset=self.dataset,
+            hazard_data_version="홍수위험지도 download 2026-02 (map files dated 2026-02-09)",
+            hazard_country=self.iso3,
+            requested_scenario=self.scenario,
+            served_scenario="historical",
+            time_horizon="present",
+            detail=(
+                "method tier T2, hazard only: 도시침수 depth = official class band of the 100-y "
+                "map (≤0.5 / 0.5–1 / 1–2 / 2–5 / ≥5 m; code order inferred from the river "
+                "maps, not confirmed), one 100-y event, no other return period. Sub check: DEM "
+                "edge depth vs the band, diagnostic only. Validation: 서울시 침수흔적도 "
+                "2010–2025 observed floods within "
+                f"{self.trace_buffer_m:g} m (Seoul assets only; diagnostic, not like-for-like "
+                "with a 100-y map). Present-day map, no climate scenario; assets outside the "
+                "mapped basins read 0 m; no loss computed"
+            ),
+        )
+
+    #: Last overlay ``(key, hazard, diagnostics)``: the baseline run repeats the same assets.
+    _memo: tuple[Any, Any, dict[str, Any]] | None = None
+
+    def load(
+        self,
+        bbox: tuple[float, float, float, float] | None = None,
+        points: list[tuple[float, float]] | None = None,
+    ) -> Any:
+        if not points:
+            raise ValueError("the Korea-local pluvial adapter reads asset points; none were given")
+        key = (
+            tuple((float(a), float(b)) for a, b in points),
+            self.mode,
+            self.open_depth,
+            self.trace_buffer_m,
+        )
+        memo = KoreaLocalPluvialAdapter._memo
+        if memo is not None and memo[0] == key:
+            self.diagnostics = copy.deepcopy(memo[2])
+            return copy.deepcopy(memo[1])
+        hazard = self._map_hazard(points)
+        KoreaLocalPluvialAdapter._memo = (
+            key,
+            copy.deepcopy(hazard),
+            copy.deepcopy(self.diagnostics),
+        )
+        return hazard
+
+    def _map_hazard(self, points: list[tuple[float, float]]) -> Any:
+        """The 100-y map hazard at the asset points; sets the diagnostics."""
+        import numpy as np
+        from climada.hazard import Hazard
+        from scipy import sparse
+
+        from climaterisk_worker import floodmap_depth as fd
+        from climaterisk_worker._params import offline
+        from climaterisk_worker._paths import paths
+        from climaterisk_worker.hazard_convert import _centroids
+
+        root = paths.floodmap_dir()
+        if not root.is_dir():
+            raise HazardUnavailable(f"홍수위험지도 not found under {root}")
+        index = fd.map_index(
+            root, paths.cache_dir("floodmap", "cfm_index.json"), families=fd.URBAN_FAMILIES
+        )
+        if not index:
+            raise HazardUnavailable(f"도시침수지도 (CFM) files not found under {root}")
+        lonlat = [(lon, lat) for lat, lon in points]
+        res = fd.classes_at_points(lonlat, index, fd.ClassIndex())
+        codes = [res["codes"][0]]  # the 100-y row
+        dep = fd.class_depths(codes, self.mode, self.open_depth)
+        depth = dep["depth"]
+        self.diagnostics = {
+            "classes": {"rp100": codes[0]},
+            "depth_lower_m": dep["lower"].tolist(),
+            "depth_upper_m": [[None if np.isnan(v) else v for v in r] for r in dep["upper"]],
+            "sub_check": dem_edge_check(
+                res,
+                fd,
+                paths,
+                offline,
+                self.check_max,
+                self.check_min_n,
+                self.check_min_share,
+            ),
+        }
+        self._validate(lonlat, depth[0] > 0, paths)
+        lat = np.array([p[0] for p in points], dtype=float)
+        lon = np.array([p[1] for p in points], dtype=float)
+        hazard = Hazard(
+            haz_type="PF",
+            units="m",
+            centroids=_centroids(lat, lon),
+            event_id=np.array([1]),
+            event_name=["rp100"],
+            date=np.zeros(1, dtype=int),
+            frequency=np.array([0.01]),
+            frequency_unit="1/year",
+            intensity=sparse.csr_matrix(depth),
+            fraction=sparse.csr_matrix((depth > 0).astype(float)),
+        )
+        hazard.check()
+        return hazard
+
+    def _validate(self, lonlat: list[tuple[float, float]], wet: Any, paths: Any) -> None:
+        """Observed 침수흔적도 per asset and the summary; a failure is recorded, never raised."""
+        from climaterisk_worker import flood_traces as ft
+
+        try:
+            shp = paths.external_dir("municipality", "sgis", self.SIDO_SHP)
+            root = paths.external_dir("seoul_flood_traces")
+            for need in (shp, root):
+                if not need.exists():
+                    raise FileNotFoundError(f"not found: {need}")
+            coverage = ft.region_coverage(shp, self.SEOUL)
+            observed = ft.observed_at_points(lonlat, root, coverage, self.trace_buffer_m)
+            self.diagnostics["observed"] = observed
+            self.diagnostics["validation"] = ft.validation_summary(wet, observed)
+        except Exception as exc:
+            logger.warning("pluvial validation skipped: %s: %s", type(exc).__name__, exc)
+            self.diagnostics["observed"] = None
+            self.diagnostics["validation"] = {
+                "error": f"{type(exc).__name__}: {exc}",
+                "note": "diagnostic only: the 서울시 침수흔적도 comparison could not be made",
+            }
+
+    def spatial_resolution(self, hazard: Any) -> dict[str, Any] | None:
+        """Point overlay: the hazard is evaluated at each asset, not on a grid."""
+        if hazard is None:
+            return None
+        return resolution_record(
+            1.0,
+            "arcsec",
+            "asset point (official class polygon)",
+            source="official 도시침수지도 depth-class polygons overlaid at each asset point",
+            measured_deg=None,
+            dataset_family=self.dataset,
+        )
+
+
+class _NoPluvialAdapter:
+    """Urban pluvial flood under GLOBAL_BASELINE / DATA_API_COUNTRY: no such hazard exists."""
+
+    status = NO_HAZARD_DATA
+    hazard_type = "PF"
+
+    def __init__(self, model_id: str, scenario: str | None = None) -> None:
+        self.model_id = model_id
+        self.scenario = scenario
+
+    def describe(self) -> HazardDescription:
+        why = "no pluvial hazard in the CLIMADA Data API / global reference"
+        return HazardDescription(
+            hazard_type=self.hazard_type,
+            model_id=self.model_id,
+            status=self.status,
+            hazard_source=f"none — {why}",
+            hazard_dataset=None,
+            hazard_data_version=None,
+            hazard_country=None,
+            requested_scenario=self.scenario,
+            served_scenario=None,
+            time_horizon=None,
+            detail=why,
+        )
+
+    def load(
+        self,
+        bbox: tuple[float, float, float, float] | None = None,
+        points: list[tuple[float, float]] | None = None,
+    ) -> None:
+        return None
+
+    def spatial_resolution(self, hazard: Any) -> dict[str, Any] | None:
+        return None
+
+
 class KoreaLocalTCAdapter(_NotImplementedAdapter):
     hazard_type = "TC"
     source = "국내 공식 태풍 자료 (adapter interface only)"
@@ -1363,6 +1606,10 @@ def adapter_for(hazard_type: str, model_id: str, scenario: str, year: int, iso3:
         table = {g: GlobalFloodAdapter, c: CountryFloodAdapter, k: KoreaLocalFloodAdapter}
     elif hazard_type == "TC":
         table = {g: GlobalTCAdapter, c: CountryTCAdapter, k: KoreaLocalTCAdapter}
+    elif hazard_type == "PF":
+        if model_id == k:
+            return KoreaLocalPluvialAdapter(scenario, year, iso3)
+        return _NoPluvialAdapter(model_id, scenario)
     elif hazard_type == "CF":
         if model_id == g:
             return GlobalCoastalFloodAdapter(scenario, year, iso3)
@@ -1383,8 +1630,8 @@ def adapter_for(hazard_type: str, model_id: str, scenario: str, year: int, iso3:
 
 def adapter_statuses() -> dict[str, dict[str, str]]:
     """Static status of every adapter, in the readiness table's shape — for the cross-check."""
-    out: dict[str, dict[str, str]] = {"RF": {}, "CF": {}, "TC": {}, "HEAT": {}}
-    for haz, key in (("RF", "RF"), ("CF", "CF"), ("TC", "TC"), ("HW", "HEAT")):
+    out: dict[str, dict[str, str]] = {"RF": {}, "PF": {}, "CF": {}, "TC": {}, "HEAT": {}}
+    for haz, key in (("RF", "RF"), ("PF", "PF"), ("CF", "CF"), ("TC", "TC"), ("HW", "HEAT")):
         for model in (m.value for m in ModelId):
             out[key][model] = adapter_for(haz, model, "rcp45", 2050, "KOR").status
     return out

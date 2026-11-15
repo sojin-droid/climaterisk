@@ -53,7 +53,7 @@ from climaterisk.physical_risk.models import readiness  # noqa: E402
 from climaterisk.physical_risk.results_table import comparison_frame  # noqa: E402
 
 #: Request ``hazards`` keys → CLIMADA tags this runner prices. ``HEAT`` = the heatwave layer.
-HAZARD_TAGS: dict[str, str] = {"RF": "RF", "CF": "CF", "TC": "TC", "HEAT": "HW"}
+HAZARD_TAGS: dict[str, str] = {"RF": "RF", "PF": "PF", "CF": "CF", "TC": "TC", "HEAT": "HW"}
 
 #: ``baseline_scenario`` value asking for the like-for-like present climate of each hazard.
 PRESENT_BASELINE = "present"
@@ -240,7 +240,7 @@ def compute_physical_risk_models(request: dict[str, Any]) -> dict[str, Any]:
 
     Request fields: ``facilities`` (``facility_id``, ``facility_name``, ``latitude``,
     ``longitude``, ``asset_value_usd``, ``asset_value_currency``, ``property_type``),
-    ``climate_scenario``, ``target_year``, optional ``hazards`` (subset of RF/CF/TC/HEAT),
+    ``climate_scenario``, ``target_year``, optional ``hazards`` (subset of RF/PF/CF/TC/HEAT),
     ``models`` (subset of the three ids), ``hazard_models`` (per-hazard model lists, e.g.
     Recommended mode's one model per hazard; overrides ``models`` for the hazards it names),
     ``country`` (ISO3) and ``baseline_scenario``

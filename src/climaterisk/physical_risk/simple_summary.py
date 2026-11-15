@@ -35,6 +35,7 @@ __all__ = ["HAZARD_LABELS_KO", "build_simple_summary"]
 #: Screen labels (display copy, not tunables).
 HAZARD_LABELS_KO: dict[str, str] = {
     "RF": "하천홍수",
+    "PF": "도시침수",
     "CF": "해안침수",
     "TC": "태풍",
     "HW": "폭염",
