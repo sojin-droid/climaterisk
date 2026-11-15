@@ -189,6 +189,10 @@ def run_info_frame(output: dict[str, Any]) -> list[dict[str, Any]]:
             check = delta.get("check") or {}
             if check.get("warn"):
                 lines.append((f"climate_delta.{tag}.sub_check_warning", check.get("warn_reason")))
+                if check.get("explanation"):
+                    lines.append(
+                        (f"climate_delta.{tag}.sub_check_explanation", check.get("explanation"))
+                    )
     for model, definition in MODEL_DEFINITIONS.items():
         lines.append((f"definition.{model}", definition))
     for hazard, cells in summary.items():

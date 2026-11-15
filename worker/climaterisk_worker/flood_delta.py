@@ -135,7 +135,8 @@ def regional_check(
     Returns:
         Record with ``weighted_factor``, ``national_factor``, ``n_assets``,
         ``n_assets_without_factor``, ``deviation``, ``tolerance``, ``warn`` (True / False /
-        None when no verdict is possible) and ``warn_reason``.
+        None when no verdict is possible), ``warn_reason`` and ``explanation`` (plain-language
+        reading of a warning, None otherwise).
     """
     vals = [by_region.get(r) for r in asset_regions]
     have = [v for v in vals if v is not None]
@@ -150,6 +151,7 @@ def regional_check(
         "deviation": None,
         "warn": None,
         "warn_reason": None,
+        "explanation": None,
     }
     if not have or national is None or national <= 0:
         return out
@@ -161,6 +163,12 @@ def regional_check(
             f"asset-weighted provincial factor {weighted:.2f} vs national {national:.2f} "
             f"({dev:+.0%}, tolerance ±{tol:.0%}): the national factor may not represent "
             "where the assets are"
+        )
+        out["explanation"] = (
+            "Diagnostic only: the headline keeps the national factor and this check never "
+            "changes a number. A 시도 factor rests on fewer ISIMIP cells and swings widely "
+            "when that 시도's present EAL is small; 시도 without a factor are left out. Read "
+            "it as a flag that the future change is uneven across regions, not as a correction."
         )
     return out
 
