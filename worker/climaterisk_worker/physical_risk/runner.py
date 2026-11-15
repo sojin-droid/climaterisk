@@ -215,6 +215,9 @@ def _rows_for(
     if curves is not None and event_losses is not None:
         curves.extend(_loss_curves(rows, event_losses, hazard.frequency, tag, common))
     record = {**desc.to_dict(), "spatial_resolution": resolution}
+    sub_check = (getattr(adapter, "diagnostics", None) or {}).get("sub_check")
+    if sub_check is not None:
+        record["sub_check"] = sub_check  # diagnostic only; never changes the rows
     if defences is not None:
         record["flood_protection"] = record_defences
     if resolution_error:

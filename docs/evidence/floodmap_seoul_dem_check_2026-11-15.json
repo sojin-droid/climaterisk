@@ -1,0 +1,39 @@
+{
+  "what": "Edge depth (FwDET) vs the official depth class in Seoul, by DEM",
+  "date": "2026-11-15",
+  "method": "Points inside the 100-year national-river extent; edge depth = median DEM elevation of the flood edge within 500 m minus ground at the point; share of points inside the class band; class medians.",
+  "results": {
+    "glo30_rural_120pts": {
+      "share_in_band": 0.45,
+      "monotonic": true
+    },
+    "glo30_seoul_han_193pts": {
+      "share_in_band": 0.28,
+      "monotonic": false,
+      "note": "up to 21 m in a 2-5 m class (surface model reads building tops)"
+    },
+    "ngii_bare_earth_east_seoul_153pts": {
+      "share_in_band": 0.45,
+      "monotonic": true,
+      "median_by_class_m": {
+        "N330": 0.14,
+        "N331": 0.32,
+        "N332": 0.99,
+        "N333": 1.67,
+        "N334": 5.58
+      },
+      "glo30_same_points": {
+        "share_in_band": 0.3,
+        "monotonic": false
+      }
+    },
+    "adapter_check_east_seoul_59pts": {
+      "share_in_band": 0.305,
+      "monotonic": false,
+      "dem": "ngii_bare_earth_90m",
+      "warn": true
+    }
+  },
+  "decision": "Main method = official class band; edge depth = diagnostic sub check (PR #56).",
+  "licence": "Summary statistics only; no polygon, clip or raster derived from the maps is stored."
+}

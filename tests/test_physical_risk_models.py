@@ -88,7 +88,7 @@ def test_exactly_three_canonical_model_ids_and_no_stray_strings() -> None:
 def test_readiness_table_is_the_brief_adjusted_to_the_code() -> None:
     r = readiness()
     assert r["models"] == [G, C, K]
-    assert r["summary"]["RF"] == {G: "READY", C: "READY", K: "NOT_IMPLEMENTED"}
+    assert r["summary"]["RF"] == {G: "READY", C: "READY", K: "READY"}
     assert r["summary"]["TC"] == {G: "READY", C: "READY", K: "NOT_IMPLEMENTED"}
     # heat: the Data API has no heat type and the platform has no global heat layer, so the
     # two Data API cells are NO_HAZARD_DATA (not the brief's illustrative HAZARD_ONLY)
@@ -343,16 +343,16 @@ def test_request_maps_assets_to_facilities_and_run_kind_is_a_sentinel() -> None:
 
 def test_readiness_route_and_table_route_exist(client) -> None:  # type: ignore[no-untyped-def]
     r = client.get("/api/libraries/physical-risk-models")
-    assert r.status_code == 200 and r.json()["summary"]["RF"][K] == "NOT_IMPLEMENTED"
+    assert r.status_code == 200 and r.json()["summary"]["RF"][K] == "READY"
     r = client.get("/api/session/nope/run/nope/physical-risk-table")
     assert r.status_code == 404
 
 
-def test_korea_local_flood_stays_unimplemented_while_the_licence_blocks_it() -> None:
-    """Phase 4 investigation: access is open, the licence is 공공누리 제4유형 — no adapter data."""
+def test_korea_local_flood_is_an_overlay_trial_under_the_licence() -> None:
+    """제4유형 maps: overlaid on asset points only (2026-11-13 decision), not yet the headline."""
     doc = (REPO / "docs" / "KOREA_FLOODMAP_INVESTIGATION.md").read_text(encoding="utf-8")
     assert "제4유형" in doc and "상업적 이용금지" in doc and "변경금지" in doc
-    assert "NOT_IMPLEMENTED" in doc and "구현은 하지 않았다" in doc
+    assert "2026-11-13" in doc and "겹쳐" in doc
     cell = READINESS["RF"][K]
-    assert cell["status"] == "NOT_IMPLEMENTED"
-    assert "제4유형" in cell["detail"] and "KOREA_FLOODMAP_INVESTIGATION" in cell["detail"]
+    assert cell["status"] == "READY" and cell["trial"] == "yes"
+    assert "제4유형" in cell["detail"] and "never rasterised" in cell["detail"]

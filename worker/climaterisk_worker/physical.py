@@ -1354,8 +1354,19 @@ def compute_physical_risk(request: dict[str, Any]) -> dict[str, Any]:
             )
             print(f"[{i}/{len(perils)}] peril '{peril}' → error: {exc}", flush=True)
 
+    import climaterisk_worker._paths  # noqa: F401  (puts src/ on sys.path)
+    from climaterisk.physical_risk.tiers import KOREA_SOURCED, method_tier_for
+
+    region: str | None = None
+    if any(r["status"] == "ok" and r["peril"] in KOREA_SOURCED for r in results):
+        # Same rule as the heat runners: stated country, else the assets' majority ISO3.
+        iso3s = _per_asset_iso3([a["lat"] for a in assets], [a["lon"] for a in assets])
+        region = options.get("country_iso3") or _majority_iso3(iso3s)
+
     for r in results:  # plain-language meaning per peril (disambiguates every 0 / error)
         r["interpretation"] = _interpret_result(r)
+        # Method tier (docs/TIERS.md): what the runner computed from, not what it may be used for.
+        r["method_tier"] = method_tier_for(r["peril"], region) if r["status"] == "ok" else None
 
     ok = [r for r in results if r["status"] == "ok"]
     if ok and len(ok) == len(results):
