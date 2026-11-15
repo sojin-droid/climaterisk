@@ -429,27 +429,45 @@ def _asset(**over: object) -> dict:
 def test_asset_check_all_agree() -> None:
     c = hu.asset_check(_asset(), CHECK)
     assert c["C1_rho"] == pytest.approx(1.0)
-    assert c["C1_ok"] is True and c["C2_ok"] is True and c["C3_ok"] is True
-    assert c["agree"] == "3/3" and c["warn"] is False
+    assert c["C1_ok"] is True and c["C3_ok"] is True
+    assert "C2_ok" not in c  # C2 is per station, not in the asset stamp
+    assert c["agree"] == "2/2" and c["warn"] is False
 
 
 def test_asset_check_far_station_warns() -> None:
     c = hu.asset_check(_asset(station_distance_km=60.0), CHECK)
-    assert c["C3_ok"] is False and c["agree"] == "2/3" and c["warn"] is True
+    assert c["C3_ok"] is False and c["agree"] == "1/2" and c["warn"] is True
     c = hu.asset_check(_asset(radiation_distance_km=80.0), CHECK)
     assert c["C3_ok"] is False
 
 
 def test_asset_check_constant_series_cannot_be_checked() -> None:
     c = hu.asset_check(_asset(heat_days_grid_by_year={2000 + i: 0.0 for i in range(20)}), CHECK)
-    assert c["C1_ok"] is None and c["agree"] == "2/2"
+    assert c["C1_ok"] is None and c["agree"] == "1/1"
 
 
-def test_asset_check_heat_day_floor() -> None:
-    # |4.5 - 2.0| = 2.5 > max(2, 0.3 * 2) = 2  -> warn
-    assert hu.asset_check(_asset(heat_days_shift=4.5, heat_days_grid=2.0), CHECK)["C2_ok"] is False
+def test_asset_check_ignores_shift_vs_grid_gap() -> None:
+    # a large hourly-vs-grid gap no longer warns the asset (it is a station memo)
+    c = hu.asset_check(_asset(heat_days_shift=1.0, heat_days_grid=20.0), CHECK)
+    assert c["warn"] is False
+
+
+def test_station_check_heat_day_floor() -> None:
+    out = hu.station_check(
+        {
+            108: {"name": "서울", "n_assets": 5, "heat_days_hourly": 4.5, "heat_days_grid": 2.0},
+            143: {"name": "대구", "n_assets": 2, "heat_days_hourly": 12.9, "heat_days_grid": 10.0},
+            90: {"name": "속초", "n_assets": 1, "heat_days_hourly": None, "heat_days_grid": 3.0},
+        },
+        CHECK,
+    )
+    assert [o["station_id"] for o in out] == [90, 108, 143]  # sorted by station id
+    by = {o["station_id"]: o for o in out}
+    # |4.5 - 2.0| = 2.5 > max(2, 0.3 * 2) = 2  -> fail
+    assert by[108]["ok"] is False and by[108]["diff_days"] == pytest.approx(2.5)
     # |12.9 - 10| = 2.9 <= max(2, 3) = 3  -> ok
-    assert hu.asset_check(_asset(heat_days_shift=12.9, heat_days_grid=10.0), CHECK)["C2_ok"] is True
+    assert by[143]["ok"] is True
+    assert by[90]["ok"] is None and by[90]["diff_days"] is None
 
 
 def test_sub_check_aggregates_and_reports_asset_rank() -> None:
@@ -466,7 +484,18 @@ def test_sub_check_aggregates_and_reports_asset_rank() -> None:
     assert s["n_assets"] == 12 and s["n_warn_any"] == 1 and s["warn"] is True
     assert "C3" in s["warn_reason"]
     assert s["asset_rank_spearman"] == pytest.approx(1.0)
-    assert s["agree"] == "2/3"  # C3 failed for one asset
+    assert s["agree"] == "1/2"  # C3 failed for one asset
+    assert s["station_c2"] == [] and s["station_c2_note"] is None
+
+
+def test_sub_check_station_c2_is_a_memo_only() -> None:
+    assets = [_asset(utci_days_ge38=float(i)) for i in range(3)]
+    days = {108: {"name": "서울", "n_assets": 3, "heat_days_hourly": 5.0, "heat_days_grid": 12.0}}
+    s = hu.sub_check(assets, CHECK, days)
+    assert s["station_c2"][0]["ok"] is False
+    assert "108 (-7.0)" in s["station_c2_note"]
+    # the memo does not change the stamp
+    assert s["warn"] is False and s["agree"] == "2/2" and s["n_warn_any"] == 0
 
 
 def test_sub_check_skips_assets_without_data() -> None:
@@ -732,6 +761,17 @@ def test_seoul_station_point_plausible(seoul_run: dict) -> None:
     assert 0.0 <= a["calm_clipped_frac"] < 0.2
     assert len(a["hottest_day_hourly"]["utci"]) == 24
     assert set(seoul_run["record"]) >= {"ground_fit", "stations_used", "hazard_data_version"}
+
+
+@real
+def test_seoul_station_c2_matches_the_asset_at_the_station(seoul_run: dict) -> None:
+    """At the station's own cell the shift is 0, so the station memo equals the asset values."""
+    a = seoul_run["per_asset"][0]
+    (st,) = seoul_run["sub_check"]["station_c2"]
+    assert st["station_id"] == 108 and st["n_assets"] == 1
+    assert st["heat_days_hourly"] == pytest.approx(a["heat_days_shift"], rel=1e-9)
+    assert st["heat_days_grid"] == pytest.approx(a["heat_days_grid"], rel=1e-9)
+    assert "check_C2_diff_days" not in a
 
 
 @real

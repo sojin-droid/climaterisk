@@ -97,8 +97,9 @@ $T_a + a + b\,G$ fitted on 2010-2019 observations); UTCI by `pythermalcomfort` 4
 0.15-0.25 sensitivity range (a range for one assumption, not a confidence interval). Assumptions
 A1-A6 are listed in `adapters.KoreaLocalUtciAdapter.describe()`; shade, buildings and indoors are
 not modelled (T3). Only the historical period is served. Sub check (diagnostic only): yearly rank
-agreement with grid heat days, heat days from the shifted hourly series vs the grid, station
-distance. Seoul 108 baseline: `tests/baselines/heat_utci_seoul108.json` (a regression guard, not
+agreement with grid heat days and station distance per asset (C1, C3); hourly vs grid heat days
+once per station at the station's own cell (C2, a memo that never enters an asset's stamp,
+because the asset shift cancels out of that comparison). Seoul 108 baseline: `tests/baselines/heat_utci_seoul108.json` (a regression guard, not
 a validation). Design: `<DATA_ROOT>/derived/design_utci/DESIGN_UTCI_T2.md`; code:
 `worker/climaterisk_worker/heat_utci.py`.
 

@@ -671,42 +671,36 @@ def _spearman(a: Sequence[float], b: Sequence[float]) -> float | None:
 
 
 def asset_check(asset: dict[str, Any], check: dict[str, Any]) -> dict[str, Any]:
-    """Three diagnostic items for one asset; they never change the asset's numbers.
+    """Two diagnostic items for one asset; they never change the asset's numbers.
+
+    C2 (hourly vs grid heat days) is a property of the station, not of the asset: the
+    asset shift $G(c_a) - G(c_s)$ is added to both sides of the comparison, so it is checked
+    once per station by :func:`station_check` and is not part of this stamp.
 
     Algorithm:
         $$C_1:\\ \\rho_s(D^{UTCI}_{38,y},\\,N_y) \\ge \\rho_{min};\\quad
-        C_2:\\ |N_{shift} - N_{grid}| \\le \\max(\\Delta_{abs},\\ \\Delta_{rel} N_{grid});\\quad
         C_3:\\ d_s \\le d_{s,max}\\ \\wedge\\ d_r \\le d_{r,max}$$
-        ASCII: C1 spearman(yearly D38, yearly heat days) >= min; C2 |N_shift - N_grid| <=
-        max(abs, rel N_grid); C3 station <= 50 km and radiation station <= 75 km
+        ASCII: C1 spearman(yearly D38, yearly heat days) >= min; C3 station <= 50 km and
+        radiation station <= 75 km
 
         $D^{UTCI}_{38,y}$ yearly days with UTCI >= 38 degC, $N_y$ yearly grid heat days (days),
-        $\\rho_s$ Spearman rank correlation (-), $N$ in days/yr, $d$ in km. C1 is None
-        (not checkable, left out of the denominator) when either series is constant.
+        $\\rho_s$ Spearman rank correlation (-), $d$ in km. C1 is None (not checkable, left
+        out of the denominator) when either series is constant.
 
     Args:
         asset: Per-asset row with ``utci_days_ge38_by_year``, ``heat_days_grid_by_year``,
-            ``heat_days_shift``, ``heat_days_grid``, ``station_distance_km`` and
-            ``radiation_distance_km``.
+            ``station_distance_km`` and ``radiation_distance_km``.
         check: The ``check`` section of the heat_utci config.
 
     Returns:
-        ``C1_rho``, ``C1_ok``, ``C2_diff_days``, ``C2_ok``, ``C3_ok`` (True/False/None),
-        ``agree`` ("k/n") and ``warn`` (any item failed).
+        ``C1_rho``, ``C1_ok``, ``C3_ok`` (True/False/None), ``agree`` ("k/n") and ``warn``
+        (any item failed).
     """
     u = asset.get("utci_days_ge38_by_year") or {}
     g = asset.get("heat_days_grid_by_year") or {}
     common = sorted(y for y in u if u[y] is not None and g.get(y) is not None)
     rho = _spearman([u[y] for y in common], [g[y] for y in common])
     c1: bool | None = None if rho is None else bool(rho >= float(check["min_spearman_years"]))
-
-    shift, grid = asset.get("heat_days_shift"), asset.get("heat_days_grid")
-    diff: float | None = None
-    c2: bool | None = None
-    if shift is not None and grid is not None:
-        diff = float(shift) - float(grid)
-        limit = max(float(check["warn_abs_heat_days"]), float(check["warn_rel_heat_days"]) * grid)
-        c2 = bool(abs(diff) <= limit)
 
     ds, dr = asset.get("station_distance_km"), asset.get("radiation_distance_km")
     c3: bool | None = None
@@ -715,27 +709,80 @@ def asset_check(asset: dict[str, Any], check: dict[str, Any]) -> dict[str, Any]:
             float(ds) <= float(check["max_station_km"])
             and float(dr) <= float(check["max_radiation_station_km"])
         )
-    items = [c1, c2, c3]
-    known = [x for x in items if x is not None]
+    known = [x for x in (c1, c3) if x is not None]
     return {
         "C1_rho": rho,
         "C1_ok": c1,
-        "C2_diff_days": diff,
-        "C2_ok": c2,
         "C3_ok": c3,
         "agree": f"{sum(known)}/{len(known)}",
         "warn": any(x is False for x in known),
     }
 
 
-def sub_check(per_asset: Sequence[dict[str, Any]], cfg: dict[str, Any]) -> dict[str, Any]:
-    """Aggregate :func:`asset_check` over a run; diagnostic only, never alters the rows.
+def station_check(
+    station_days: dict[int, dict[str, Any]], check: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """C2 once per station: heat days from its hourly record vs the grid at its own cell.
 
     Algorithm:
-        $$\\text{item } k \\text{ agrees} \\iff \\text{no asset fails } C_k;\\qquad
+        $$C_2(s):\\ |N^{hourly}_s - N^{grid}_s|
+          \\le \\max(\\Delta_{abs},\\ \\Delta_{rel} N^{grid}_s)$$
+        ASCII: C2(s) ok when |N_hourly(s) - N_grid(s)| <= max(abs, rel * N_grid(s))
+
+        $N^{hourly}_s$ mean days/yr with the station's hourly maximum air temperature >= 33 degC
+        (unshifted), $N^{grid}_s$ mean days/yr with the 0.05 deg daily maximum >= 33 degC at the
+        station's cell, $\\Delta_{abs}$ in days/yr, $\\Delta_{rel}$ (-). Hourly sampling misses
+        the peak between hours and a point is not a 5 km cell mean, so a negative difference
+        is expected; the item is a memo per station and never enters an asset's stamp.
+
+    Args:
+        station_days: ``{stnId: {"name", "n_assets", "heat_days_hourly", "heat_days_grid"}}``;
+            either day count may be None (not checkable).
+        check: The ``check`` section of the heat_utci config.
+
+    Returns:
+        One dict per station, sorted by ``station_id``: the inputs plus ``diff_days``
+        (hourly - grid, or None) and ``ok`` (True/False/None).
+    """
+    out: list[dict[str, Any]] = []
+    for stn in sorted(station_days):
+        s = station_days[stn]
+        hourly, grid = s.get("heat_days_hourly"), s.get("heat_days_grid")
+        diff: float | None = None
+        ok: bool | None = None
+        if hourly is not None and grid is not None:
+            diff = float(hourly) - float(grid)
+            limit = max(
+                float(check["warn_abs_heat_days"]), float(check["warn_rel_heat_days"]) * grid
+            )
+            ok = bool(abs(diff) <= limit)
+        out.append(
+            {
+                "station_id": int(stn),
+                "name": s.get("name"),
+                "n_assets": s.get("n_assets"),
+                "heat_days_hourly": hourly,
+                "heat_days_grid": grid,
+                "diff_days": diff,
+                "ok": ok,
+            }
+        )
+    return out
+
+
+def sub_check(
+    per_asset: Sequence[dict[str, Any]],
+    cfg: dict[str, Any],
+    station_days: dict[int, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Aggregate the checks over a run; diagnostic only, never alters the rows.
+
+    Algorithm:
+        $$\\text{item } k\\in\\{C_1, C_3\\} \\text{ agrees}
+          \\iff \\text{no asset fails } C_k;\\qquad
         \\rho_{assets} = \\rho_s(D^{UTCI}_{38},\\ N_{grid})\\ \\text{over assets}$$
         ASCII: item agrees when no asset fails it; asset rank = spearman(D38, grid heat days)
-        across assets (needs >= min_assets_for_rank assets)
+        across assets (needs >= min_assets_for_rank assets); C2 per station, memo only
 
         $D^{UTCI}_{38}$ days/yr with UTCI >= 38 degC, $N_{grid}$ grid heat days (days/yr),
         $\\rho_s$ Spearman rank correlation (-).
@@ -743,21 +790,22 @@ def sub_check(per_asset: Sequence[dict[str, Any]], cfg: dict[str, Any]) -> dict[
     Args:
         per_asset: Per-asset rows; rows with ``utci_days_ge38`` None count as no data.
         cfg: The ``check`` section of the heat_utci config.
+        station_days: Optional per-station heat days for :func:`station_check`.
 
     Returns:
         ``method``, ``items``, ``n_assets``, ``n_no_data``, ``n_warn_any``, ``agree``, ``warn``,
-        ``warn_reason`` and ``asset_rank_spearman``.
+        ``warn_reason``, ``asset_rank_spearman``, ``station_c2`` (list, memo) and
+        ``station_c2_note`` (text or None). ``agree``/``warn`` cover C1, C3 and the asset rank.
     """
     rows = [a for a in per_asset if a.get("utci_days_ge38") is not None]
     n_no_data = len(per_asset) - len(rows)
     checks = [asset_check(a, cfg) for a in rows]
-    names = {"C1": "C1_ok", "C2": "C2_ok", "C3": "C3_ok"}
+    names = {"C1": "C1_ok", "C3": "C3_ok"}
     items: dict[str, Any] = {}
     reasons: list[str] = []
     agree_n, known_n = 0, 0
     descr = {
         "C1": "UTCI-day vs heat-day yearly rank below minimum",
-        "C2": "shifted heat days differ from grid heat days",
         "C3": "station farther than limit",
     }
     for key, field in names.items():
@@ -779,6 +827,16 @@ def sub_check(per_asset: Sequence[dict[str, Any]], cfg: dict[str, Any]) -> dict[
         rank = _spearman([p[0] for p in paired], [p[1] for p in paired])
         if rank is not None and rank < float(cfg["min_spearman_assets"]):
             reasons.append(f"asset rank: Spearman {rank:.2f} < {cfg['min_spearman_assets']}")
+    stations = station_check(station_days, cfg) if station_days else []
+    off = [s for s in stations if s["ok"] is False]
+    note = None
+    if off:
+        names_off = ", ".join(f"{s['station_id']} ({s['diff_days']:+.1f})" for s in off)
+        note = (
+            f"C2 memo: {len(off)}/{len(stations)} station(s) where hourly heat days differ "
+            f"from the grid beyond the limit — {names_off} days/yr. Hourly sampling misses "
+            "the daily peak; this is a station property and does not change any asset stamp."
+        )
     n_warn = sum(1 for c in checks if c["warn"])
     return {
         "method": "UTCI >=38 degC days vs heat days (daily max >=33 degC) — diagnostic only",
@@ -790,6 +848,8 @@ def sub_check(per_asset: Sequence[dict[str, Any]], cfg: dict[str, Any]) -> dict[
         "warn": bool(reasons),
         "warn_reason": "; ".join(reasons) if reasons else None,
         "asset_rank_spearman": rank,
+        "station_c2": stations,
+        "station_c2_note": note,
     }
 
 
@@ -1111,6 +1171,27 @@ class _Run:
             )
         return self._fits[key]
 
+    def station_heat_days(self, stn: int) -> dict[str, Any]:
+        """Inputs of :func:`station_check` for one station (unshifted hourly vs own cell)."""
+        thr = float(self.cfg["heat_day_threshold_c"])
+        hourly = heat_days_from_hourly(
+            self.frame(stn)["ta"].to_numpy(float), self.t, self.years, self.months, thr, self.frac
+        )["mean"]
+        cell = self.grid.cell(*self._loc(stn))
+        grid: float | None = None
+        if cell is not None:
+            series = self.grid.tmax[:, cell[0], cell[1]]
+            grid = float(
+                np.mean(
+                    [
+                        (series[self.grid.years == y] >= thr).sum()
+                        for y in range(self.years[0], self.years[1] + 1)
+                    ]
+                )
+            )
+        name = str(self.stations.loc[self.stations["stnId"] == stn, "name"].iloc[0])
+        return {"name": name, "heat_days_hourly": hourly, "heat_days_grid": grid}
+
 
 def _grid_path(rel: str) -> Path:
     from climaterisk_worker._paths import paths
@@ -1146,7 +1227,6 @@ def _nan_row(lat: float, lon: float, reason: str) -> dict[str, Any]:
         "hottest_day",
         "hottest_day_hourly",
         "check_C1_rho",
-        "check_C2_diff_days",
         "check_warn",
     )
     row: dict[str, Any] = dict.fromkeys(keys)
@@ -1308,7 +1388,6 @@ def _asset_row(run: _Run, lat: float, lon: float) -> dict[str, Any]:
         chk = asset_check(row, cfg["check"])
         row.update(
             check_C1_rho=chk["C1_rho"],
-            check_C2_diff_days=chk["C2_diff_days"],
             check_warn=chk["warn"],
             check_agree=chk["agree"],
         )
@@ -1371,4 +1450,11 @@ def open_field_utci(
         "n_assets": len(rows),
     }
     log.info("open-field UTCI: %d assets, %d stations", len(rows), len(used))
-    return {"per_asset": rows, "sub_check": sub_check(rows, cfg["check"]), "record": record}
+    station_days = {
+        stn: {**run.station_heat_days(stn), "n_assets": n} for stn, n in sorted(used.items())
+    }
+    return {
+        "per_asset": rows,
+        "sub_check": sub_check(rows, cfg["check"], station_days),
+        "record": record,
+    }
