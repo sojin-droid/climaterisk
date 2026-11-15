@@ -228,7 +228,7 @@ def test_core_readiness_table_is_untouched_by_v02() -> None:
         "TC": {G: "READY", C: "READY", K: "NOT_IMPLEMENTED"},
         "HEAT": {G: "NO_HAZARD_DATA", C: "NO_HAZARD_DATA", K: "HAZARD_ONLY"},
     }
-    assert dc.recommended_models() == {"RF": C, "CF": G, "TC": C, "HEAT": K}
+    assert dc.recommended_models() == {"RF": K, "CF": G, "TC": C, "HEAT": K}
 
 
 def test_display_bundle_exposes_coverage_resolution_and_why() -> None:
@@ -270,6 +270,10 @@ def _muni_row(mid: str, haz: str, model: str, **kw) -> ResultRow:  # type: ignor
     }
     base.update(kw)
     return ResultRow(**base).finalise()  # type: ignore[arg-type]
+
+
+#: The models the hand-built rows below were produced under (a fixed table, not the live pick).
+_PICKS = {"RF": C, "CF": G, "TC": C, "HEAT": K}
 
 
 def _run_rows() -> list[ResultRow]:
@@ -408,7 +412,7 @@ def test_screening_rows_keep_hazard_and_null_money_never_zero() -> None:
 
 def test_municipality_summary_and_matrix_frames() -> None:
     rows = _run_rows()
-    summary = rt.municipality_summary_frame(rows, dc.recommended_models())
+    summary = rt.municipality_summary_frame(rows, _PICKS)
     by = {line["Municipality ID"]: line for line in summary}
     assert by[GWANGJU]["Flood Risk"] == "High" and by[GWANGJU]["Flood EAL"] == pytest.approx(
         597_066.6
@@ -424,7 +428,7 @@ def test_municipality_summary_and_matrix_frames() -> None:
     assert by[SEOUL]["Flood Risk"] is None and by[SEOUL]["Asset Value"] is None
     assert by[SEOUL]["Financially Assessed"] == "No — asset value not supplied"
     assert by[SEOUL]["Flood Hazard Intensity"] == "6.97 m"
-    matrix = rt.municipality_risk_matrix_frame(rows, dc.recommended_models())
+    matrix = rt.municipality_risk_matrix_frame(rows, _PICKS)
     bym = {line["Municipality ID"]: line for line in matrix}
     assert bym[GWANGJU] == {
         "Municipality ID": GWANGJU,
@@ -437,7 +441,7 @@ def test_municipality_summary_and_matrix_frames() -> None:
     assert (
         bym[SEOUL]["Flood"] == "No asset value" and bym[SEOUL]["Calculated"] == "0 of 3 calculated"
     )
-    counts = rt.summary_counts(rows, dc.recommended_models())
+    counts = rt.summary_counts(rows, _PICKS)
     assert (
         counts["assets_analyzed"] == 3 and counts["high_risk"] == 1 and counts["hazard_only"] == 3
     )
@@ -561,7 +565,10 @@ def test_province_summary_counts_bands_and_adds_no_money() -> None:
     assert flood["Priced Asset Value"] == pytest.approx(140e6)
 
 
-def test_municipality_workbook_has_the_required_sheets_and_blank_unpriced_cells() -> None:
+def test_municipality_workbook_has_the_required_sheets_and_blank_unpriced_cells(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(dc, "recommended_models", lambda *a, **k: dict(_PICKS))
     out = _output(_run_rows())
     frames = xl.frames_from_output(out)
     assert list(frames)[:7] == [

@@ -106,7 +106,7 @@ def test_display_copy_quotes_the_configured_thresholds() -> None:
 
 def test_recommended_models_follow_readiness_and_never_pick_an_unrunnable_cell() -> None:
     rec = dc.recommended_models()
-    assert rec == {"RF": C, "CF": G, "TC": C, "HEAT": K}
+    assert rec == {"RF": K, "CF": G, "TC": C, "HEAT": K}
     # a registry where local flood is READY flips the recommendation without code changes
     table = {
         "RF": {G: {"status": "READY"}, C: {"status": "READY"}, K: {"status": "READY"}},
@@ -327,7 +327,7 @@ def test_cli_understands_plain_words_and_recommended_reads_readiness() -> None:
     # Recommended runs each hazard only under its own pick — coastal flood's Global pick
     # must not add a Global run of flood and typhoon
     assert cli.parse_hazard_models(["recommended"], ["RF", "CF", "TC", "HEAT"]) == {
-        "RF": [C],
+        "RF": [K],
         "CF": [G],
         "TC": [C],
         "HEAT": [K],
@@ -337,7 +337,7 @@ def test_cli_understands_plain_words_and_recommended_reads_readiness() -> None:
     with pytest.raises(ValueError, match="unknown hazard"):
         cli.parse_hazards(["earthquake"])
     assert cli.parse_models(["recommended"], ["RF", "TC", "HEAT"]) == [C, K]
-    assert cli.parse_models(["recommended"], ["RF"]) == [C]
+    assert cli.parse_models(["recommended"], ["RF"]) == [K]
     assert cli.parse_models(["all"], ["RF"]) == [G, C, K]
     assert cli.parse_models(["global,country"], ["RF"]) == [G, C]
     with pytest.raises(ValueError, match="unknown model"):

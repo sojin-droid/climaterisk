@@ -39,6 +39,8 @@ PORTFOLIO = FIX / "validation_portfolio.csv"
 
 A, B, C, D, E = "VAL-A-GWANGJU", "VAL-B-SEOUL", "VAL-C-BUSAN", "VAL-D-CHUNCHEON", "VAL-E-INCHEON"
 COUNTRY, LOCAL = "DATA_API_COUNTRY", "KOREA_LOCAL"
+#: The models the captured run was made under (Recommended mode before 2026-11-15).
+CAPTURED_PICKS = {"RF": COUNTRY, "CF": "GLOBAL_BASELINE", "TC": COUNTRY, "HEAT": LOCAL}
 
 
 @pytest.fixture(scope="module")
@@ -68,12 +70,14 @@ def test_fixture_portfolio_has_the_five_cases_and_matches_the_evidence(evidence)
     assert len(set(keys)) == len(keys)
     # Recommended mode: readiness decided the models, and Global was never touched
     assert {r["model_id"] for r in evidence["rows"]} == {COUNTRY, LOCAL}
-    assert recommended_models() == {
+    assert CAPTURED_PICKS == {
         "RF": COUNTRY,
         "CF": "GLOBAL_BASELINE",  # coastal flood: the Data API has no such type
         "TC": COUNTRY,
         "HEAT": LOCAL,
     }
+    # river flood became KOREA_LOCAL on 2026-11-15; the captured run predates that switch
+    assert recommended_models() == {**CAPTURED_PICKS, "RF": LOCAL}
     assert not any(a["model_id"] == "GLOBAL_BASELINE" for a in evidence["adapters"])
     assert not any("global" in str(a.get("hazard_dataset")) for a in evidence["adapters"])
 
@@ -162,21 +166,21 @@ def test_risk_levels_in_the_evidence_follow_the_configured_thresholds_exactly(ro
 
 def test_non_expert_views_read_the_evidence_the_way_the_ui_does(evidence) -> None:  # type: ignore[no-untyped-def]
     rs = [ResultRow.from_dict(r) for r in evidence["rows"]]
-    prim = primary_rows(rs, recommended_models())
+    prim = primary_rows(rs, CAPTURED_PICKS)
     assert prim[(A, "RF")].model_id == COUNTRY and prim[(A, "HW")].model_id == LOCAL
-    matrix = {m["Facility ID"]: m for m in asset_risk_matrix_frame(rs, recommended_models())}
+    matrix = {m["Facility ID"]: m for m in asset_risk_matrix_frame(rs, CAPTURED_PICKS)}
     assert (
         matrix[A]["Flood"] == "High"
         and matrix[D]["Flood"] == "Medium"
         and matrix[B]["Flood"] == "Low"
     )
     assert all(m["Heatwave"] == "Hazard only" for m in matrix.values())
-    counts = summary_counts(rs, recommended_models())
+    counts = summary_counts(rs, CAPTURED_PICKS)
     assert (
         counts["assets_analyzed"] == 5 and counts["high_risk"] == 1 and counts["medium_risk"] == 1
     )
     assert counts["low_risk"] == 8 and counts["hazard_only"] == 5 and counts["not_available"] == 0
-    summary = {s["Facility ID"]: s for s in portfolio_summary_frame(rs, recommended_models())}
+    summary = {s["Facility ID"]: s for s in portfolio_summary_frame(rs, CAPTURED_PICKS)}
     assert summary[B]["Flood EAL"] == 0.0 and summary[B]["Flood Status"] == "Calculated"
     assert summary[E]["Heatwave Status"] == "Hazard only" and "Heatwave EAL" not in summary[E]
 
