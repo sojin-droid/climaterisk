@@ -30,6 +30,7 @@ does not hide it — the row carries both and the engine marks the mismatch.
 
 from __future__ import annotations
 
+import copy
 import logging
 import sys
 from dataclasses import asdict, dataclass
@@ -753,6 +754,34 @@ class KoreaLocalFloodAdapter:
         bbox: tuple[float, float, float, float] | None = None,
         points: list[tuple[float, float]] | None = None,
     ) -> Any:
+        if not points:
+            raise ValueError("the Korea-local flood adapter reads asset points; none were given")
+        key = (tuple((float(a), float(b)) for a, b in points), self.mode, self.open_depth)
+        memo = KoreaLocalFloodAdapter._map_memo
+        if memo is not None and memo[0] == key:
+            # the same assets under the same map (e.g. the 2010–2030 baseline run after a
+            # future run): the overlay takes minutes, so it is not repeated
+            hazard, self.diagnostics = copy.deepcopy(memo[1]), copy.deepcopy(memo[2])
+        else:
+            hazard = self._map_hazard(points)
+            KoreaLocalFloodAdapter._map_memo = (
+                key,
+                copy.deepcopy(hazard),
+                copy.deepcopy(self.diagnostics),
+            )
+        if not self.climate_delta:
+            return hazard
+        from climaterisk_worker import flood_delta as fdl
+
+        delta = self._delta(points)
+        self.diagnostics["climate_delta"] = delta
+        return fdl.scale_frequency(hazard, delta["factor"])
+
+    #: Last map overlay ``(key, hazard, diagnostics)``, reused within one process.
+    _map_memo: tuple[Any, Any, dict[str, Any]] | None = None
+
+    def _map_hazard(self, points: list[tuple[float, float]]) -> Any:
+        """The present-day map hazard at the asset points; sets the map diagnostics."""
         import numpy as np
         from climada.hazard import Hazard
         from scipy import sparse
@@ -763,8 +792,6 @@ class KoreaLocalFloodAdapter:
         from climaterisk_worker._paths import paths
         from climaterisk_worker.hazard_convert import _centroids
 
-        if not points:
-            raise ValueError("the Korea-local flood adapter reads asset points; none were given")
         root = paths.floodmap_dir()
         if not root.is_dir():
             raise HazardUnavailable(f"홍수위험지도 not found under {root}")
@@ -794,13 +821,7 @@ class KoreaLocalFloodAdapter:
             fraction=sparse.csr_matrix((depth > 0).astype(float)),
         )
         hazard.check()
-        if not self.climate_delta:
-            return hazard
-        from climaterisk_worker import flood_delta as fdl
-
-        delta = self._delta(points)
-        self.diagnostics["climate_delta"] = delta
-        return fdl.scale_frequency(hazard, delta["factor"])
+        return hazard
 
     def _delta(self, points: list[tuple[float, float]]) -> dict[str, Any]:
         """The national factor (main) and the per-시도 check at the assets (diagnostic)."""

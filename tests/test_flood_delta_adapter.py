@@ -121,3 +121,38 @@ def test_assign_regions_is_point_in_polygon_by_name(tmp_path: Path) -> None:
     ).to_file(shp)
     out = fdl.assign_regions(np.array([37.5, 37.5, 10.0]), np.array([127.0, 129.0, 127.0]), shp)
     assert list(out) == ["A", "B", fdl.UNASSIGNED]
+
+
+def test_future_load_scales_frequency_and_reuses_the_map_overlay(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The map overlay runs once per asset set; the future run scales frequency, not depth."""
+    calls: list[int] = []
+    adapters.KoreaLocalFloodAdapter._map_memo = None
+
+    def fake_map(self: Any, points: Any) -> Hazard:
+        calls.append(1)
+        self.diagnostics = {"sub_check": {"warn": None}}
+        return _isimip_like(1.0)
+
+    monkeypatch.setattr(adapters.KoreaLocalFloodAdapter, "_map_hazard", fake_map)
+    monkeypatch.setattr(
+        adapters.KoreaLocalFloodAdapter,
+        "_delta",
+        lambda self, points: {"factor": 1.0 if self.year < 2030 else 1.5, "check": None},
+    )
+    pts = [(37.5, 127.0), (35.1, 129.0)]
+    base = adapters.KoreaLocalFloodAdapter("rcp85", 2010, "KOR")
+    fut = adapters.KoreaLocalFloodAdapter("rcp85", 2050, "KOR")
+    hb, hf = base.load(None, points=pts), fut.load(None, points=pts)
+    assert len(calls) == 1  # second load hit the memo
+    np.testing.assert_allclose(hf.frequency, hb.frequency * 1.5, rtol=1e-12)
+    np.testing.assert_allclose(hf.intensity.toarray(), hb.intensity.toarray())
+    assert fut.diagnostics["climate_delta"]["factor"] == 1.5
+    assert "sub_check" in fut.diagnostics
+    hb.frequency[:] = 0  # a returned hazard is a copy: the memo is not corrupted
+    assert (
+        adapters.KoreaLocalFloodAdapter("rcp85", 2010, "KOR").load(None, points=pts).frequency.sum()
+        > 0
+    )
+    adapters.KoreaLocalFloodAdapter._map_memo = None
