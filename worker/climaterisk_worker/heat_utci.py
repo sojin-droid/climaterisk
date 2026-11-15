@@ -1764,3 +1764,63 @@ def open_field_utci(
         "record": record,
     }
 
+
+def station_daily_series(
+    cfg: dict[str, Any],
+    stations: Sequence[int] | None = None,
+    root: Path | None = None,
+) -> dict[int, pd.DataFrame]:
+    """Daily maximum UTCI and grid air temperature at each ASOS station point (for the KDCA check).
+
+    Algorithm:
+        $$U^{max}_d = \\max_{h\\in d} U_h\\ \\ (\\ge 20\\text{ finite hours}),\\quad
+        T^{max}_d = G(c_s, d)$$
+        ASCII: utci_max(d) = max over the hours of day d of UTCI (NaN if < min_hours_per_day
+        finite hours); tmax_grid(d) = grid daily max at the station cell
+
+        $U_h$ hourly UTCI (degC) at the station point, where the grid shift is zero
+        ($c_a = c_s$), computed exactly as in :func:`open_field_utci`; $G$ the 0.05 deg
+        MK-PRISM daily-maximum grid (degC), $c_s$ the station cell, $d$ the day. A station
+        that fails the meteorology or radiation rules of :func:`_asset_row` is left out.
+
+    Args:
+        cfg: The ``heat_utci`` section of ``physical_risk_config.json``.
+        stations: Station ids to use; None means every station on disk that passes the rules.
+        root: KMA folder (default ``paths.kma_dir()``).
+
+    Returns:
+        ``{station id: frame}`` with the index = every season day of ``obs_years`` and the
+        columns ``utci_max`` and ``tmax_grid`` (degC, NaN = missing).
+    """
+    run = _Run(cfg, root)
+    min_hours = int(cfg["validation"]["min_hours_per_day"])
+    wanted = [int(s) for s in (stations if stations is not None else run.stations["stnId"])]
+    days = np.unique(run.days)
+    out: dict[int, pd.DataFrame] = {}
+    for stn in wanted:
+        if stn not in set(run.stations["stnId"].astype(int)) or not run.meteo_ok(stn):
+            continue
+        lat, lon = run._loc(stn)
+        ranked = _rank_stations(lat, lon, run.stations)
+        rad_row = next((r for r in ranked.itertuples() if run.radiation(int(r.stnId))["ok"]), None)
+        s_cell = run.grid.cell(lat, lon)
+        if rad_row is None or s_cell is None:
+            continue
+        fit = run.ground_fit(stn, int(rad_row.stnId))
+        if fit is None:
+            continue
+        height, _ = anemometer_height(
+            run.table, stn, f"{run.years[1]}-09-30", float(cfg["anemometer_height_default_m"])
+        )
+        inp = _hourly_inputs(run, lat, lon, s_cell, stn, s_cell, int(rad_row.stnId), height)
+        u = _utci_from_inputs(run, inp, fit, float(cfg["albedo"]))[1]
+        s = pd.Series(u).groupby(run.days)
+        dmax = s.max().reindex(days).to_numpy()
+        n_fin = s.count().reindex(days).to_numpy()
+        dmax = np.where(n_fin >= min_hours, dmax, np.nan)
+        out[stn] = pd.DataFrame(
+            {"utci_max": dmax, "tmax_grid": run.grid.tmax[:, s_cell[0], s_cell[1]]},
+            index=pd.DatetimeIndex(days),
+        )
+    log.info("station daily series: %d of %d stations", len(out), len(wanted))
+    return out

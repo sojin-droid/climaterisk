@@ -161,6 +161,19 @@
         ]
       },
       "note": "Future open-field UTCI (phase 2): Ta_fut = Ta + monthly delta of the KMA AR6 5ENSMN TAMAX (mean 2051-2060 minus mean 2021-2030, per 0.05 deg cell), the same delta method as heat_days.json; rcp45 -> ssp245, rcp85 -> ssp585, rcp26 and rcp60 have no grid; target years before 2040 get the present period; the 2031-2050 grids are not built [설계값]. Humidity, wind, radiation and the ground fit held at present values [가정 A7]. The 2021-2030 base leaves out the warming between 2000-2019 and 2021-2030, so the change is a direction-and-size reference."
+    },
+    "validation": {
+      "years": [2011, 2019],
+      "months": [5, 6, 7, 8, 9],
+      "v1_min_rho": 0.5,
+      "v1_margin": 0.02,
+      "v2_margin": 0.02,
+      "v3_margin": 0.10,
+      "min_day_fraction": 0.95,
+      "min_hours_per_day": 20,
+      "kdca_file": "external/kdca_heat_illness/raw_20261116/kdca_heat_illness_15149889.csv",
+      "kosis_population": {"orgId": "101", "tblId": "DT_1B040A3", "itmId": "T20"},
+      "note": "KDCA heat-illness check of the UTCI headline (design 2026-11-16 section 4.2-4.3, criteria fixed before the result was seen [설계값]). Sources: 질병관리청 온열질환 감시 데이터 (공공데이터포털 15149889, 2011-2019 May-Sep; region = hospital location up to 2018, place of occurrence from 2019, so 시도 level only); 통계청 KOSIS DT_1B040A3 시도 주민등록인구 (orgId 101, itmId T20); KMA ASOS and MK-PRISM v3.1 as in heat_utci. v1_min_rho 0.5 and the margins 0.02 / 0.02 / 0.10 are design values; min_day_fraction 0.95 = min_hour_fraction; min_hours_per_day 20 [설계값]."
     }
   },
   "definitions": {
