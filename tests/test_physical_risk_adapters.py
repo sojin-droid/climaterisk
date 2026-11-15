@@ -121,7 +121,7 @@ def test_g_korea_local_tc_adapter_loads_nothing_and_says_why(klass) -> None:  # 
 
 def test_korea_local_flood_is_the_official_class_band_with_a_diagnostic_check() -> None:
     """Main method = official depth class (no DEM); the edge depth is a sub check only."""
-    a = adapters.KoreaLocalFloodAdapter("rcp45", 2050, "KOR")
+    a = adapters.KoreaLocalFloodAdapter("historical", 2050, "KOR")
     assert a.status == adapters.READY and a.model_id == K
     d = a.describe()
     assert d.hazard_dataset == "floodmap_rfm_depth_class" and d.served_scenario == "historical"

@@ -30,12 +30,12 @@ pytest.importorskip("climada")
 
 import numpy as np  # noqa: E402
 from climada.hazard import Centroids, Hazard  # noqa: E402
+from climaterisk_worker import flood_delta as fdl  # noqa: E402
+from climaterisk_worker.physical_risk import adapters  # noqa: E402
 from numpy.testing import assert_allclose  # noqa: E402
 from scipy import sparse  # noqa: E402
 
 from climaterisk.physical_risk import display_copy, models  # noqa: E402
-from climaterisk_worker import flood_delta as fdl  # noqa: E402
-from climaterisk_worker.physical_risk import adapters  # noqa: E402
 
 
 # --------------------------------------------------------------------------- #
@@ -56,8 +56,14 @@ def test_unit_eal_matches_hand_calculation() -> None:
 
 def test_unit_eal_without_fraction_treats_fraction_as_one() -> None:
     intensity = sparse.csr_matrix([[4.0]])
-    eal = fdl.unit_eal(intensity, None, np.array([0.1]), np.array([0, 10.0]),
-                       np.array([0, 1.0]), np.array([1.0, 1.0]))
+    eal = fdl.unit_eal(
+        intensity,
+        None,
+        np.array([0.1]),
+        np.array([0, 10.0]),
+        np.array([0, 1.0]),
+        np.array([1.0, 1.0]),
+    )
     assert_allclose(eal, [0.04], rtol=1e-12)
 
 
