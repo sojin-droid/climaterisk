@@ -13,6 +13,7 @@ import { FinanceView } from "./views/FinanceView";
 import { SupplyChainView } from "./views/SupplyChainView";
 import { ForecastView } from "./views/ForecastView";
 import { VulnerabilityView } from "./views/VulnerabilityView";
+import { SheetView } from "./views/SheetView";
 import { DataView } from "./views/DataView";
 import { MethodView } from "./views/MethodView";
 
@@ -212,6 +213,7 @@ export function App() {
               onRun={results.runForecast}
             />
           )}
+          {view === "sheet" && <SheetView />}
           {view === "data" && <DataView model={model} libraries={libraries} />}
           {view === "method" && <MethodView libraries={libraries} />}
         </div>

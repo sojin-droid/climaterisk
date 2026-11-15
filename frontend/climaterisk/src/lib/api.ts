@@ -22,6 +22,8 @@ import type {
   TransitionResult,
 } from "../types";
 
+import type { Sheet, SheetSummary } from "../sheet/types";
+
 const SESSION_KEY = "climaterisk.sessionId";
 
 async function http<T>(url: string, init?: RequestInit): Promise<T> {
@@ -282,4 +284,13 @@ export async function getRunProgress(sessionId: string, runId: string): Promise<
 /** Recent runs of one kind for the session (run history), newest first, outputs included. */
 export async function listRuns(sessionId: string, kind = "physical_risk_models", limit = 10): Promise<Run[]> {
   return http<Run[]>(`/api/session/${sessionId}/runs?kind=${kind}&limit=${limit}`);
+}
+
+/** Bundled asset sheets (단면 도면): the list, then one sheet JSON (docs/SHEET_SCHEMA.md). */
+export async function listSheets(): Promise<SheetSummary[]> {
+  return http<SheetSummary[]>("/api/sheets");
+}
+
+export async function getSheet(id: string): Promise<Sheet> {
+  return http<Sheet>(`/api/sheets/${encodeURIComponent(id)}`);
 }
