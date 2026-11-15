@@ -30,6 +30,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import math
+import os
 import sys
 import time
 from pathlib import Path
@@ -667,12 +668,20 @@ def test_readiness_unchanged() -> None:
 # =========================================================================== #
 # 6. Real data (skipped when the KMA files are not on disk)                    #
 # =========================================================================== #
+# conftest.py isolates CLIMATERISK_DATA_ROOT in a temp folder; real-data tests opt in through
+# CLIMATERISK_REAL_DATA_ROOT (default ~/Data/climaterisk), as the other real-data tests do. The
+# heat module only reads from the data root.
+REAL_ROOT = Path(
+    os.environ.get("CLIMATERISK_REAL_DATA_ROOT", str(Path.home() / "Data/climaterisk"))
+)
+
+
 def _real_data() -> bool:
-    kma = paths.kma_dir()
+    kma = REAL_ROOT / "external" / "kma"
     return (
         (kma / "asos_hourly" / "108").is_dir()
         and (kma / "asos_meta" / "kma_asos_stations_history.csv").is_file()
-        and (paths.cache_dir("heat_days") / "obs_2000_2019_m5-9_b0.05.npz").is_file()
+        and (REAL_ROOT / "cache" / "heat_days" / "obs_2000_2019_m5-9_b0.05.npz").is_file()
     )
 
 
@@ -681,11 +690,31 @@ SEOUL = (37.5714, 126.9658)
 BASELINE = ROOT / "tests" / "baselines" / "heat_utci_seoul108.json"
 
 
+def _point_at_real_root(mp: pytest.MonkeyPatch) -> None:
+    mp.setenv("CLIMATERISK_DATA_ROOT", str(REAL_ROOT))
+    mp.delenv("CLIMATERISK_KMA_DIR", raising=False)
+
+
+@pytest.fixture
+def real_root(monkeypatch: pytest.MonkeyPatch) -> Path:
+    _point_at_real_root(monkeypatch)
+    return REAL_ROOT
+
+
 @pytest.fixture(scope="module")
 def seoul_run() -> dict:
     if not _real_data():
         pytest.skip("KMA data not on disk")
-    return hu.open_field_utci([SEOUL], _config()["heat_utci"])
+    with pytest.MonkeyPatch.context() as mp:
+        _point_at_real_root(mp)
+        return hu.open_field_utci([SEOUL], _config()["heat_utci"])
+
+
+def test_real_data_is_found_when_present() -> None:
+    """Guard against the silent skip: on a machine with the data, the real tests must run."""
+    if not (REAL_ROOT / "external" / "kma" / "asos_hourly").is_dir():
+        pytest.skip("no KMA folder on this machine (CI)")
+    assert _real_data(), f"KMA ASOS present under {REAL_ROOT} but a required file is missing"
 
 
 @real
@@ -720,7 +749,7 @@ def test_seoul_captured_baseline(seoul_run: dict) -> None:
 
 
 @real
-def test_station_without_radiation_borrows_one() -> None:
+def test_station_without_radiation_borrows_one(real_root: Path) -> None:
     kma = paths.kma_dir()
     f = kma / "asos_hourly" / "140" / "2018_MJJAS.csv"
     if not f.is_file():
@@ -736,14 +765,14 @@ def test_station_without_radiation_borrows_one() -> None:
 
 
 @real
-def test_sea_point_has_no_data_not_zero() -> None:
+def test_sea_point_has_no_data_not_zero(real_root: Path) -> None:
     out = hu.open_field_utci([(33.0, 124.0)], _config()["heat_utci"])
     a = out["per_asset"][0]
     assert a["utci_days_ge38"] is None and a["status"] == "NO_HAZARD_DATA"
 
 
 @real
-def test_adapter_load_intensity_is_the_headline_and_check_never_changes_it() -> None:
+def test_adapter_load_intensity_is_the_headline_and_check_never_changes_it(real_root: Path) -> None:
     pts = [SEOUL, (35.1729, 126.8916), (33.0, 124.0)]
     ad = adapters.KoreaLocalUtciAdapter("historical", 2050)
     haz = ad.load(points=pts)
@@ -758,7 +787,7 @@ def test_adapter_load_intensity_is_the_headline_and_check_never_changes_it() -> 
 
 
 @real
-def test_twenty_assets_run_fast() -> None:
+def test_twenty_assets_run_fast(real_root: Path) -> None:
     rng = np.random.default_rng(42)
     pts = list(zip(rng.uniform(35.0, 37.8, 20), rng.uniform(126.6, 129.2, 20), strict=True))
     t0 = time.perf_counter()
