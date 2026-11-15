@@ -1,0 +1,171 @@
+{
+  "_meta": {
+    "purpose": "Agricultural drought v0 (docs/DROUGHT_AGRI_KO.md): SPEI parameters, season, reference period, stage thresholds and farmland classes. Nothing here is tuned to observed losses.",
+    "version": "0.2.0",
+    "updated": "2026-11-10"
+  },
+  "spei": {
+    "scale_months": 3,
+    "reference_years": [
+      1991,
+      2020
+    ],
+    "season_end_months": [
+      5,
+      6,
+      7,
+      8,
+      9
+    ],
+    "clip": 3.0,
+    "plotting_position": "unbiased PWMs -> L-moments",
+    "distribution": "gev",
+    "distribution_note": "GEV by L-moments (Hosking & Wallis 1997), recommended for SPEI by Stagge et al. 2015 (Int. J. Climatol. 35:4027); the log-logistic (Vicente-Serrano 2010) is undefined for negatively skewed samples (44% of May and 66% of September cells in 1991-2020). 'loglogistic' kept for comparison."
+  },
+  "output_years": [
+    1991,
+    2025
+  ],
+  "stages": [
+    {
+      "stage": 1,
+      "name": "관심",
+      "spei_le": -1.0
+    },
+    {
+      "stage": 2,
+      "name": "주의",
+      "spei_le": -1.5
+    },
+    {
+      "stage": 3,
+      "name": "경계 이상",
+      "spei_le": -2.0
+    }
+  ],
+  "evaluated_stage_for_yearly_area": 2,
+  "farmland_classes": {
+    "01": "rice",
+    "02": "upland",
+    "03": "orchard",
+    "04": "greenhouse"
+  },
+  "excluded_classes": {
+    "06": "비경지"
+  },
+  "spei_evaluated_classes": [
+    "upland",
+    "orchard"
+  ],
+  "unevaluated_classes": {
+    "rice": "미평가: 관개 논은 저수율 지표 필요 (docs/DROUGHT_AGRI_KO.md)",
+    "greenhouse": "미평가: 시설(시설재배)은 강수 의존이 아니라 SPEI 대상이 아님 (면적만 보고)"
+  },
+  "boundary_version": "2025_2Q",
+  "boundary_simplify_m": 50,
+  "boundary_code_column": "SIGUNGU_CD",
+  "boundary_name_column": "SIGUNGU_NM",
+  "terraclimate_files": {
+    "ppt": "terraclimate_ppt_monthly_korea_1981_2025.nc",
+    "pet": "terraclimate_pet_monthly_korea_1981_2025.nc"
+  },
+  "check": {
+    "_note": "Sub check method (user rule 2026-11-10): one main method chosen for the hazard's characteristics plus a mandatory check that is recorded in metadata only and warns on disagreement; never a parallel result.",
+    "distribution": "loglogistic",
+    "top_n_years": 6,
+    "warn_stage_disagreement_share": 0.1
+  },
+  "board": {
+    "layer": "drought_spei3_hist_kor",
+    "default_key": "y2022",
+    "use_tier": "S",
+    "use_tier_reason": "가뭄은 위험도 지표(hazard index)만 제공하며 피해함수가 없고 국내 실측으로 검증되지 않았습니다 (docs/SCOPE.md).",
+    "freq_keys": [
+      {
+        "key": "freq_ge1",
+        "stage": 1,
+        "label": "관심(SPEI-3 ≤ −1) 이상 발생 빈도 1991–2020"
+      },
+      {
+        "key": "freq_ge2",
+        "stage": 2,
+        "label": "주의(SPEI-3 ≤ −1.5) 이상 발생 빈도 1991–2020"
+      },
+      {
+        "key": "freq_ge3",
+        "stage": 3,
+        "label": "경계(SPEI-3 ≤ −2) 이상 발생 빈도 1991–2020"
+      }
+    ],
+    "freq_units": "연 비율",
+    "year_label": "{year}년 5–9월 최소 SPEI-3",
+    "year_units": "-",
+    "hazard_source": "TerraClimate v1.1 ppt−pet (Penman-Monteith), SPEI-3, GEV by L-moments (Stagge et al. 2015); 보조 점검(log-logistic)은 drought_agri.meta.json에 기록",
+    "notes": [
+      "논(관개)은 SPEI로 평가하지 않음 — 저수율 지표 필요",
+      "가뭄지수와 노출 농지 면적이며 손실(피해액)이 아님",
+      "빈도는 1991–2020 같은 기간으로 맞추고 센 값(in-sample)",
+      "장기 빈도는 격자마다 표준화한 지수의 같은 기간 빈도라 어디서나 비슷하게 나옵니다 — 지역 비교용이 아닙니다. 지역 비교는 연도별 지도로 하세요."
+    ],
+    "exposure_keys": {
+      "upland_ha": "upland",
+      "orchard_ha": "orchard",
+      "rice_ha": "rice",
+      "greenhouse_ha": "greenhouse"
+    },
+    "label": "가뭄 · SPEI-3 · 과거(1991–2025) · 한국"
+  },
+  "future": {
+    "_note": "TerraClimate +2C / +4C = a pseudo climate change experiment applied to the observed 1981-2025 months (file 'method' attribute); same months, shifted climate. Not a dated projection year. Standardised with the PRESENT fit (spei.reference_years), so frequencies are comparable with the present layer.",
+    "scenarios": [
+      "plus2C",
+      "plus4C"
+    ],
+    "source": "TerraClimate v1.1 data_plus2C / data_plus4C (Abatzoglou et al. 2026, Sci. Data): observed 1981-2025 monthly series adjusted by CMIP6 ensemble-median changes (file 'summary' attribute); THREDDS NCSS bbox subset, CC0",
+    "reference_years": [
+      1991,
+      2020
+    ],
+    "files": {
+      "ppt": "TerraClimate_{scenario}_ppt_{year}.nc",
+      "pet": "TerraClimate_{scenario}_pet_{year}.nc"
+    },
+    "folders": {
+      "plus2C": "terraclimate_plus2C",
+      "plus4C": "terraclimate_plus4C"
+    },
+    "check": {
+      "distribution": "loglogistic",
+      "warn_stage_disagreement_share": 0.1
+    },
+    "board": {
+      "layer": "drought_spei3_future_kor",
+      "default_key": "ratio_ge2_plus4C",
+      "use_tier": "S",
+      "use_tier_reason": "가뭄은 위험도 지표(hazard index)만 제공하며 피해함수가 없고 국내 실측으로 검증되지 않았습니다 (docs/SCOPE.md). 가상 온난화 시나리오 결과이므로 상대 비교용입니다.",
+      "scenario_labels": {
+        "plus2C": "+2 °C",
+        "plus4C": "+4 °C"
+      },
+      "freq_label": "{stage_name}(SPEI-3 ≤ {threshold}) 이상 발생 빈도, {scenario} 가상 온난화 (현재 기준 분포로 표준화)",
+      "ratio_label": "{stage_name}(SPEI-3 ≤ {threshold}) 이상 빈도의 변화 배율, {scenario} / 현재 (1991–2020)",
+      "freq_units": "연 비율",
+      "ratio_units": "배",
+      "stages_reported": [
+        2,
+        3
+      ],
+      "hazard_source": "TerraClimate v1.1 +2 °C/+4 °C 가상 온난화 시나리오 ppt−pet, SPEI-3를 현재(1991–2020) 기준 GEV(L-moments) 적합으로 표준화; 보조 점검(log-logistic)은 drought_future.meta.json에 기록",
+      "notes": [
+        "같은 현재(1991–2020) 기준 적합으로 표준화했으므로 현재 빈도와 직접 비교할 수 있습니다 (현재 빈도는 표준화 때문에 어디서나 비슷하고, 변화 배율이 정보를 줍니다)",
+        "+2 °C/+4 °C 가상 온난화(관측 1981–2025 월 기후에 CMIP6 앙상블 중앙값 변화 패턴을 적용한 TerraClimate 시나리오)이며, 특정 연도의 전망이 아닙니다",
+        "빈도는 1991–2020과 같은 달을 온난화 기후로 옮겨 센 값이라 연 변동성은 현재와 같고 평균 기후만 이동합니다",
+        "이 시나리오는 여름철 강수 증가가 PET 증가보다 커서 수분수지가 현재보다 커지므로, 빈도는 현재보다 줄어드는 방향입니다 (TerraClimate 시나리오의 성질)",
+        "배율은 현재 빈도가 0이면 정의되지 않습니다 (status: base_zero / both_zero)",
+        "논(관개)은 SPEI로 평가하지 않음 (미평가) — 저수율 지표 필요",
+        "가뭄지수와 노출 농지 면적이며 손실(피해액)이 아님"
+      ],
+      "label": "가뭄 · SPEI-3 · +2 °C/+4 °C 가상 온난화 · 한국"
+    }
+  }
+}

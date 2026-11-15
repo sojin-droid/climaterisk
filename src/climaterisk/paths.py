@@ -189,6 +189,36 @@ def derived_municipality_dir() -> Path:
     return derived_dir("municipality")
 
 
+def derived_board_dir(*parts: str) -> Path:
+    """``<DATA_ROOT>/derived/board[/…]`` — visual-board layers (pieces GeoJSON + metadata JSON)."""
+    return derived_dir("board", *parts)
+
+
+def derived_case_twins_dir(*parts: str) -> Path:
+    """``<DATA_ROOT>/derived/case_twins[/…]`` — case-twin summaries and figures."""
+    return derived_dir("case_twins", *parts)
+
+
+def derived_drought_dir(*parts: str) -> Path:
+    """``<DATA_ROOT>/derived/drought[/…]`` — agricultural drought pieces and summaries."""
+    return derived_dir("drought", *parts)
+
+
+def external_drought_dir(*parts: str) -> Path:
+    """``<DATA_ROOT>/external/drought[/…]`` — TerraClimate, CHIRPS, KRC, exposure downloads."""
+    return external_dir("drought", *parts)
+
+
+def farmmap_dir(*parts: str) -> Path:
+    """``<DATA_ROOT>/external/farmmap[/…]`` — 팜맵 province archives (``<year>/raw/*.zip``)."""
+    return external_dir("farmmap", *parts)
+
+
+def worldpop_dir(*parts: str) -> Path:
+    """``<DATA_ROOT>/external/worldpop[/…]`` — WorldPop rasters (``age_2024_1km/`` age bands)."""
+    return external_dir("worldpop", *parts)
+
+
 def floodmap_dir() -> Path:
     """환경부 홍수위험지도 downloads (licence-blocked; the script is kept for the record)."""
     return external_dir("other", "floodmap")
@@ -372,6 +402,8 @@ def status(with_sizes: bool = False) -> dict[str, Any]:
             "municipality_source": entry(municipality_source_dir()),
             "municipality_office": entry(municipality_office_dir()),
             "derived_municipality": entry(derived_municipality_dir()),
+            "derived_board": entry(derived_board_dir()),
+            "derived_drought": entry(derived_drought_dir()),
             "floodmap": entry(floodmap_dir(), legacy["floodmap"]),
             "climada_data_dir": entry(climada_data_dir(), legacy.get("climada")),
             "cache": entry(cache_dir()),

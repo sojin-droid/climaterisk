@@ -1,5 +1,6 @@
 export type ViewId =
   | "map"
+  | "board"
   | "scenarios"
   | "vulnerability"
   | "results"
@@ -14,6 +15,7 @@ export type ViewId =
 
 export const VIEW_IDS: readonly ViewId[] = [
   "map",
+  "board",
   "scenarios",
   "vulnerability",
   "results",
@@ -29,6 +31,7 @@ export const VIEW_IDS: readonly ViewId[] = [
 
 const ITEMS: { id: ViewId; label: string; ico: string }[] = [
   { id: "map", label: "Map", ico: "🗺️" },
+  { id: "board", label: "시각 보드", ico: "🧩" },
   { id: "scenarios", label: "Scenarios", ico: "🌡️" },
   { id: "vulnerability", label: "Vuln", ico: "📐" },
   { id: "results", label: "Results", ico: "📊" },

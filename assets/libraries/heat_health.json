@@ -1,0 +1,87 @@
+{
+  "_meta": {
+    "purpose": "Heat-attributable mortality rates for the visual board (A4): the repository's heat-mortality hazard and age-band impact functions applied to the WorldPop 2024 age structure. Nothing here is tuned to the reference rate.",
+    "version": "0.1.0",
+    "updated": "2026-11-11"
+  },
+  "country_iso3": "KOR",
+  "years": [
+    2000,
+    2019
+  ],
+  "hazard_file": "heat_mortality/HM_historical_KOR_2020.hdf5",
+  "cell_deg": 0.05,
+  "worldpop": {
+    "year": 2024,
+    "folder": "age_2024_1km",
+    "file_pattern": "kor_t_{age}_2024_CN_1km_R2025A_UA_v1.tif",
+    "age_bands": [
+      "00",
+      "01",
+      "05",
+      "10",
+      "15",
+      "20",
+      "25",
+      "30",
+      "35",
+      "40",
+      "45",
+      "50",
+      "55",
+      "60",
+      "65",
+      "70",
+      "75",
+      "80",
+      "85"
+    ],
+    "age_65plus_from": 65,
+    "source": "WorldPop 2024 constrained, UN-adjusted, 1 km, age bands both sexes (R2025A v1), CC BY 4.0, doi:10.5258/SOTON/WP00842",
+    "bands_note": "19 age-band files (0, 1, 5, ..., 80, 85; 85 = 85+) plus urls.txt in the folder"
+  },
+  "highlight_year": 2018,
+  "boundary_version": "2025_2Q",
+  "boundary_simplify_m": 50,
+  "boundary_code_column": "SIGUNGU_CD",
+  "boundary_name_column": "SIGUNGU_NM",
+  "check": {
+    "_note": "Sub check, diagnostic only (never a second result). National modelled 2018 rate against the published 2018 excess-mortality rate; a ratio outside warn_ratio warns. The two are not the same quantity (the reference is the excess during the 2018 heatwave, per 100 000 person-years); the ratio is a plausibility screen, not a calibration.",
+    "reference_year": 2018,
+    "reference_rate_per_100k": 8.3,
+    "reference_source": "Choi J, Lim H, Bae S, Choi K, et al. (2024) PLoS One, doi:10.1371/journal.pone.0310797: excess mortality 17.6 -> 8.3 per 100 000 person-years, worst heatwave 1994 vs 2018 (docs/HEAT_ADAPTATION_KR.md)",
+    "warn_ratio": [
+      0.5,
+      2.0
+    ],
+    "share_over65_tolerance": 0.03
+  },
+  "board": {
+    "layer": "heat_health_kor",
+    "peril": "heat_mortality",
+    "label": "열 관련 사망 · 과거(2000–2019 시즌) · 한국",
+    "default_key": "rate_per_100k",
+    "use_tier": "I",
+    "use_tier_reason": "사망률(10만 명당)·순위·비교용입니다. 임계값·적응 기울기 등 상수가 지시적이고 극단 연도를 약 2.3배 과소하게 읽으며 국내 초과사망 계열과의 대조가 한 해(2018)뿐이라, 절대 사망자 수(S)는 지도에 쓰지 않습니다 (docs/SCOPE.md §3 heat_mortality).",
+    "hazard_source": "열 노출 초과도일(HM) 2000–2019 시즌 20개 (기상청 남한상세 TA MK-PRISM v3.1, 0.05° 블록) × 연령대별 용량-반응 함수(<65·65+, KOSIS 2024 기저 사망률) × WorldPop 2024 연령별 인구",
+    "keys": [
+      {
+        "key": "rate_per_100k",
+        "label": "열 관련 초과사망률 · 연평균 2000–2019",
+        "quantity": "heat_deaths_per_100k"
+      },
+      {
+        "key": "rate_2018",
+        "label": "열 관련 초과사망률 · 2018년 시즌",
+        "quantity": "heat_deaths_per_100k"
+      }
+    ],
+    "notes": [
+      "열 관련 초과사망률 = 연평균(또는 2018년 시즌) 열 기인 사망자 ÷ 조각 인구 × 10만. 조각 인구는 WorldPop 2024 1 km 연령별 인구의 합이며(평균 아님), 인구가 0인 조각은 값 없음(null)입니다.",
+      "인구·연령 구조는 2024년 값을 2000–2019 모든 시즌에 그대로 씁니다(그 시기의 인구·고령화는 반영하지 않음). 기저 사망률은 KOSIS 2024(<65세 163.2, 65세 이상 2,928.4 /10만)입니다.",
+      "하자드는 TA(일평균기온) 기반 초과도일이며, 임계값은 지역 기후에서 맞춘 쾌적 구간입니다. 용량-반응 상수는 지시적이라 등급 I(비율·순위용)입니다.",
+      "미래 층은 없습니다: 미래 TA는 2021–2030 앙상블 평균(극값 눌림)뿐이라 과거와 같은 기준의 비교가 되지 않습니다.",
+      "참고 대조(진단 전용): 전국 2018년 모형 비율을 최초 발표 초과사망률(Choi 외 2024, 8.3/10만 인년)과 비교해 meta.check에 기록합니다."
+    ]
+  }
+}

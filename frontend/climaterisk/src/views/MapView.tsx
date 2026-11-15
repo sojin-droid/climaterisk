@@ -11,6 +11,7 @@ import {
   useMapEvents,
 } from "react-leaflet";
 import { LatLngBounds } from "leaflet";
+import { newAsset } from "../lib/assets";
 import type {
   Asset,
   HazardCatalog,
@@ -59,22 +60,6 @@ function geomPositions(geom: unknown): { kind: "polygon" | "line"; pos: [number,
   if (g.type === "LineString")
     return { kind: "line", pos: (g.coordinates as number[][]).map(([lo, la]) => [la, lo]) };
   return null;
-}
-
-function newAsset(lat: number, lon: number): Asset {
-  return {
-    id: crypto.randomUUID(),
-    name: "New facility",
-    lat: Number(lat.toFixed(5)),
-    lon: Number(lon.toFixed(5)),
-    sector: "real_estate",
-    geographic_scale: "point",
-    value: 0,
-    currency: "USD",
-    annual_emissions_tco2e: null,
-    vulnerability_class: null, // follow sector default
-    properties: {},
-  };
 }
 
 function ClickToAdd({ onAdd }: { onAdd: (lat: number, lon: number) => void }) {

@@ -84,6 +84,7 @@ export function MunicipalityMap({
   height = 360,
   pointLabel,
   warning,
+  boardPointer,
   offices = [],
   officeStatusOf,
   officeLabel,
@@ -97,6 +98,8 @@ export function MunicipalityMap({
   pointLabel: string;
   /** The fixed representative-point warning sentence. */
   warning: string;
+  /** Pointer to the visual board 시군구 panel (shown next to the warning, never instead of it). */
+  boardPointer?: string;
   /** V0.3 POC — official office points (drawn as dashed, dark-outlined circles). */
   offices?: OfficeMarker[];
   officeStatusOf?: (o: OfficeMarker) => PointStatus;
@@ -182,6 +185,12 @@ export function MunicipalityMap({
       </div>
       <div className="hint" style={{ marginTop: 6 }}>
         <b>●</b> {pointLabel} {warning}
+        {boardPointer && (
+          <>
+            <br />
+            <span data-testid="board-pointer">{boardPointer}</span>
+          </>
+        )}
         {offices.length > 0 && (
           <>
             <br />

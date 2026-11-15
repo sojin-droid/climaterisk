@@ -8,10 +8,20 @@ from __future__ import annotations
 
 from fastapi import APIRouter, FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 
 from climaterisk import __version__
-from climaterisk.api.routers import data, libraries, report, run, session, sheets, transition
+from climaterisk.api.routers import (
+    board,
+    data,
+    libraries,
+    report,
+    run,
+    session,
+    sheets,
+    transition,
+)
 from climaterisk.config import get_settings
 from climaterisk.logger import get_logger
 from climaterisk.runs.manager import WorkerCapacityError
@@ -38,6 +48,9 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Board GeoJSON is tens of MB of coordinates; it compresses several-fold.
+    app.add_middleware(GZipMiddleware, minimum_size=10_000)
 
     api = APIRouter(prefix="/api")
 
@@ -84,6 +97,7 @@ def create_app() -> FastAPI:
     api.include_router(report.router)
     api.include_router(libraries.router)
     api.include_router(data.router)
+    api.include_router(board.router)
     api.include_router(sheets.router)
     app.include_router(api)
 

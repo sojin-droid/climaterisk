@@ -1,0 +1,90 @@
+{
+  "_meta": {
+    "purpose": "Heat days (폭염일수) for the visual board (A5): days with daily maximum temperature at or above the KMA 폭염 threshold in May-Sep, observed 2000-2019 and a delta-change future. Nothing here is tuned to observations.",
+    "version": "0.1.0",
+    "updated": "2026-11-11",
+    "method": "Main: observed daily TAMAX + monthly model change (2051-2060 minus 2021-2030). The 5ENSMN daily fields are an ensemble mean (damped day-to-day spread) with their own summer level offset against MK-PRISM, so a direct count on them misses the observed count (measured: far above it); the delta cancels the level offset and keeps the observed variability. Sub check (diagnostic only): direct count bias, climate_bias (offset, spread ratio), direct ratio vs delta ratio."
+  },
+  "variable": "TAMAX",
+  "threshold_degC": 33,
+  "months": [
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
+  "obs_years": [
+    2000,
+    2019
+  ],
+  "model_base_years": [
+    2021,
+    2030
+  ],
+  "model_future_years": [
+    2051,
+    2060
+  ],
+  "scenarios": [
+    "ssp245",
+    "ssp585"
+  ],
+  "scenario_keys": {
+    "ssp245": "rcp45",
+    "ssp585": "rcp85"
+  },
+  "block_deg": 0.05,
+  "max_missing_frac": 0.02,
+  "boundary_version": "2025_2Q",
+  "boundary_simplify_m": 50,
+  "boundary_code_column": "SIGUNGU_CD",
+  "boundary_name_column": "SIGUNGU_NM",
+  "check": {
+    "_note": "Sub check, diagnostic only (never a second result). warn_rel_bias: warn when |relative bias| of the direct model count on 2021-2030 against the observed count exceeds this. A warning is EXPECTED for the 5ENSMN ensemble mean and is the reason the delta method is the main one.",
+    "warn_rel_bias": 0.3
+  },
+  "board": {
+    "layer": "heat_days_kor",
+    "peril": "heatwave",
+    "label": "폭염일수 (일 최고 ≥33 °C, 5–9월)",
+    "default_key": "obs_2000_2019",
+    "use_tier": "S",
+    "use_tier_reason": "폭염 하자드(취약성 없음)이고 일 최고기온(기온 기준, 체감온도 아님) 일수만 셉니다. 미래는 모형 앙상블 평균의 월평균 변화량을 관측 일자료에 더한 것이라 변화 방향·크기 참고용입니다 (docs/SCOPE.md §3 heatwave).",
+    "hazard_source": "기상청 남한상세 TAMAX: 관측 MK-PRISM v3.1 2000–2019, 미래 AR6 SSP2-4.5/SSP5-8.5 5ENSMN 2021–2030·2051–2060 (0.05° 블록 평균)",
+    "keys": [
+      {
+        "key": "obs_2000_2019",
+        "label": "폭염일수(일 최고 ≥33 °C, 5–9월) · 관측 2000–2019",
+        "quantity": "heat_days_per_year"
+      },
+      {
+        "key": "ssp245_2051_2060_delta",
+        "label": "폭염일수(≥33 °C, 5–9월) · SSP2-4.5 2051–2060 · 관측 + 모델 30년 변화량",
+        "quantity": "heat_days_per_year"
+      },
+      {
+        "key": "ssp585_2051_2060_delta",
+        "label": "폭염일수(≥33 °C, 5–9월) · SSP5-8.5 2051–2060 · 관측 + 모델 30년 변화량",
+        "quantity": "heat_days_per_year"
+      },
+      {
+        "key": "ssp245_ratio",
+        "label": "폭염일수 변화 · SSP2-4.5 2051–2060 ÷ 관측 2000–2019",
+        "quantity": "change"
+      },
+      {
+        "key": "ssp585_ratio",
+        "label": "폭염일수 변화 · SSP5-8.5 2051–2060 ÷ 관측 2000–2019",
+        "quantity": "change"
+      }
+    ],
+    "notes": [
+      "폭염일수 = 일 최고기온 33 °C 이상인 날, 5–9월, 연평균 일수. 기상청 폭염 기준(33 °C)을 기온에 적용한 것이며 체감온도가 아닙니다.",
+      "미래 값은 관측 일자료(2000–2019)에 모델의 월별 변화량(2051–2060 월평균 − 2021–2030 월평균)을 더해 센 값(델타법)입니다. 변화량은 '30년' 간격이고, 관측의 연·일 변동을 그대로 유지합니다.",
+      "AR6 5ENSMN 일자료는 모형 5개의 일별 앙상블 평균이라 일 변동폭이 눌리고(7월 일 표준편차 3.2→2.6 °C) 여름 평균도 관측(MK-PRISM)보다 높게 놓여(약 +1.7 °C) 직접 세면 관측과 크게 어긋납니다(meta.check에 기록). 변화량(델타)은 수준 차이를 상쇄하고 관측 변동을 그대로 두므로 델타법을 주 방법으로 씁니다. 직접 세기는 진단 전용입니다.",
+      "배율 = 미래 ÷ 관측. 관측이 0일이고 미래가 0보다 크면 배율을 정의할 수 없어 '기준 0'으로 표시합니다.",
+      "모델 격자에 값이 없는 칸(해안·섬)은 미래·배율이 값 없음(null)이며 0이 아닙니다."
+    ]
+  }
+}

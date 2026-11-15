@@ -443,3 +443,12 @@ row, one point, one address); no other row names the city hall, so it is the hea
   identical JSON; workbook identical apart from the generation time). The distance between the
   two points is descriptive; neither point is ranked.
 * CLI: `scripts/municipality_physical_risk.py … --anchors REPRESENTATIVE_POINT OFFICIAL_OFFICE_POINT`.
+
+## 11. 시각 보드 조각 방식으로 대체 (2026-11-11)
+
+시군구 단위로 읽는 방법은 **시각 보드**로 옮겼습니다 (`docs/VISUAL_BOARD_KO.md`).
+
+* **조각(piece)** = 재해 격자 한 칸 ∩ 시군구 경계. 조각은 그 격자 칸의 값을 그대로 받아 칠해집니다. 보간도 평균도 없습니다.
+* **시군구 요약** = 조각 수와 최소–최대만 보여 줍니다. 평균·합산·순위는 내지 않으며, 값이 없는 조각은 null로 두고 0으로 바꾸지 않습니다.
+* **대표점(대표점 방식)** 은 지도 탭·CLI·엑셀의 **단일 지점 화면**으로만 남습니다. 대표점의 값은 그 점이 들어간 격자 한 칸의 값일 뿐 **시군구 값이 아닙니다**. 단일 지점 화면의 대표점 문구는 그대로 유지하고, 그 옆에 시각 보드 시군구 패널로 안내하는 문구(`BOARD_POINTER`)를 덧붙였습니다.
+* 시군구 전체의 범위가 필요하면 시각 보드의 시군구 패널을 보세요.
