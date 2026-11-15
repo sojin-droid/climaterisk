@@ -123,6 +123,34 @@ Consequence for use: read per-100k rates and the ranking of locations; do not re
 death counts as estimates of reality until the B-stage parameter work
 (`HEAT_MORTALITY_PROVENANCE.md` §6) is done.
 
+## Korea-local coastal flood — connected bathtub (method tier T2, hazard-only)
+
+Models tab, `KOREA_LOCAL` x CF (`worker/climaterisk_worker/coastal_connectivity.py`). The
+headline coastal flood stays Aqueduct (`GLOBAL_BASELINE`); this cell reports a hazard, never a loss.
+
+$$ Z_{AHHW} = \frac{A_{M2}+A_{S2}+A_{K1}+A_{O1}}{100},\qquad
+d = \max\left(0,\ Z_{AHHW}+s-z_{ground}\right)\ \text{if the 90 m cell is tidal, else } 0 $$
+
+ASCII: `ahhw_m = (M2+S2+K1+O1 amplitudes, cm) / 100`; `depth = max(0, ahhw + slr - ground)` when
+the asset's 90 m cell is sea-connected, else 0. $A_c$ = KHOA 조화상수 amplitude of constituent $c$
+(cm) at the nearest station; $s$ = sea-level-rise increment (m; 0, 0.5, 1.0 in
+`coastal_local.slr_increments_m`); $z_{ground}$ = ground above MSL (m).
+
+1. Terrain: Copernicus GLO-30 reduced to 3 arcsec (~90 m) by the block minimum, which removes
+   barriers narrower than ~90 m. Cache: `cache/glo30_blockmin/*_min3.npy` / `_max3.npy`.
+2. Sea = outside the SGIS 시도 land polygons, or no elevation.
+3. Tidal = cell below the station's AHHW (+ increment) whose 8-connected component of
+   low-or-sea cells contains sea (`scipy.ndimage.label`). The threshold is the nearest station's
+   AHHW evaluated per ~1.8 km block.
+4. Ground at the asset: bare-earth NGII DEM where it covers the point, else GLO-30 (a surface model).
+   Unknown ground gives unknown connectivity and depth (null), never 0.
+
+Assumptions (stated on the row): structures narrower than ~90 m (seawalls, levees) are removed;
+nearest-station AHHW; present-day tidal datum; no storm surge, no waves; no loss computed.
+Sub check (diagnostic only): the slr-0 test on the block maximum keeps those structures;
+`narrow_only` counts assets connected only because the structures are assumed to fail, and warns.
+Per-asset results are in memory and in the run record only.
+
 ## Known data caveats
 
 - **IEA WEO** free dataset is **non-commercial** — do not bundle for commercial use without a license.

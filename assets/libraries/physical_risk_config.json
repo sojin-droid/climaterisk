@@ -63,6 +63,11 @@
     "check_min_share_in_band": 0.35,
     "note": "Models-tab Korea-local river flood (RF, KOREA_LOCAL) = 환경부 홍수위험지도 official depth class at each asset. Bands N330 ≤0.5, N331 0.5–1, N332 1–2, N333 2–5, N334 ≥5 m (code order inferred, not officially confirmed). depth_representative lower|mid|upper picks the priced depth inside the band; the open ≥5 m class always uses open_class_depth_m. The DEM edge-depth sub check runs on up to check_max_points inside assets and warns when n ≥ check_min_points and the share inside the band is below check_min_share_in_band (provisional: observed 0.45 rural GLO-30, 0.45 east Seoul bare earth, 0.28–0.30 Seoul GLO-30) or the class medians are not monotonic."
   },
+  "coastal_local": {
+    "pad_km": 20.0,
+    "slr_increments_m": [0.0, 0.5, 1.0],
+    "note": "Models-tab Korea-local coastal flood (CF, KOREA_LOCAL) = connected bathtub at the KHOA 약최고고조면 (AHHW = M2+S2+K1+O1 amplitudes of the nearest station), hazard only. The terrain mosaic covers the assets' bounding box padded by pad_km; slr_increments_m are added to the datum and reported in diagnostics (the hazard event is the present-day datum, increment 0). No loss is computed."
+  },
   "flood_protection": {
     "enabled": true,
     "presumed_defended_return_period_years": 2,

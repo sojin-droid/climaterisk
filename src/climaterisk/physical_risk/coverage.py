@@ -116,7 +116,20 @@ SPATIAL_RESOLUTION: dict[str, dict[str, dict[str, Any]]] = {
             "description": f"30 arcsec grid ({km_class(30.0, 'arcsec')} class in Korea)",
             "metadata_field": "Aqueduct GeoTIFF pixel size (measured on load)",
             "dataset_family": "WRI Aqueduct Floods v2 inuncoast",
-        }
+        },
+        _K: {
+            "hazard": "CF",
+            "model_id": _K,
+            "value": 3.0,
+            "unit": "arcsec",
+            "unit_type": "asset point (90 m connectivity cell)",
+            "description": (
+                f"asset point on a 3 arcsec connectivity cell ({km_class(3.0, 'arcsec')} class "
+                "in Korea) — GLO-30 block minimum; ground read at the point"
+            ),
+            "metadata_field": "GLO-30 block-minimum mosaic; no hazard grid is built",
+            "dataset_family": "khoa_ahhw_connected_bathtub",
+        },
     },
     "TC": {_G: _dataapi("TC", _G), _C: _dataapi("TC", _C)},
     "HEAT": {
