@@ -73,7 +73,7 @@ _BUILDINGS_3D = _i("building_heights", "건물 높이 (GIS건물통합정보)", 
 #: Every peril the worker can run. ``current`` must match what the runner actually does.
 PERIL_TIERS: dict[str, PerilTiers] = {
     "river_flood": PerilTiers(
-        MethodTier.T1,
+        MethodTier.T2,
         MethodTier.T3,
         {
             MethodTier.T2: (_FLOODMAP,),

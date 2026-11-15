@@ -60,7 +60,7 @@
 
 | peril_id | 현재 | 목표 | T2 입력 | T3 입력 | 메모 |
 |---|---|---|---|---|---|
-| `river_flood` | **T1** | **T3** | 홍수위험지도 원문 폴리곤 (RF-03, held) | 하천 유량 (key), 5 m DEM (PF-05, apply), 하천 단면·제방고 (RF-04, apply) | ISIMIP 150초. 방어는 전국 일괄 50년 가정만. **T2 시험 연결(2026-11-14)**: Models 탭 `KOREA_LOCAL` = 공식 수심 등급(원문 폴리곤 겹침), 지형 깊이는 보조 점검. 헤드라인 전환은 비교 후 ([KOREA_FLOODMAP_INVESTIGATION.md](KOREA_FLOODMAP_INVESTIGATION.md) §8). T3 후보: LISFLOOD-FP + ANUGA 보조 점검 |
+| `river_flood` | **T2** | **T3** | 홍수위험지도 원문 폴리곤 (RF-03, held) | 하천 유량 (key), 5 m DEM (PF-05, apply), 하천 단면·제방고 (RF-04, apply) | ISIMIP 150초. 방어는 전국 일괄 50년 가정만. **T2 시험 연결(2026-11-14)**: Models 탭 `KOREA_LOCAL` = 공식 수심 등급(원문 폴리곤 겹침), 지형 깊이는 보조 점검. **2026-11-15 헤드라인 = T2**: 현재 기후는 지도 그대로, 미래는 같은 지도 수심에 ISIMIP 전국 변화 계수를 빈도로 곱한다 ([KOREA_FLOODMAP_INVESTIGATION.md](KOREA_FLOODMAP_INVESTIGATION.md) §10). T3 후보: LISFLOOD-FP + ANUGA 보조 점검 |
 | `coastal_flood` | **T1** | **T3** | KHOA 조화상수 (held), GLO-30 (PF-07, held) | 조화상수, 상세 수심 (apply), 방조제 대장 (CF-03, none) | T2 = 약최고고조면 + 바다 연결성. **T2 시험 연결**: Models 탭 `KOREA_LOCAL` = 약최고고조면(KHOA M2+S2+K1+O1) + GLO-30 90 m 연결성, 수심만 보고하고 손실은 계산하지 않음(hazard-only); 헤드라인은 Aqueduct 그대로. T3 후보: SFINCS + GeoClaw |
 | `tc_surge` | **T1** | **T3** | — | 태풍 경로 (TC-02, held), 상세 수심 (apply), 조위관측 (key) | T3 후보: SFINCS / GeoClaw, 매미·차바 재현 |
 | `tropical_cyclone` | **T1** | **T2** | KDS 기본풍속 지도 (none, 디지털화 필요), ASOS (HT-11, key) | — | 개별 태풍 사례만 WindNinja / OpenFOAM |
@@ -81,8 +81,8 @@
 | 티어 | 현재 | 목표 |
 |---|---|---|
 | **T3** | 없음 | `river_flood`, `coastal_flood`, `tc_surge`, `heatwave`, `crop_yield` |
-| **T2** | `heatwave`, `heat_mortality` | `tropical_cyclone`, `heat_mortality`, `drought` |
-| **T1** | 나머지 13개 | `tc_rain`, `low_flow`, `wildfire`, `earthquake`, `landslide`, `hail`, `european_windstorm` |
+| **T2** | `river_flood`, `heatwave`, `heat_mortality` | `tropical_cyclone`, `heat_mortality`, `drought` |
+| **T1** | 나머지 12개 | `tc_rain`, `low_flow`, `wildfire`, `earthquake`, `landslide`, `hail`, `european_windstorm` |
 
 ---
 
