@@ -1,6 +1,6 @@
 """KDCA heat-illness check of the open-field UTCI (heat phase 2, design 2026-11-16 §4.2-§4.3).
 
-Pure functions (numpy, pandas, scipy): cleaning of the KDCA notification file, daily and yearly
+Pure functions (numpy, pandas): cleaning of the KDCA notification file, daily and yearly
 counts per 시도, Spearman rank correlations, the four tests V1-V4 and the pre-registered
 decision :func:`decide`. File and API I/O of the real run is in
 ``scripts/heat_utci_validate_kdca.py``; the station daily series comes from
@@ -160,15 +160,23 @@ def daily_counts(
 
 
 def spearman(a: Sequence[float] | np.ndarray, b: Sequence[float] | np.ndarray) -> float | None:
-    """Spearman rank correlation over the finite pairs; None if under 3 pairs or constant."""
-    from scipy.stats import spearmanr
+    """Spearman rank correlation over the finite pairs; None if under 3 pairs or constant.
 
+    Algorithm:
+        $$\\rho = \\mathrm{corr}\\big(\\mathrm{rank}(x),\\ \\mathrm{rank}(y)\\big)$$
+        ASCII: rho = Pearson correlation of the average ranks (ties share the mean rank)
+
+        $x$, $y$ the finite pairs of the two series (any unit); the result is unitless.
+        Implemented with pandas ranks and numpy so that no scipy is needed.
+    """
     x = np.asarray(a, dtype=float)
     y = np.asarray(b, dtype=float)
     ok = np.isfinite(x) & np.isfinite(y)
     if ok.sum() < 3 or np.ptp(x[ok]) == 0.0 or np.ptp(y[ok]) == 0.0:
         return None
-    rho = float(spearmanr(x[ok], y[ok]).statistic)
+    rx = pd.Series(x[ok]).rank(method="average").to_numpy()
+    ry = pd.Series(y[ok]).rank(method="average").to_numpy()
+    rho = float(np.corrcoef(rx, ry)[0, 1])
     return rho if np.isfinite(rho) else None
 
 
