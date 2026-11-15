@@ -107,10 +107,10 @@ def test_country_adapter_describes_itself_as_data_api_not_korea_local() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Test G — the KOREA_LOCAL interfaces refuse to produce data                    #
+# Test G — the KOREA_LOCAL TC interface refuses to produce data                 #
 # --------------------------------------------------------------------------- #
-@pytest.mark.parametrize("klass", [adapters.KoreaLocalFloodAdapter, adapters.KoreaLocalTCAdapter])
-def test_g_korea_local_flood_and_tc_adapters_load_nothing_and_say_why(klass) -> None:  # type: ignore[no-untyped-def]
+@pytest.mark.parametrize("klass", [adapters.KoreaLocalTCAdapter])
+def test_g_korea_local_tc_adapter_loads_nothing_and_says_why(klass) -> None:  # type: ignore[no-untyped-def]
     a = klass("rcp45", 2050, "KOR")
     assert a.status == adapters.NOT_IMPLEMENTED and a.model_id == K
     assert a.load() is None and a.load((30.0, 120.0, 40.0, 130.0)) is None
@@ -119,18 +119,46 @@ def test_g_korea_local_flood_and_tc_adapters_load_nothing_and_say_why(klass) -> 
     assert "no domestic" in (d.detail or "")
 
 
+def test_korea_local_flood_is_the_official_class_band_with_a_diagnostic_check() -> None:
+    """Main method = official depth class (no DEM); the edge depth is a sub check only."""
+    a = adapters.KoreaLocalFloodAdapter("rcp45", 2050, "KOR")
+    assert a.status == adapters.READY and a.model_id == K
+    d = a.describe()
+    assert d.hazard_dataset == "floodmap_rfm_depth_class" and d.served_scenario == "historical"
+    assert "제4유형" in d.hazard_source and "sub check" in (d.detail or "").lower()
+    with pytest.raises(ValueError):
+        a.load((30.0, 120.0, 40.0, 130.0))  # needs asset points
+
+
+def test_korea_local_flood_on_the_real_maps_when_present() -> None:
+    from climaterisk_worker._paths import paths
+
+    if not paths.floodmap_dir().is_dir():
+        pytest.skip("홍수위험지도 not on this machine")
+    a = adapters.KoreaLocalFloodAdapter("historical", 2020, "KOR")
+    h = a.load(None, points=[(37.547, 127.047), (37.5665, 126.978)])  # 성수동1가, 서울시청
+    assert [a.diagnostics["classes"][k][0] for k in ("rp100", "rp200", "rp500")] == [
+        "N333",
+        "N333",
+        "N334",
+    ]
+    np.testing.assert_allclose(h.intensity.toarray()[:, 0], [3.5, 3.5, 5.0])
+    np.testing.assert_allclose(h.intensity.toarray()[:, 1], [0.0, 0.0, 0.0])
+    assert "share_in_band" in a.diagnostics["sub_check"] or "error" in a.diagnostics["sub_check"]
+
+
 def test_g_runner_emits_not_implemented_rows_with_null_numbers_for_korea_local() -> None:
     out = runner.compute_physical_risk_models(
         {
             "facilities": [FACILITY],
             "climate_scenario": "rcp45",
             "target_year": 2050,
-            "hazards": ["RF", "TC"],
+            "hazards": ["TC"],
             "models": [K],
             "country": "KOR",
         }
     )
-    assert out["status"] == "ok" and len(out["rows"]) == 2
+    assert out["status"] == "ok" and len(out["rows"]) == 1
     for r in out["rows"]:
         assert (
             r["model_id"] == K
@@ -371,7 +399,9 @@ def test_ten_assets_times_three_hazards_batch_under_korea_local(tmp_path) -> Non
     assert len(out["rows"]) == 30
     assert all(r["model_id"] == K and r["calculation_status"] for r in out["rows"])
     statuses = {r["hazard_type"]: r["calculation_status"] for r in out["rows"]}
-    assert statuses["RF"] == statuses["TC"] == "NOT_IMPLEMENTED"
+    assert statuses["TC"] == "NOT_IMPLEMENTED"
+    # Korea-local flood is present-day only: an RCP request is never filed under the RCP key
+    assert statuses["RF"] in ("SCENARIO_MISMATCH", "NO_HAZARD_DATA")
     assert statuses["HW"] in ("HAZARD_ONLY", "NO_HAZARD_DATA")
     import json
 

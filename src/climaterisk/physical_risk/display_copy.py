@@ -233,7 +233,9 @@ def recommended_models(
     """Per hazard key, the most local model whose readiness cell can run.
 
     ``READY`` beats ``HAZARD_ONLY``; ``NOT_IMPLEMENTED`` and ``NO_HAZARD_DATA`` are never
-    chosen. For Korea today: RF → DATA_API_COUNTRY, TC → DATA_API_COUNTRY, HEAT → KOREA_LOCAL.
+    chosen, and neither is a cell marked ``"trial": "yes"`` (runnable and shown, but not the
+    headline until it has been compared with the incumbent — docs/TIERS.md §4). For Korea
+    today: RF → DATA_API_COUNTRY, TC → DATA_API_COUNTRY, HEAT → KOREA_LOCAL.
     A hazard with no runnable cell is omitted.
     """
     table = readiness or READINESS
@@ -241,7 +243,15 @@ def recommended_models(
     for key in hazards or list(HAZARD_KEYS):
         cells = table.get(key, {})
         for wanted in ("READY", "HAZARD_ONLY"):
-            pick = next((m for m in _LOCAL_FIRST if cells.get(m, {}).get("status") == wanted), None)
+            pick = next(
+                (
+                    m
+                    for m in _LOCAL_FIRST
+                    if cells.get(m, {}).get("status") == wanted
+                    and cells.get(m, {}).get("trial") != "yes"
+                ),
+                None,
+            )
             if pick:
                 out[key] = pick
                 break

@@ -89,7 +89,23 @@ def _dataapi(hazard: str, model: str) -> dict[str, Any]:
 
 #: Declared resolution per (hazard key x model). Missing = that cell has no dataset.
 SPATIAL_RESOLUTION: dict[str, dict[str, dict[str, Any]]] = {
-    "RF": {_G: _dataapi("RF", _G), _C: _dataapi("RF", _C)},
+    "RF": {
+        _G: _dataapi("RF", _G),
+        _C: _dataapi("RF", _C),
+        _K: {
+            "hazard": "RF",
+            "model_id": _K,
+            "value": 1.0,
+            "unit": "arcsec",
+            "unit_type": "asset point (official class polygon)",
+            "description": (
+                "evaluated at each asset point: the official depth-class polygon that covers it "
+                "(original polygons, no hazard grid)"
+            ),
+            "metadata_field": "official map polygons; no hazard grid is built",
+            "dataset_family": "floodmap_rfm_depth_class",
+        },
+    },
     "CF": {
         _G: {
             "hazard": "CF",
