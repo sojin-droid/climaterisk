@@ -1,6 +1,139 @@
 {
   "_note": "Synthetic (imaginary) virtual city for scripts/synthetic_city.py. Every number is an assumption made because no real building/GIS data may be used — none is a measurement. Change values here, not in code.",
   "seed": 20261029,
+  "site": {
+    "_note": "Real neighbourhood (AGENTS.md step R, user approval 2026-11-05: public data allowed) built by twin/site.py from OpenStreetMap buildings and the Copernicus GLO-30 surface model. Unlike the rest of this file these are choices about real data, not an imaginary city; the building-storey defaults are assumptions for central Seoul, not measurements.",
+    "name": "Gangnam station area, Seoul",
+    "name_note": "Label for outputs only.",
+    "bbox": [127.022, 37.492, 127.034, 37.502],
+    "bbox_note": "West, south, east, north in degrees (about 1.06 km x 1.11 km) around Gangnam station.",
+    "cell_m": 10.0,
+    "cell_m_note": "Hydraulic raster cell size (m): fine enough to resolve streets about 20 m wide and building blocks, coarse enough for the explicit solver to stay fast. An assumption.",
+    "osm_file": "south-korea-261013.osm.pbf",
+    "osm_file_note": "Geofabrik South Korea extract (OSM data of 2026-10-13) in paths.osm_dir().",
+    "dem_file": "Copernicus_DSM_COG_10_N37_00_E127_00_DEM.tif",
+    "dem_file_note": "Copernicus GLO-30 surface model tile (about 30 m, EPSG:4326) in paths.external_dir('copernicus_dem'); it includes buildings and trees, so footprints are masked and the ground interpolated.",
+    "floor_to_floor_m": 3.3,
+    "floor_to_floor_m_note": "Assumed storey height (m) used to turn building:levels or default levels into a height; typical 3.0-3.6 m for Korean offices and apartments.",
+    "default_levels": {
+      "_note": "Assumed number of storeys by OSM building value when the footprint has neither a height nor a building:levels tag; numbers are assumptions for central Seoul, not measurements. Unlisted values fall back to 'yes'.",
+      "yes": 4,
+      "apartments": 15,
+      "residential": 4,
+      "house": 2,
+      "commercial": 6,
+      "retail": 3,
+      "office": 12,
+      "school": 4,
+      "church": 3,
+      "hospital": 8,
+      "hotel": 12,
+      "industrial": 2,
+      "warehouse": 2,
+      "garage": 1,
+      "public": 5,
+      "university": 6
+    },
+    "attribution": {
+      "_note": "Credits required by the data licences; show them wherever the site is displayed.",
+      "osm": "(c) OpenStreetMap contributors, ODbL 1.0",
+      "osm_note": "OpenStreetMap building footprints and tags, Open Database License.",
+      "dem": "Copernicus DEM GLO-30, (c) DLR e.V. 2010-2014 and (c) Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved",
+      "dem_note": "Copernicus GLO-30 surface model, ESA / European Union licence."
+    }
+  },
+  "heat": {
+    "_note": "Street-canyon heat proxy (twin/heat.py; AGENTS.md step 8), repo-specific and NOT UTCI: no UTCI library is installed. Air temperature per return period, plus urban-heat-island, sky-view factor and sunlit fraction of an infinite street canyon, give a weighted feels-like temperature priced through the repo's heat-productivity curve. Every value is an assumption, not a fitted climatology.",
+    "return_periods": [2, 5, 10, 25, 50, 100],
+    "return_periods_note": "Assumed heatwave return periods (years), the same ladder as the flood events.",
+    "t_air_2y_c": 34.0,
+    "t_air_2y_c_note": "Assumed 2-year peak daily-maximum air temperature (degC) for a Korean mid-latitude city; an assumption, not a station record.",
+    "t_air_slope_c": 1.2,
+    "t_air_slope_c_note": "Assumed Gumbel-like growth of the peak air temperature per ln-year (degC), so the 100-year peak is about 5.5 degC above the 2-year peak. An assumption.",
+    "mrt_sun_excess_c": 25.0,
+    "mrt_sun_excess_c_note": "Assumed extra mean radiant temperature (degC) over air temperature for a fully sunlit street at midsummer noon; an assumption in the usual 20-30 degC range for hot sunny days.",
+    "mrt_sky_excess_c": 5.0,
+    "mrt_sky_excess_c_note": "Assumed extra radiant load (degC) from the open sky and warm surfaces, scaled by the sky-view factor; an assumption.",
+    "wind_10m_ms": 2.0,
+    "wind_10m_ms_note": "Assumed 10 m wind speed (m/s) for the UTCI on a calm summer afternoon; UTCI is valid for 0.5-17 m/s.",
+    "rh_pct": 55.0,
+    "rh_pct_note": "Assumed relative humidity (%) at the afternoon temperature peak of a Korean heatwave.",
+    "mrt_weight": 0.3,
+    "mrt_weight_note": "Assumed weight of the radiant excess in the feels-like temperature (a person feels air temperature plus a fraction of the radiant excess); an assumption, not a UTCI regression. Used only by feels_like (the earlier proxy); the hazard now uses UTCI.",
+    "solar_elevation_deg": 70.0,
+    "solar_elevation_deg_note": "Assumed solar elevation (degrees) at midsummer noon near 37 N (90 - 37 + 23.4 = 76 at solstice, lowered for typical heatwave dates); an assumption.",
+    "street_width_m": 15.0,
+    "street_width_m_note": "Assumed street width (m) between building faces, a typical Korean two-lane street with pavements; one value for the whole synthetic city.",
+    "uhi_c": {
+      "_note": "Assumed urban-heat-island air-temperature excess (degC) per asset kind: dense paved or hot-process lots are warmer than residential ones. Assumptions, not measurements.",
+      "residential": 0.5,
+      "commercial": 1.5,
+      "industrial": 2.0,
+      "substation": 1.0,
+      "hospital": 1.0,
+      "road": 2.0
+    },
+    "workers": {
+      "_note": "Assumed workers per asset (people present in the heat) used for the productivity exposure. Roads carry no workers: they have no payroll, so their exposure is zero. Assumptions, not a census.",
+      "residential": 2,
+      "commercial": 40,
+      "industrial": 60,
+      "substation": 3,
+      "hospital": 300,
+      "road": 0
+    },
+    "daily_wage_usd": 100.0,
+    "daily_wage_usd_note": "Assumed daily labour value (USD per worker-day) for a mid-income Korean city; an assumption.",
+    "heatwave_days": 10,
+    "heatwave_days_note": "Assumed number of heatwave working days per year over which the peak-day productivity loss applies; an assumption.",
+    "max_mdd": {
+      "_note": "Assumed maximum productivity loss at the top of the repo's heat ramp, per asset kind: higher for outdoor or heavy work (industrial, roads) and lower for air-conditioned work (commercial, hospital). Assumptions, not published curves.",
+      "residential": 0.5,
+      "commercial": 0.3,
+      "industrial": 1.0,
+      "substation": 0.8,
+      "hospital": 0.3,
+      "road": 1.0
+    }
+  },
+  "coast": {
+    "_note": "Synthetic sea coast for the storm-surge scenario (twin/coastal.py; AGENTS.md step 9). In this scenario the bank (row 0 side) faces the sea: the river and coastal scenarios are alternatives on the same terrain, not both present at once. The coast is synthetic, a straight east-west line; CLIMADA's real distance-to-coast raster is not used. Every value is an assumption.",
+    "coastline_offset_m": 62.5,
+    "coastline_offset_m_note": "Assumed distance (m) of the coastline south of grid row 0. Must equal (n + 0.5) x hydraulic.cell_m so the coast falls on a raster cell edge and no DEM cell straddles it: land cells fill the gap, sea cells start beyond it.",
+    "sea_rows": 4,
+    "sea_rows_note": "Assumed number of sea raster rows written south of the coast in the DEM (at least this many rows at sea_bed_m).",
+    "sea_bed_m": -5.0,
+    "sea_bed_m_note": "Assumed sea-bed elevation (m, negative = below datum) of the sea rows; shallow shelf, a placeholder.",
+    "inland_decay_m_per_km": 0.2,
+    "inland_decay_m_per_km_note": "Surge height lost per km inland (m/km); the CLIMADA Petals default from Pielke and Pielke (1997).",
+    "sea_level_rise_m": 0.0,
+    "sea_level_rise_m_note": "Sea-level rise added to the surge (m); 0.0 is present day, raise it for a climate scenario.",
+    "surge_duration_h": 2.0,
+    "surge_duration_h_note": "Assumed duration (h) of the raised-cosine surge wave at the coast in the 2D model (rise, peak at half, fall); a typhoon surge lasts hours, not days. Kept short on purpose: the city is only ~2 km deep and fills within minutes, so durations of 3 h and more all give the bathtub (differences < 0.1 m in total) and only a shorter surge shows the 2D effect. Only the 2D model uses it; the Petals bathtub assumes the water stays up long enough to fill every low cell.",
+    "surge_recession_h": 3.0,
+    "surge_recession_h_note": "Assumed time (h) the 2D run continues after the surge wave so that water on land can settle."
+  },
+  "typhoon": {
+    "_note": "Synthetic typhoon tracks (twin/typhoon.py; AGENTS.md step 7). Straight, constant-intensity hourly tracks aimed at the city centre with a random lateral offset and heading; wind is CLIMADA's Holland profile; priced with the repo's TC regional impact function for Korea. Every value is an assumption, not a fitted climatology.",
+    "n_tracks": 20,
+    "n_tracks_note": "Assumed number of synthetic tracks, each given the same annual frequency.",
+    "annual_rate_per_year": 0.5,
+    "annual_rate_per_year_note": "Assumed total rate (1/yr) of typhoons passing near the city, split equally over the tracks; a placeholder of the order of Korean landfall counts, not a measurement.",
+    "vmax_ms": [25.0, 55.0],
+    "vmax_ms_note": "Assumed range of maximum sustained wind (m/s), drawn uniformly per track.",
+    "rmax_km": [20.0, 60.0],
+    "rmax_km_note": "Assumed radius of maximum wind range (km), drawn uniformly per track.",
+    "speed_kmh": [15.0, 40.0],
+    "speed_kmh_note": "Assumed translation speed range (km/h), drawn uniformly per track.",
+    "heading_deg": [0.0, 45.0],
+    "heading_deg_note": "Assumed heading range (deg clockwise from north): north to north-east, typical of storms recurving over Korea.",
+    "miss_distance_km": 150.0,
+    "miss_distance_km_note": "Assumed maximum lateral offset (km) of a track from the city centre, drawn uniformly in [-miss, +miss].",
+    "start_distance_km": 300.0,
+    "start_distance_km_note": "Assumed distance (km) from the track start back along its heading to the city centre.",
+    "hours": 72,
+    "hours_note": "Assumed track length (h); long enough for the slowest storm to pass the city."
+  },
   "grid": {
     "_note": "rows x cols intersections of a street grid; row 0 is the river bank, rows increase inland.",
     "rows": 20,
@@ -20,6 +153,120 @@
     "return_periods": [2, 5, 10, 25, 50, 100, 200, 500],
     "stage_2y_m": 0.3,
     "stage_slope_m": 0.8
+  },
+  "hydraulic": {
+    "_note": "2D local-inertial flood model (twin/hydraulics.py, twin/inundation.py; AGENTS.md step 6B). The river row follows a raised-cosine stage hydrograph from base_stage_m up to the stage-law peak h(T) and back over flood_duration_h; the run continues recession_h after it. Every number is an assumption, not a calibration.",
+    "cell_m": 25.0,
+    "cell_m_note": "raster cell size (m); must divide grid.spacing_m an even number of times so road midpoints fall on a cell centre.",
+    "manning_n": 0.05,
+    "manning_n_note": "Manning roughness (s m^-1/3) for an urban floodplain with buildings and streets; typical published range 0.03-0.1.",
+    "river_bed_m": -1.0,
+    "river_bed_m_note": "bed of the river row below datum (m), so the channel holds water at the base stage.",
+    "base_stage_m": 0.0,
+    "base_stage_m_note": "river stage before and after the flood wave (m above datum).",
+    "flood_duration_h": 24.0,
+    "flood_duration_h_note": "length of the flood wave (h); the peak is at half this time. A short (flashy) wave leaves less time to fill the city than the bathtub assumes.",
+    "recession_h": 6.0,
+    "recession_h_note": "extra simulated time after the wave (h).",
+    "alpha_cfl": 0.7,
+    "alpha_cfl_note": "time-step safety factor of de Almeida et al. (2012), 0 < alpha < 1.",
+    "max_valid_froude": 0.5,
+    "max_valid_froude_note": "the local-inertial scheme drops advection; runs whose peak Froude number reaches this are flagged as outside validity (Neal et al. 2012; tests/test_hydraulics.py)."
+  },
+  "loss": {
+    "_note": "Per-building loss of one design storm on the real site (twin/site_loss.py; AGENTS.md step R3). Building values are NOT client data: footprint area (OSM) x exposed storeys x an assumed replacement cost per m2. Every number here is an assumption; the loss is the loss of ONE storm, not an expected annual loss.",
+    "entry_threshold_m": 0.05,
+    "entry_threshold_m_note": "No-damage threshold T (m), method of the user's sheet 무피해문턱_계산표(261020): damage 0 while outside depth <= T, the unchanged JRC Asia curve at the full depth once over T (FLOPROS-style rule, Scussolini et al. 2016). 0.05 m is the sheet's default when no survey value exists: the JRC curve as implemented in CLIMADA-petals is already 0 at 0.05 m, so nothing extra is blocked. No Korean standard value for entrance sills was found (sheet source F1), so no larger sill is assumed. Per-building sills, flood barriers, ground-floor heights and pumps (sheet steps 1-5) need survey data and are not available for OSM buildings.",
+    "max_exposed_storeys": 1,
+    "max_exposed_storeys_note": "assumption: street water reaches the ground floor only, so the JRC curve applies to one storey of floor area; upper floors of tall buildings are not exposed. Basement car parks are NOT modelled (a known gap: most 2022 Gangnam damage was in basements).",
+    "cost_usd_per_m2": {
+      "_note": "assumption: replacement cost per m2 of floor (USD), of the order of Korean reinforced-concrete new-build unit costs (about 2.0-2.5 million KRW/m2 at about 1,350 KRW/USD); not a citation of a published table, contents not included.",
+      "commercial": 1700.0,
+      "residential": 1500.0,
+      "industrial": 900.0
+    },
+    "property_type": {
+      "_note": "OSM building value -> engine property_type (physical_risk_config.json maps it to the JRC sector); unlisted values use _default.",
+      "_default": "commercial",
+      "apartments": "residential",
+      "residential": "residential",
+      "house": "residential",
+      "detached": "residential",
+      "semidetached_house": "residential",
+      "terrace": "residential",
+      "dormitory": "residential",
+      "industrial": "industrial",
+      "warehouse": "industrial"
+    },
+    "underground_property_type": "commercial",
+    "underground_property_type_note": "Underground features (Gangnam Station Underground Shopping Center) are shops: one storey, commercial curve, filled by the street water above the threshold over their footprint (capped at one storey)."
+  },
+  "basement": {
+    "_note": "Basement storeys of above-ground buildings on the real site (twin/basement.py; AGENTS.md step R3c), following the user's sheets 층별_침수피해율_비교(261020) (storey-weighted value, default basement storeys by use) and 지하침수_시험계산 (ramp entrance as a broad-crested weir). OSM has no basement data: every number here is an assumption or a sheet default, not a survey value. Street water entering a basement is NOT removed from the 2D street flow (one-way coupling).",
+    "levels": {
+      "_note": "Default basement storeys by OSM building value, from the storey sheet's defaults when the location is unknown (office 4, retail/hotel 3, residential 2, logistics 1); unlisted values use _default. school, church, public, university (1) and hospital (2) are reviewer assumptions added in R3d: the sheet covers commercial assets only.",
+      "_default": 3,
+      "office": 4,
+      "commercial": 3,
+      "retail": 3,
+      "hotel": 3,
+      "apartments": 2,
+      "residential": 2,
+      "house": 0,
+      "detached": 0,
+      "industrial": 1,
+      "warehouse": 1,
+      "garage": 0,
+      "school": 1,
+      "church": 1,
+      "public": 1,
+      "university": 1,
+      "hospital": 2
+    },
+    "min_storeys": 4,
+    "min_storeys_note": "assumption: only buildings with at least this many above-ground storeys get basements; small low-rise buildings in OSM are not assumed to have basement car parks.",
+    "ramp_width_m": 6.0,
+    "ramp_width_m_note": "Sheet default (무피해문턱_계산표 L1): two-lane ramp, 주차장법 시행규칙 제6조제1항제5호 (6 m or more); one ramp per building assumed.",
+    "weir_coefficient": 1.705,
+    "weir_coefficient_note": "Broad-crested weir, Q = C B H^1.5 with C = (2/3)^1.5 sqrt(g) = 1.705 m^0.5/s (Henderson 1966, sheet H1); theoretical, an upper bound on inflow.",
+    "ramp_rain_area_m2": 200.0,
+    "ramp_rain_area_m2_note": "Sheet assumption (지하침수_시험계산): ramp (6 m x about 30 m) plus a dry area of about 20 m2; all rain on it (runoff coefficient 1) goes down.",
+    "pump_m3_h": 0.0,
+    "pump_m3_h_note": "Drainage pumps are survey data, not available for OSM buildings: 0 (conservative, like the sheet's sump capacity 0)."
+  },
+  "rain": {
+    "_note": "Design-storm rain on the real site (twin/pluvial.py; AGENTS.md step R2). Repo-specific pluvial method (design storm, NRCS CN, uniform sewer sink); every number is an assumption, not a calibration or a reconstruction of an observed event.",
+    "total_mm": 160.0,
+    "total_mm_note": "assumption: storm depth (mm) over duration_min, of the order of the 8 Aug 2022 Seoul downpour (more than 100 mm/h at its peak); NOT a reconstruction of observations.",
+    "duration_min": 120.0,
+    "duration_min_note": "assumption: a two-hour storm; the hyetograph is stretched over this time.",
+    "cumulative_fraction": [0.0, 0.03, 0.08, 0.16, 0.30, 0.52, 0.70, 0.82, 0.90, 0.96, 1.0],
+    "cumulative_fraction_note": "assumed shape: cumulative rain as a fraction of the total at 0, 10, ..., 100 % of the storm; intensity peaks in the 4th to 6th tenth like a Huff 2nd/3rd-quartile storm. To be replaced by the MOLIT Huff coefficients for Seoul.",
+    "recession_min": 60.0,
+    "recession_min_note": "assumption: extra simulated time after the storm (min) so water can drain and pond.",
+    "cn_paved": 98.0,
+    "cn_paved_note": "NRCS (SCS) curve number of an impervious urban surface, TR-55 (USDA 1986); applied to every cell, roofs and streets alike.",
+    "sewer_capacity_mm_h": 95.0,
+    "sewer_capacity_mm_h_note": "assumption: Seoul's former 30-year design standard for storm sewers (mm/h), taken as a uniform drain on every open cell; real capacity varies by pipe and is not modelled.",
+    "edge_slope": 0.005,
+    "edge_slope_note": "assumption: bed slope (-) for Manning normal-flow outflow through the site edges."
+  },
+  "climate": {
+    "_note": "Climate-change river stage shift vs the present baseline. The future stage law is h_future(T) = (stage_2y_m + stage_2y_m_shift) + (stage_slope_m + stage_slope_m_shift)*ln(T/2); return periods and centroid positions are unchanged, so the future hazard is compared event-for-event with the present. Defence design depths are derived from the PRESENT hazard and applied fixed to the future hazard — defences keep their present height and do not grow with the flood (see compare_climate in twin/pipeline.py and AGENTS.md step 3). A scenario with shift 0 is equivalent to the present.",
+    "future_scenarios": [
+      {
+        "_note": "Mid-century-style +0.5 m uniform stage rise on the 2-year stage; stage growth slope unchanged. This is the scenario the climate-change multiplier table is built against (AGENTS.md: the +0.5 m trap case).",
+        "name": "+0.5m",
+        "stage_2y_m_shift": 0.5,
+        "stage_slope_m_shift": 0.0
+      }
+    ]
+  },
+  "levee": {
+    "_note": "A LOCAL levee on part of the bank: a 100-year levee along the river reach of cols 5..14 protects the floodplain behind it (all rows of those cols); the other cols stay undefended. Flanking (water going round the levee ends) is ignored until the step-6 hydraulic model. Applied per centroid with protection.protect: depths from events up to the design return period are removed, rarer overtopping events flood at full depth. rows/cols are inclusive grid-index bands, same convention as zoning.",
+    "rows": [0, 19],
+    "cols": [5, 14],
+    "return_period_years": 100
   },
   "zoning": {
     "_note": "row/col bands (inclusive) that decide each intersection's land use; everything else is residential.",
@@ -54,5 +301,97 @@
   "network": {
     "_note": "a node (intersection, substation, hospital) is out of service when its flood depth exceeds failure_depth_m — an assumed passability/operability limit, not a damage curve.",
     "failure_depth_m": 0.3
+  },
+  "buildings": {
+    "_note": "Synthetic 3D building geometry for the deck.gl city_3d.html viewer (AGENTS.md step 5). Footprint size and storey count are drawn per zone with the spec seed and are GEOMETRY ONLY in this step: they do not touch the pricing/damage model, so NO EAL number changes. The storey count is intended to drive the ground-floor / basement EXPOSURE in a later step; wiring storeys into the engine calculate is deliberately deferred (see AGENTS.md 'storeys feed the ground-floor/basement exposure'). Footprints are drawn smaller than spacing_m/2 so lots on adjacent intersections never overlap. Building height = storeys * floor_to_floor_m.",
+    "floor_to_floor_m": 3.0,
+    "floor_to_floor_m_note": "Assumed storey-to-storey height (m): typical floor-to-floor (structural zone + services slab). Same constant for every zone; only the storey count varies by land use.",
+    "per_kind": {
+      "_note": "Footprint ([x, y] metres) and storey-count ([min, max]) ranges drawn per lot with the spec seed. Every value is an assumption, not a measurement.",
+      "residential": {
+        "footprint_m": [8.0, 18.0],
+        "footprint_m_note": "Small low-rise lots: footprint kept well under half the 100 m spacing so detached/semi-detached blocks do not touch their neighbours.",
+        "storeys": [1, 3],
+        "storeys_note": "One to three storeys: single-family homes and small apartment blocks on the residential grid."
+      },
+      "commercial": {
+        "footprint_m": [15.0, 30.0],
+        "footprint_m_note": "Larger footprints on the commercial street front (commercial_rows x commercial_cols): bigger low- to mid-rise blocks.",
+        "storeys": [3, 8],
+        "storeys_note": "Three to eight storeys: low- and mid-rise office/retail blocks on the commercial front."
+      },
+      "industrial": {
+        "footprint_m": [20.0, 42.0],
+        "footprint_m_note": "Wide single- to low-rise plant footprints along the river industrial rows.",
+        "storeys": [1, 3],
+        "storeys_note": "One to three storeys: warehouses and light industry; predominantly single-storey plant."
+      },
+      "substation": {
+        "footprint_m": [6.0, 10.0],
+        "footprint_m_note": "Compact fenced infrastructure footprint for the assumed substation lots.",
+        "storeys": [1, 2],
+        "storeys_note": "One to two storeys: ground-level plant plus a small control/measuring room."
+      },
+      "hospital": {
+        "footprint_m": [28.0, 42.0],
+        "footprint_m_note": "Large footprint for the single city-general hospital lot.",
+        "storeys": [4, 8],
+        "storeys_note": "Four to eight storeys: a multi-storey clinical block as the city's tallest facility."
+      }
+    }
+  },
+  "rain_frequency": {
+    "_note": "Step R3b: return-period ladder of 2-hour storms from the KMA ASOS Seoul (108) hourly record (기상청_지상(종관, ASOS) 시간자료 조회서비스, data.go.kr 15057210, 1961-), files in paths.kma_dir()/asos_hourly/<station>. Annual maxima of the window_h-hour total, L-moment fit (Hosking 1990; GEV by Hosking, Wallis & Wood 1985), bootstrap band. One station 7 km from the site; local storms can differ (validated against the Seoul flood-trace maps in a later step).",
+    "station": "108",
+    "window_h": 2,
+    "window_h_note": "matches rain.duration_min (120 min): the ladder storm keeps the hyetograph shape and only its total changes.",
+    "distribution": "gev",
+    "distribution_note": "GEV by L-moments; the Gumbel fit is reported alongside (MOLIT 확률강우량도 practice uses Gumbel).",
+    "return_periods": [2, 5, 10, 20, 30, 50, 100, 200, 500],
+    "bootstrap_n": 2000,
+    "bootstrap_seed": 20261105,
+    "band": [0.05, 0.95]
+  },
+  "validation": {
+    "flooded_depth_m": 0.10,
+    "flooded_depth_m_note": "street depth (m) above which a cell counts as flooded when the modelled flooded street area is compared with the traced area (same 10 cm as the --pluvial and --basement tables).",
+    "match_range_mm": [50.0, 500.0],
+    "match_range_mm_note": "search range of the storm total (mm) for the area-matched runs; below ~100 mm the 95 mm/h sewer takes all the rain, so the lower end gives no street flooding.",
+    "match_max_runs": 9,
+    "match_max_runs_note": "cap on coupled runs per area-matched search (2 end points + log-space bisection; ~2 s each).",
+    "_note": "Step R4: building-level check of the twin against the Seoul flood-trace maps (서울시 침수흔적도, 서울 열린데이터광장 OA-15636, 공공누리 제1유형; paths.external_dir('seoul_flood_traces')/<year>). Polygons are only queried (footprint + buffer intersects a trace), never rasterised or shipped. 2022 is run with the observed 10-min rain of the nearest Seoul rain gauges (서울시 강우량 정보 OA-1168, 공공누리 제2유형: internal calibration only, never shipped; paths.external_dir('seoul_rain_gauges')). 2010 and 2011 have no gauge files, so they are checked for spatial pattern only (design-storm shape, total chosen so the modelled flooded street area matches the traced area).",
+    "buffer_m": 10.0,
+    "buffer_m_note": "assumption: traces are digitised at street scale and the DEM is 30 m; a building counts as observed-flooded when a trace lies within this distance of its footprint.",
+    "step_min": 10,
+    "events": {
+      "2010": {"name": "2010-09-21 집중호우 (추석)"},
+      "2011": {"name": "2011-07-26/28 집중호우"},
+      "2022": {"name": "2022-08-08 집중호우", "gauges": [2401, 101, 2402], "gauges_note": "서초구청 1.5 km, 강남구청 2.9 km, 반포펌프장 3.0 km from the site centre", "start": "2022-08-08 12:00", "end": "2022-08-09 06:00"}
+    }
+  },
+  "threshold_compare": {
+    "_note": "Step R5: no-damage threshold vs no threshold on the real Gangnam buildings. Only buildings whose use is KNOWN from OSM (listed below; 'yes' and unlisted values are left out, never assumed) and only the ground storey (basement storeys are assumptions). Reported per use, so the assumed cost per m2 does not change a percentage. Remaining assumptions, stated in the output: the rain ladder (R3b, one station), sewer capacity and basement sinks that shape the flood depths, and the threshold levels themselves.",
+    "known_uses": {
+      "residential": ["apartments", "residential", "house", "detached", "semidetached_house", "terrace", "dormitory"],
+      "commercial": ["commercial", "office", "retail", "hotel", "supermarket", "kiosk"],
+      "industrial": ["industrial", "warehouse"]
+    },
+    "thresholds_m": [0.05, 0.15, 0.30, 0.60],
+    "thresholds_note": "0.05 m = the user's sheet default; 0.15 / 0.30 m = a raised entrance sill; 0.60 m = a flood board (flood_threshold_defaults BOARD_PLAN). Illustrative levels, not survey values.",
+    "storms_shown": [10, 30, 100, 500]
+  },
+  "landcover": {
+    "_note": "Step R6: pervious ground from the real OpenStreetMap land use already on disk (spec site osm_file, multipolygons layer). A cell is green when its centre lies in a polygon with one of these tags; everything else keeps rain.cn_paved.",
+    "green_tags": {"leisure": ["park", "garden", "playground", "pitch"], "landuse": ["grass", "forest", "meadow", "recreation_ground", "village_green"], "natural": ["wood", "scrub", "grassland"]},
+    "cn_green": 74.0,
+    "cn_green_note": "NRCS TR-55 (USDA 1986) table 2-2a, open space in good condition (grass cover > 75 %), hydrologic soil group C. The soil group is an assumption: no soil map of the site is on disk."
+  },
+  "runon": {
+    "_note": "Step R6: run-on from the catchment outside the site box. D8 flow routing on the same Copernicus GLO-30 ground model over the site box padded by pad_m (the DEM tile on disk covers it); every outside cell that drains into the site adds its upstream area to the receiving edge cell, which then gets area x max(rain excess at cn_paved - sewer capacity, 0). No travel-time lag (an assumption: the upstream area is at most pad_m away).",
+    "pad_m": 1500.0
+  },
+  "calibration": {
+    "_note": "Step R6: the one free parameter of the rebuilt twin, the uniform sewer capacity (no pipe data exist on disk), is chosen on the 2022-08-08 event (observed Seoul gauge rain, validation section) as the value with the highest CSI against the flood traces over the wall buildings; 2010/2011 stay as independent spatial checks. One event: the calibrated value can over-fit.",
+    "sewer_mm_h": [10, 20, 30, 40, 50, 60, 75, 95, 120]
   }
 }
