@@ -112,6 +112,40 @@
       "agriculture": "agriculture"
     }
   },
+  "heat_utci": {
+    "enabled": false,
+    "obs_years": [2000, 2019],
+    "months": [5, 6, 7, 8, 9],
+    "thresholds_c": [32, 38, 46],
+    "headline_threshold_c": 38,
+    "grid_cache": "heat_days/obs_2000_2019_m5-9_b0.05.npz",
+    "station_table": "asos_meta/kma_asos_stations_history.csv",
+    "albedo": 0.20,
+    "albedo_range": [0.15, 0.25],
+    "emissivity_ground": 0.95,
+    "absorptivity_shortwave": 0.7,
+    "emissivity_person": 0.97,
+    "angle_factor": 0.5,
+    "roughness_length_m": 0.01,
+    "anemometer_height_default_m": 10.0,
+    "wind_clip_ms": [0.5, 17.0],
+    "min_sin_elevation": 0.05,
+    "ground_fit_years": [2010, 2019],
+    "ground_fit_min_hours": 1000,
+    "min_hour_fraction": 0.95,
+    "min_valid_years": 15,
+    "heat_day_threshold_c": 33,
+    "check": {
+      "min_spearman_years": 0.5,
+      "warn_rel_heat_days": 0.3,
+      "warn_abs_heat_days": 2.0,
+      "max_station_km": 50.0,
+      "max_radiation_station_km": 75.0,
+      "min_assets_for_rank": 10,
+      "min_spearman_assets": 0.5
+    },
+    "note": "Open-field UTCI (heat T2), design DESIGN_UTCI_T2. Off by default: the 95th-percentile layer stays the heat default until the trial passes. Sources: obs_years / months = overlap of KMA ASOS and MK-PRISM v3.1 (heat_days.json obs_years, months); thresholds 32/38/46 = Brode et al. 2012 stress classes (strong / very strong / extreme); albedo 0.20 [가정 A6], range 0.15-0.25 = sensitivity of one assumption, not a confidence interval (Oke 1987 grass range [미확인]); emissivity_ground 0.95 [가정 A5] = case_yeongdeungpo_spec.json emissivity_surface; absorptivity 0.7, emissivity_person 0.97, angle_factor 0.5 = Di Napoli et al. 2020 / ECMWF thermofeel (code read, original [미확인]); roughness_length 0.01 m = Brode et al. 2012; anemometer height from the KMA station history table, default 10 m [가정 A9] where missing; wind_clip 0.5-17 m/s = pythermalcomfort 4.8.0 UTCI validity range; min_sin_elevation 0.05, ground_fit_min_hours 1000, min_hour_fraction 0.95, min_valid_years 15 = [설계값]; ground_fit_years 2010-2019 because ASOS ground temperature is hourly only from 2010; heat_day_threshold 33 degC = KMA criterion (heat_days.json); check limits = [설계값] (0.3 relative = heat_days check.warn_rel_bias)."
+  },
   "definitions": {
     "probability": "Annual exceedance frequency of the stated return period, taken as 1 / return_period_years. CLIMADA frequency is in 1/year; for rare events this equals annual exceedance probability, for frequent events (freq >= 1/yr) it does not - see methodology 10.",
     "return_period": "1 / cumulative annual exceedance frequency, as produced by CLIMADA Impact.calc_freq_curve.",

@@ -1487,6 +1487,96 @@ class _NoHeatDataAdapter:
         return None
 
 
+class KoreaLocalUtciAdapter:
+    """Heat (HW) as open-field UTCI days per year, per asset (tier T2, hazard-only).
+
+    Algorithm:
+        $$D_{38} = \\frac{1}{|Y|}\\sum_{y\\in Y}\\big|\\{d\\in y: U^{max}_d \\ge 38\\}\\big|$$
+        ASCII: D38 = mean over years of count(days whose max hourly UTCI >= 38 degC)
+
+        $U$ hourly UTCI (degC) of a person standing in the open, from KMA ASOS hourly
+        observations at the nearest station with the air temperature shifted by the 0.05 deg
+        MK-PRISM daily-maximum difference; $Y$ = 2000-2019 May-Sep. See
+        :mod:`climaterisk_worker.heat_utci`.
+
+    One event (the 20-year mean) at the asset points, intensity in days/yr; missing data is
+    NaN, never 0. The sub check (agreement with the heat-day count) is diagnostic only.
+    """
+
+    model_id = ModelId.KOREA_LOCAL.value
+    status = HAZARD_ONLY
+    hazard_type = "HW"
+    dataset = "kma_asos_open_field_utci"
+
+    def __init__(self, scenario: str, year: int, iso3: str | None = "KOR") -> None:
+        self.scenario, self.year, self.iso3 = scenario, int(year), iso3
+        self.diagnostics: dict[str, Any] = {}
+
+    def describe(self) -> HazardDescription:
+        return HazardDescription(
+            hazard_type=self.hazard_type,
+            model_id=self.model_id,
+            status=self.status,
+            hazard_source=(
+                "개활지 UTCI: 기상청 ASOS 시간자료(기온·습도·풍속·일사) + 기상청 남한상세 "
+                "MK-PRISM v3.1 일 최고기온(0.05° 블록 평균). 출처: 기상청"
+            ),
+            hazard_dataset=self.dataset,
+            hazard_data_version=(
+                "ASOS 1999-2023 (local copy), MK-PRISM v3.1 2000-2019, pythermalcomfort 4.8.0"
+            ),
+            hazard_country=self.iso3,
+            requested_scenario=self.scenario,
+            served_scenario="historical",
+            time_horizon="2000-2019 May-Sep",
+            detail=(
+                "method tier T2, hazard only: days per year with daily-max UTCI >= 38 degC for a "
+                "person in the open (no shade, buildings or indoors; no loss computed). "
+                "Assumptions: A1 grid daily-max difference added to every hour; A2 equal vapour "
+                "pressure at asset and station; A3 irradiance is the preceding-hour mean; "
+                "A4 night cloud fraction = day mean; A5 ground emissivity 0.95; A6 ground "
+                "albedo 0.20 (0.15-0.25 range reported). Only the historical period is served; "
+                "future scenarios are not served yet (phase 2), so the requested scenario is "
+                "answered with historical"
+            ),
+        )
+
+    def load(
+        self,
+        bbox: tuple[float, float, float, float] | None = None,
+        points: list[tuple[float, float]] | None = None,
+    ) -> Any:
+        from climaterisk.physical_risk.metrics import load_config
+        from climaterisk_worker import heat_utci as hu
+
+        if not points:
+            raise ValueError("the Korea-local UTCI adapter reads asset points; none were given")
+        cfg = load_config()["heat_utci"]
+        try:
+            out = hu.open_field_utci(points, cfg)
+        except (FileNotFoundError, OSError) as exc:
+            raise HazardUnavailable(f"open-field UTCI input not found: {exc}") from exc
+        self.diagnostics = {"per_asset": out["per_asset"], "sub_check": out["sub_check"]}
+        self.record = out["record"]
+        return hu.build_hazard(points, [a["utci_days_ge38"] for a in out["per_asset"]])
+
+    def spatial_resolution(self, hazard: Any) -> dict[str, Any] | None:
+        """The 0.05 deg grid that carries the temperature shift."""
+        if hazard is None:
+            return None
+        return resolution_record(
+            0.05,
+            "degree",
+            "grid + nearest station",
+            source=(
+                "air temperature shifted on the 0.05 deg MK-PRISM block grid; humidity, wind "
+                "and radiation from the nearest ASOS station (one point)"
+            ),
+            measured_deg=None,
+            dataset_family=self.dataset,
+        )
+
+
 class KoreaLocalHeatAdapter:
     """KMA 남한상세 heat via the local catalog's KOR ``heatwave`` / ``heat_mortality`` layers.
 
@@ -1618,6 +1708,11 @@ def adapter_for(hazard_type: str, model_id: str, scenario: str, year: int, iso3:
         return KoreaLocalCoastalFloodAdapter(scenario, year, iso3)
     elif hazard_type in ("HW", "HM"):
         if model_id == k:
+            if hazard_type == "HW":
+                from climaterisk.physical_risk.metrics import load_config
+
+                if load_config().get("heat_utci", {}).get("enabled"):
+                    return KoreaLocalUtciAdapter(scenario, year, iso3)
             return KoreaLocalHeatAdapter(hazard_type, scenario, year, iso3)
         return _NoHeatDataAdapter(hazard_type, model_id, scenario)
     else:

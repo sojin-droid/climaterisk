@@ -93,7 +93,7 @@
    - `KOREA_LOCAL` 하천: 홍수위험지도 원문 폴리곤 겹침
    - 해안: 약최고고조면 + 연결성
    - 도시 내수: 도시침수지도 100년 겹침 (`PF`, hazard-only)
-   - 폭염: 개활지 UTCI
+   - 폭염: 개활지 UTCI (2026-11-15 코드·시험 연결 `heat_utci.enabled=false`, hazard-only, 과거만)
 3. **도시 내수**: 새 재해로 추가한다([ADDING_A_PERIL.md](ADDING_A_PERIL.md)). T2는 도시침수지도 겹침(2026-11-15 Models 탭 `PF`로 연결, hazard-only, 서울시 침수흔적도 검증은 진단), T3는 itzi다. 하수관망은 `restricted`라 배수 용량을 가정으로 명시한다.
 4. **T3 시범**: 서울 1 km² SOLWEIG, 한 곳의 SFINCS로 계산 시간을 재고, 같은 사건을 T1·T2와 비교한다.
 

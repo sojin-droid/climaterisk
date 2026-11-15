@@ -573,6 +573,14 @@ the runner returns it as `parameter_status` and the Results card displays it.
 | Status | Custom health peril; Europe comparison reproduces the ranking of observed summers, parameters uncited and uncalibrated (`HEAT_MORTALITY_PROVENANCE.md`) | — |
 | Main gap | (Scenario routing fixed.) Dose-response uncalibrated to observed deaths; no present/future delta; Korea unvalidated (no MoMo-equivalent benchmark) | High |
 
+### 5.8b Heat, Korea-local open-field UTCI (`KoreaLocalUtciAdapter`, hazard-only) — `heat_utci.py`
+
+`[CUSTOM]` hazard (no CLIMADA heat module): observation-based hourly UTCI per asset point,
+packed into a one-event CLIMADA `Hazard` (`haz_type="HW"`, `units="days/yr"`, NaN for missing).
+No impact function, no loss; the engine reports intensity only. Off by default
+(`heat_utci.enabled`); the catalog `heatwave` layer stays the default adapter. Method record:
+`docs/METHODOLOGY.md` (heat T2 entry).
+
 ### 5.9 Local hazard catalog perils (`hail`, `landslide`, `tc_rain`, `drought`, `crop_yield`, `low_flow`, `heatwave`) — `P:966-1113`
 
 | Row | Content | Tag |
