@@ -908,7 +908,8 @@ class KoreaLocalFloodAdapter:
                 **record,
                 "factor": 1.0,
                 "by_region": {},
-                "check": None,
+                # the 시도 check has nothing to compare: recorded as skipped with this reason
+                "check": {"warn": None, "note": "factor 1 by definition (present window)"},
                 "note": "the 2010–2030 window is the present of this chain: factor 1 by definition",
             }
         stats = self._isimip_factors()

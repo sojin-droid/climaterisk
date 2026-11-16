@@ -390,3 +390,27 @@ def test_no_single_country_rows_carry_a_reason() -> None:
     rows, _ = runner._all_model_rows(_FAC, "historical", 2030, ["RF"], ["KOREA_LOCAL"], None, None)
     assert rows[0].calculation_status == "NO_HAZARD_DATA"
     assert rows[0].unavailable_reason == "no_single_country"
+
+
+def test_cf_and_hw_adapters_write_their_registry_diagnostics_keys() -> None:
+    """Static check (their inputs are real rasters / station files, too heavy to run here).
+
+    The rank-1 adapter's source must assign every non-null ``diagnostics_key`` of its checks
+    into ``self.diagnostics``. RF and PF are run for real in ``test_korea_local_flood_maps``.
+    """
+    import inspect
+    import re
+
+    _stub_adapter("KOREA_LOCAL")  # puts the worker on sys.path (needs CLIMADA)
+    from climaterisk_worker.physical_risk.adapters import adapter_for
+
+    for tag in ("CF", "HW"):
+        adapter = adapter_for(tag, _rank1(tag), "historical", 2030, "KOR")
+        src = inspect.getsource(type(adapter))
+        block = re.search(r"self\.diagnostics = \{(.*?)\}\n", src, re.DOTALL)
+        assert block is not None, tag
+        for check in checks(tag):
+            key = check["diagnostics_key"]
+            if key is None:
+                continue
+            assert f'"{key.split(".")[0]}":' in block.group(1), (tag, check["check_id"], key)

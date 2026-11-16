@@ -362,3 +362,40 @@ def test_adapter_without_hazard_data_gives_rows_a_reason(data_root: Path) -> Non
     assert rows[0].calculation_status == "NO_HAZARD_DATA"
     assert rows[0].unavailable_reason == "no_hazard_data"
     assert rows[0].status_detail == "no data for this cell"
+
+
+# --------------------------------------------------------------------------- #
+# registry checks read keys the adapters really write                           #
+# --------------------------------------------------------------------------- #
+def test_registry_diagnostics_keys_exist_in_rf_and_pf_output(data_root: Path) -> None:
+    """Every RF / PF check's diagnostics_key is a dict in the rank-1 adapter's diagnostics.
+
+    RF runs a present-window future scenario (rcp85 2020 → ISIMIP 2010–2030), so the climate
+    factor is 1 by definition and no ISIMIP set is read — and ``climate_delta.check`` still
+    exists. CF and HW are checked statically in ``test_method_registry`` (their inputs are real
+    rasters / station files).
+    """
+    from climaterisk.physical_risk.method_registry import _dig, checks, rank1_model
+
+    _build_maps(data_root)
+    points = [(f["latitude"], f["longitude"]) for f in _facilities("AO")]
+    for tag, scenario, year in (("RF", "rcp85", 2020), ("PF", "historical", 2030)):
+        model = rank1_model(tag)
+        assert model is not None
+        adapter = adapters.adapter_for(tag, model, scenario, year, "KOR")
+        adapter.load(None, points=points)
+        for check in checks(tag):
+            if check["diagnostics_key"] is None:  # to_build: nothing to read yet
+                continue
+            value = _dig(adapter.diagnostics, check["diagnostics_key"])
+            assert isinstance(value, dict), (tag, check["check_id"], check["diagnostics_key"])
+
+
+def test_present_window_factor_check_says_factor_one_by_definition(data_root: Path) -> None:
+    _build_maps(data_root)
+    adapter = adapters.adapter_for("RF", "KOREA_LOCAL", "rcp85", 2020, "KOR")
+    _rows_out, record = runner._rows_for(adapter, "RF", _facilities("A"), "KOR", None)[:2]
+    factor = next(c for c in record["checks"] if c["check_id"] == "rf.isimip_sido_factor")
+    assert factor["state"] == "skipped"
+    assert factor["reason"] == "factor 1 by definition (present window)"
+    assert record["climate_delta"]["factor"] == 1.0
