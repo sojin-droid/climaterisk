@@ -281,7 +281,7 @@ API (HTTP 400) and by the worker (`ValueError`) — exposure is not grown backwa
   get no curve — no money crosses municipalities),
   **Portfolio Summary** (non-expert:
   one line per facility — Asset Value, per-hazard Status / Risk / EAL / EAL ÷ Assets / Data
-  Source, Heatwave Tmax p95, Overall EAL as a plain sum), **Asset Risk Matrix** (facility ×
+  Source, Heatwave UTCI ≥38 °C days/yr (open field), Overall EAL as a plain sum), **Asset Risk Matrix** (facility ×
   hazard risk level or status label; "Overall" counts calculated hazards — no score),
   **Hazard Results** (canonical 13 columns + full provenance), **Global vs Country**,
   **Global vs Korea Local**, **Climate Change** (only when a baseline scenario was run),

@@ -52,8 +52,10 @@ HAZARD_COPY: dict[str, str] = {
         "local data only. Depth is reported; no loss is computed."
     ),
     "CF": (
-        "Modeled coastal inundation from storm tides with sea-level rise and land "
-        "subsidence (WRI Aqueduct). Coastal defences are not represented."
+        "Modeled coastal inundation, Korea local data: land below the KHOA 약최고고조면 "
+        "(approximate highest high water) that is connected to the sea (connected bathtub). "
+        "Depth is reported; no loss is computed and no coastal money enters any total. "
+        "WRI Aqueduct is shown as a labelled reference row only."
     ),
     "TC": "Modeled wind-related physical damage from tropical cyclones.",
     "HEAT": (
@@ -128,17 +130,19 @@ STATUS_SHORT: dict[str, str] = {
 
 #: What the tool does and does not cover today (shown on the results screen and in Excel).
 LIMITATIONS: tuple[str, ...] = (
-    "Flood: Korea-local domestic source not yet implemented; financial loss is available "
-    "where the status is FULL (Data API hazard).",
+    "Flood: the Korea-local official 홍수위험지도 (river flood hazard map, depth class band, "
+    "no defences applied) is the headline; global and Data API results are reference rows. "
+    "Where a map file is missing or unreadable the asset is not available (never 0 m).",
     "Urban pluvial flood: official 100-year 도시침수지도 depth class only (one event, "
     "present day, no loss computed); checked against the 서울시 침수흔적도 as a diagnostic, "
     "which is not like-for-like with a 100-year map.",
-    "Coastal flood: global WRI Aqueduct data only (no Korean coastal-inundation source "
-    "connected, no coastal defences represented); river-flood data does not cover the coast.",
+    "Coastal flood: KHOA 약최고고조면 connected bathtub (hazard only — no storm surge, no "
+    "waves, structures narrower than ~90 m removed); no coastal money enters any total. "
+    "WRI Aqueduct is a labelled reference row, not the result.",
     "Tropical cyclone: Korea-local domestic source not yet implemented; financial loss is "
     "available where the status is FULL (Data API hazard).",
-    "Heatwave: hazard available from KMA TAMAX; financial impact unavailable because no "
-    "applicable CLIMADA Impact Function exists.",
+    "Heatwave: UTCI ≥38 °C days/yr (open field, KMA ASOS) is reported; financial impact "
+    "unavailable because no applicable CLIMADA Impact Function exists.",
     "Korea-specific Impact Functions: not used — published CLIMADA functions only.",
     "Korea asset-value exposure: not yet implemented unless supplied through the user portfolio.",
     "All values are modeled — expected annual loss under the selected CLIMADA hazard and "
@@ -220,7 +224,10 @@ def risk_level_copy(config: dict[str, Any] | None = None) -> dict[str, str]:
 def method_copy(hazard_tag: str) -> str:
     """The one-line "why" chain for a hazard, for the detail panel's Method section."""
     if hazard_tag == "RF":
-        return "Flood risk is based on: Hazard → CLIMADA JRC Impact Function → Asset Value → EAL."
+        return (
+            "Flood risk is based on: official 홍수위험지도 depth class band (no defences "
+            "applied) → CLIMADA JRC Impact Function → Asset Value → EAL."
+        )
     if hazard_tag == "PF":
         return (
             "Urban pluvial flood: official 100-year 도시침수지도 depth class → representative "
@@ -228,8 +235,9 @@ def method_copy(hazard_tag: str) -> str:
         )
     if hazard_tag == "CF":
         return (
-            "Coastal flood risk is based on: Aqueduct coastal inundation depth → CLIMADA JRC "
-            "Impact Function → Asset Value → EAL."
+            "Coastal flood: KHOA 약최고고조면 (M2+S2+K1+O1) → sea-connected land on the "
+            "~90 m terrain (connected bathtub) → depth above the asset ground is reported "
+            "(hazard only; no loss computed). WRI Aqueduct is a reference row."
         )
     if hazard_tag == "TC":
         return (
@@ -237,8 +245,8 @@ def method_copy(hazard_tag: str) -> str:
             "(Eberenz et al. 2021) → Asset Value → EAL."
         )
     return (
-        "Heatwave: Hazard intensity (season p95 daily maximum temperature, KMA) is reported; "
-        "no CLIMADA Impact Function exists, so no financial loss is derived."
+        "Heatwave: UTCI ≥38 °C days/yr (open field) from KMA ASOS hourly weather is "
+        "reported; no CLIMADA Impact Function exists, so no financial loss is derived."
     )
 
 
@@ -331,7 +339,7 @@ def display_bundle() -> dict[str, Any]:
         "status_copy": dict(STATUS_COPY),
         "status_short": dict(STATUS_SHORT),
         "risk_level_copy": risk_level_copy(),
-        "method_copy": {k: method_copy(k) for k in ("RF", "TC", "HW")},
+        "method_copy": {k: method_copy(k) for k in ("RF", "PF", "CF", "TC", "HW")},
         "limitations": list(LIMITATIONS),
         "summary_note": SUMMARY_NOTE,
         "comparison_purpose": COMPARISON_PURPOSE,

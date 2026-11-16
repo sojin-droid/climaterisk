@@ -1423,7 +1423,7 @@ function PointDetail({
                 </span>
               </div>
               <Line
-                k={h === "HEAT" ? "Tmax indicator (season p95 daily max)" : "Modeled hazard intensity"}
+                k={h === "HEAT" && r.model_id === "KOREA_LOCAL" ? "UTCI ≥38 °C days/yr (open field)" : "Modeled hazard intensity"}
                 v={fmtIntensity(r)}
               />
               <Line k="Status" v={statusShort} />
@@ -1584,10 +1584,14 @@ function PointDetail({
               {/* Korea Local */}
               <div className="hint" style={{ marginTop: 6 }}>
                 {h === "HEAT"
-                  ? "Korea Local: hazard available (KMA TAMAX) · financial comparison unavailable — no applicable CLIMADA Impact Function."
+                  ? "Korea Local: UTCI ≥38 °C days/yr (open field, KMA ASOS) · financial comparison unavailable — no applicable CLIMADA Impact Function."
                   : h === "PF"
                     ? "Korea Local: official 100-year 도시침수지도 depth class · hazard only, no loss computed."
-                    : `Korea Local: not implemented for ${label}.`}
+                    : h === "RF"
+                      ? "Korea Local: official 홍수위험지도 depth class band (no defences applied) — the river-flood headline."
+                      : h === "CF"
+                        ? "Korea Local: KHOA 약최고고조면 connected bathtub · hazard only, no loss computed; Aqueduct is a reference row."
+                        : `Korea Local: not implemented for ${label}.`}
               </div>
 
               {/* Climate change multiplier */}

@@ -423,7 +423,7 @@ def test_municipality_summary_and_matrix_frames() -> None:
     assert by[GWANGJU]["Representative Point"] == "Boundary interior point"
     assert (
         by[GWANGJU]["Heatwave Status"] == "Hazard only"
-        and by[GWANGJU]["Heatwave Tmax p95 (°C)"] == 37.8
+        and by[GWANGJU]["Heatwave UTCI ≥38 °C days/yr (open field)"] == 37.8
     )
     assert by[BUSAN]["Flood EAL"] == 0 and by[BUSAN]["Flood Risk"] == "Low"
     assert by[SEOUL]["Flood Status"] == "No asset value" and by[SEOUL]["Flood EAL"] is None
@@ -572,7 +572,7 @@ def test_province_summary_counts_bands_and_adds_no_money() -> None:
     assert gwangju["Flood High"] == 1 and gwangju["Flood Highest Risk"] == "High"
     assert gwangju["Tropical Cyclone Highest Risk"] == "Low"
     assert gwangju["Heatwave Assessed"] == 1
-    assert gwangju["Heatwave Tmax p95 max (°C)"] == pytest.approx(37.8)
+    assert gwangju["Heatwave UTCI ≥38 °C days/yr max (open field)"] == pytest.approx(37.8)
     seoul = prov[mu.by_id([SEOUL])[0].province_name]
     assert seoul["Flood Not Priced"] == 1 and seoul["Flood Highest Risk"] is None  # no value
     assert seoul["Flood High"] == 0 and seoul["Flood Low"] == 0

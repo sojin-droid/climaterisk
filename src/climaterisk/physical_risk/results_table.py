@@ -377,6 +377,12 @@ def export_frames(
 # Non-expert views — one primary row per (facility x hazard)                   #
 # --------------------------------------------------------------------------- #
 #: Hazard tags the portfolio views show, in column order, with their display names.
+#: Heat column title: the rank-1 heat value is open-field UTCI days per year (KMA ASOS),
+#: not a temperature — the old "Tmax p95 (°C)" title mislabelled it.
+HEAT_INDICATOR_COLUMN = "Heatwave UTCI ≥38 °C days/yr (open field)"
+#: Province tier: the largest of those values among the province's points.
+HEAT_INDICATOR_MAX_COLUMN = "Heatwave UTCI ≥38 °C days/yr max (open field)"
+
 PORTFOLIO_HAZARDS: tuple[tuple[str, str], ...] = (
     ("RF", "Flood"),
     ("PF", "Urban Pluvial Flood"),
@@ -502,7 +508,7 @@ def portfolio_summary_frame(
                     line[f"{label} EAL"] = None
                     line[f"{label} EAL / Assets"] = None
                 else:
-                    line["Heatwave Tmax p95 (°C)"] = None
+                    line[HEAT_INDICATOR_COLUMN] = None
                 line[f"{label} Data Source"] = None
                 continue
             line[f"{label} Status"] = _status_short(r.calculation_status)
@@ -513,7 +519,7 @@ def portfolio_summary_frame(
                 if r.eal_usd is not None:
                     total = (total or 0.0) + float(r.eal_usd)
             else:
-                line["Heatwave Tmax p95 (°C)"] = r.hazard_intensity
+                line[HEAT_INDICATOR_COLUMN] = r.hazard_intensity
             line[f"{label} Data Source"] = _scope_short(r.model_id)
         line["Priced Hazard Count"] = priced
         line["Hazard-only Count"] = hazard_only
@@ -670,7 +676,7 @@ def municipality_summary_frame(
                     line[f"{label} EAL / Assets"] = None
                     line[f"{label} Hazard Intensity"] = None
                 else:
-                    line["Heatwave Tmax p95 (°C)"] = None
+                    line[HEAT_INDICATOR_COLUMN] = None
                 line[f"{label} Data Source"] = None
                 continue
             line[f"{label} Status"] = _muni_status_short(r.calculation_status)
@@ -685,7 +691,7 @@ def municipality_summary_frame(
                 )
                 priced_any = priced_any or r.eal_usd is not None
             else:
-                line["Heatwave Tmax p95 (°C)"] = r.hazard_intensity
+                line[HEAT_INDICATOR_COLUMN] = r.hazard_intensity
             line[f"{label} Data Source"] = _scope_short(r.model_id)
         line["Financially Assessed"] = (
             "Yes" if priced_any else ("No — asset value not supplied" if not value else "No")
@@ -1107,7 +1113,7 @@ def province_summary_frame(
             if tag == "HW":
                 reads = [c.hazard_intensity for c in cells if c.hazard_intensity is not None]
                 line["Heatwave Assessed"] = len(cells)
-                line["Heatwave Tmax p95 max (°C)"] = max(reads) if reads else None
+                line[HEAT_INDICATOR_MAX_COLUMN] = max(reads) if reads else None
                 continue
             levels = [c.risk_level for c in cells if c.risk_level]
             for level in ("High", "Medium", "Low"):

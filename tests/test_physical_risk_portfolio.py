@@ -176,7 +176,10 @@ def test_portfolio_summary_keeps_status_empty_cells_and_real_zeros_apart() -> No
     )
     assert f2["Flood Risk"] == "Medium" and f2["Flood EAL / Assets"] == pytest.approx(0.2)
     assert f3["Flood Risk"] == "Low" and f3["Flood EAL"] == 0.0  # a computed zero stays 0
-    assert f1["Heatwave Status"] == "Hazard only" and f1["Heatwave Tmax p95 (°C)"] == 37.1
+    assert (
+        f1["Heatwave Status"] == "Hazard only"
+        and f1["Heatwave UTCI ≥38 °C days/yr (open field)"] == 37.1
+    )
     assert "Heatwave Risk" not in f1 and "Heatwave EAL" not in f1  # no financial columns for heat
     assert f1["Overall EAL"] == pytest.approx(75_000.0 + 3_576.0)
     assert f1["Overall EAL / Assets"] == pytest.approx(0.078576)
@@ -482,6 +485,27 @@ def test_display_bundle_carries_the_final_copy() -> None:
     for banned in ("safe", "no risk", "guaranteed", "actual flood depth", "actual expected damage"):
         assert banned not in " ".join(b["limitations"]).lower()
         assert banned not in " ".join(dc.STATUS_COPY.values()).lower()
+
+
+def test_in_product_copy_matches_the_rank1_headlines() -> None:
+    """Coastal = KHOA connected bathtub (hazard only), river = official map, heat = UTCI days."""
+    cf = dc.HAZARD_COPY["CF"]
+    assert "약최고고조면" in cf and "connected bathtub" in cf and "no loss" in cf
+    assert "reference" in cf  # Aqueduct is only a labelled reference row
+    lim = " ".join(dc.LIMITATIONS)
+    assert "not yet implemented" not in lim.split("Tropical cyclone")[0]  # flood/PF/CF lines
+    flood = next(line for line in dc.LIMITATIONS if line.startswith("Flood:"))
+    assert "홍수위험지도" in flood and "headline" in flood
+    coastal = next(line for line in dc.LIMITATIONS if line.startswith("Coastal flood:"))
+    assert "약최고고조면" in coastal and "Aqueduct data only" not in coastal
+    assert "no coastal money" in coastal
+    assert "connected bathtub" in dc.method_copy("CF") and "Aqueduct coastal" not in dc.method_copy(
+        "CF"
+    )
+    for text in (dc.method_copy("HW"), lim):
+        assert "Tmax" not in text and "TAMAX" not in text
+    assert "UTCI ≥38 °C days/yr" in dc.method_copy("HW")
+    assert {"RF", "PF", "CF", "TC", "HW"} <= set(dc.display_bundle()["method_copy"])
 
 
 def test_hazard_results_sheet_carries_the_plain_data_source_column() -> None:
