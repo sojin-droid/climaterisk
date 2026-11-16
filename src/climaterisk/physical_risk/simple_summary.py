@@ -102,8 +102,9 @@ def build_simple_summary(
         output: The worker output of a ``physical_risk_models`` run.
         krw_per_usd: Display exchange rate (KRW per USD) — the screen shows 억 원; amounts in
             the result stay USD, so the conversion is the viewer's only step.
-        preferred_models: Hazard tag → model id to read when several models were run
-            (normally ``display_copy.recommended_models()``).
+        preferred_models: Hazard tag → rank-1 model id whose rows are the result; other
+            models' rows are never read in its place. ``None`` means
+            ``display_copy.recommended_models()``.
         config: The physical-risk configuration (defaults to the library file).
 
     Returns:

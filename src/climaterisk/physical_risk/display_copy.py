@@ -6,9 +6,9 @@ choice per hazard. None of it changes a number. The thresholds quoted in the ban
 read from the same configuration the calculation uses, so the words cannot drift from the
 code (``test_display_copy_quotes_the_configured_thresholds``).
 
-The one piece of logic is :func:`recommended_models`: pick, per hazard, the most local
-model that the readiness registry says can actually run. It never selects a
-``NOT_IMPLEMENTED`` or ``NO_HAZARD_DATA`` cell.
+The one piece of logic is :func:`recommended_models`: per hazard, the method registry's
+rank-1 model, when the readiness registry says its cell can run. It never selects a
+``NOT_IMPLEMENTED`` or ``NO_HAZARD_DATA`` cell and never substitutes another model.
 """
 
 from __future__ import annotations
@@ -255,6 +255,8 @@ def recommended_models(
     table = readiness or READINESS
     out: dict[str, str] = {}
     for key in hazards or list(HAZARD_KEYS):
+        if key not in HAZARD_KEYS:
+            continue  # unknown key: omitted, not an error
         tag = "HW" if key == "HEAT" else key
         model = rank1_model(tag)
         cell = table.get(key, {}).get(model or "", {})

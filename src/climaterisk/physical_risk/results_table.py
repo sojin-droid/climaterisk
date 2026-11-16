@@ -430,9 +430,14 @@ def primary_rows(
     """``{(facility_id, hazard_type): primary row}`` (see :func:`primary_row`).
 
     ``preferred`` maps a hazard tag (``RF`` / ``TC`` / ``HW``) or readiness key (``HEAT``)
-    to the model id to prefer — normally ``display_copy.recommended_models()``.
+    to the rank-1 model id. ``None`` means ``display_copy.recommended_models()``, so a frame
+    never silently goes empty; pass ``{}`` explicitly to get no primary rows.
     """
-    pref = dict(preferred or {})
+    if preferred is None:
+        from climaterisk.physical_risk.display_copy import recommended_models
+
+        preferred = recommended_models()
+    pref = dict(preferred)
     if "HEAT" in pref:
         pref.setdefault("HW", pref["HEAT"])
         pref.setdefault("HM", pref["HEAT"])

@@ -126,7 +126,7 @@ def test_recommended_models_are_the_registry_rank1() -> None:
     assert "RF" not in dc.recommended_models(readiness=table)
 
 
-def _stub_adapter(model_id: str):  # type: ignore[no-untyped-def]
+def _stub_adapter(model_id: str, status: str = "NO_HAZARD_DATA"):  # type: ignore[no-untyped-def]
     pytest.importorskip("climada")
     import sys
 
@@ -138,7 +138,7 @@ def _stub_adapter(model_id: str):  # type: ignore[no-untyped-def]
     desc = HazardDescription(
         hazard_type="HW",
         model_id=model_id,
-        status="NO_HAZARD_DATA",
+        status=status,
         hazard_source="stub",
         hazard_dataset=None,
         hazard_data_version=None,
@@ -193,4 +193,71 @@ def test_method_fields_reach_table_rows() -> None:
     for key in ("method_id", "method_rank", "method_role", "unavailable_reason"):
         assert key in out
     assert out["method_rank"] == 1
-    assert key in rt.hazard_results_frame([row])[0]
+    sheet = rt.hazard_results_frame([row])[0]
+    for key in ("method_id", "method_rank", "method_role", "unavailable_reason"):
+        assert key in sheet
+    assert sheet["unavailable_reason"] == "map_unreadable"
+
+
+def test_unknown_hazard_key_is_omitted_not_an_error() -> None:
+    from climaterisk.physical_risk import display_copy as dc
+
+    assert dc.recommended_models(["RF", "NOPE"]) == {"RF": "KOREA_LOCAL"}
+
+
+def test_primary_rows_without_preferred_use_the_recommended_models() -> None:
+    from climaterisk.physical_risk import results_table as rt
+    from climaterisk.physical_risk.metrics import ResultRow
+
+    rows = [
+        ResultRow(facility_id="F", facility_name="F", hazard_type="RF", model_id=m)
+        for m in ("GLOBAL_BASELINE", "KOREA_LOCAL")
+    ]
+    assert rt.primary_rows(rows)[("F", "RF")].model_id == "KOREA_LOCAL"
+    assert rt.primary_rows(rows, {}) == {}
+
+
+_FAC = [
+    {
+        "facility_id": "F1",
+        "facility_name": "F1",
+        "latitude": 37.5,
+        "longitude": 127.0,
+        "asset_value_usd": 1.0e6,
+    }
+]
+
+
+def test_hazard_unavailable_path_is_stamped() -> None:
+    adapter = _stub_adapter("KOREA_LOCAL", status="READY")
+    from climaterisk_worker.physical_risk import adapters, runner
+
+    def boom(bbox, points=None):  # type: ignore[no-untyped-def]
+        raise adapters.HazardUnavailable("offline")
+
+    adapter.load = boom
+    rows, rec = runner._rows_for(adapter, "HW", _FAC, "KOR", None)
+    assert "load_error" in rec
+    assert rows[0].method_id == "hw.open_field_utci" and rows[0].method_role == "main"
+
+
+def test_success_path_is_stamped(monkeypatch: pytest.MonkeyPatch) -> None:
+    adapter = _stub_adapter("DATA_API_COUNTRY", status="READY")
+    from climaterisk_worker.physical_risk import engine, runner
+
+    class Haz:
+        frequency = None
+
+    adapter.load = lambda bbox, points=None: Haz()
+    adapter.spatial_resolution = lambda hazard: None
+    adapter.diagnostics = {}
+    orig = engine.calculate
+
+    def fake(f, hazard, tag, **kw):  # type: ignore[no-untyped-def]
+        # the engine is not under test here; keep its row construction, skip the hazard maths
+        return orig(f, None, tag, model_id=kw["model_id"], status_override="NO_HAZARD_DATA")
+
+    monkeypatch.setattr(engine, "calculate", fake)
+    rows, _ = runner._rows_for(adapter, "HW", _FAC, "KOR", None)
+    assert rows[0].method_role == "reference" and rows[0].method_rank is None
+    assert rows[0].method_id == "hw.reference.data_api_country"

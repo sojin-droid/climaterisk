@@ -42,7 +42,6 @@ import type {
 const MODELS = ["GLOBAL_BASELINE", "DATA_API_COUNTRY", "KOREA_LOCAL"] as const;
 const HAZARD_KEYS = ["RF", "PF", "CF", "TC", "HEAT"] as const;
 const TAG_OF: Record<string, string> = { RF: "RF", PF: "PF", CF: "CF", TC: "TC", HEAT: "HW" };
-const LOCAL_FIRST = ["KOREA_LOCAL", "DATA_API_COUNTRY", "GLOBAL_BASELINE"];
 const PAGE = 25;
 type Target = "MUNICIPALITY" | "FACILITY";
 
@@ -107,20 +106,14 @@ function scopeStatus(readiness: PhysicalRiskReadiness | null, model: string, haz
 const canRun = (readiness: PhysicalRiskReadiness | null, model: string, hazardKey: string) =>
   ["READY", "HAZARD_ONLY"].includes(readiness?.hazards?.[hazardKey]?.[model]?.status ?? "");
 
-/** The row that represents a point × hazard: recommended model first, then most local, informative only. */
+/**
+ * The row that represents a point × hazard: the rank-1 (recommended) model's row, whatever its
+ * status. No fallback: when that model produced no row the hazard has no result (undefined);
+ * another model's numbers are references and never fill the gap (same rule as results_table.primary_row).
+ */
 function primaryRow(rows: PhysicalRiskRow[], fid: string, tag: string, recommended: string | undefined) {
-  const cands = rows.filter((r) => r.facility_id === fid && r.hazard_type === tag);
-  const informative = (r: PhysicalRiskRow) => r.eal_usd != null || r.calculation_status === "HAZARD_ONLY";
-  const order = [...(recommended ? [recommended] : []), ...LOCAL_FIRST];
-  for (const m of order) {
-    const r = cands.find((c) => c.model_id === m);
-    if (r && informative(r)) return r;
-  }
-  for (const m of order) {
-    const r = cands.find((c) => c.model_id === m);
-    if (r) return r;
-  }
-  return cands[0];
+  if (!recommended) return undefined;
+  return rows.find((r) => r.facility_id === fid && r.hazard_type === tag && r.model_id === recommended);
 }
 
 function reportFilename(out: PhysicalRiskModelsOutput | null, created: string | undefined) {

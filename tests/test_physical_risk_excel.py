@@ -97,7 +97,7 @@ def _output(n_facilities: int = 2, local_flood_priced: bool = False) -> dict:  #
         rows += [
             _priced(fid, "RF", G, 75_000.0 * (i + 1), 7_200_000.0),
             _priced(fid, "RF", C, 90_000.0 * (i + 1), 8_600_000.0),
-            _priced(fid, "RF", K, 90_000.0 * (i + 1), 8_600_000.0)
+            _priced(fid, "RF", K, 110_000.0 * (i + 1), 9_100_000.0)
             if local_flood_priced
             else _row(
                 fid, "RF", K, calculation_status="NOT_IMPLEMENTED", status_detail="no adapter"
@@ -251,17 +251,17 @@ def test_portfolio_totals_sums_only_priced_eal_and_never_a_return_period_loss() 
     flood = totals["Flood"]
     assert flood["Assets Assessed"] == 2 and flood["Priced"] == 2
     assert flood["Total EAL"] == pytest.approx(
-        90_000.0 + 180_000.0
+        110_000.0 + 220_000.0
     )  # rank-1 (local) rows, not global or country
     assert flood["Priced Asset Value"] == pytest.approx(200_000_000.0)
-    assert flood["Total EAL / Assets"] == pytest.approx(270_000.0 / 200_000_000.0 * 100.0)
+    assert flood["Total EAL / Assets"] == pytest.approx(330_000.0 / 200_000_000.0 * 100.0)
     heat = totals["Heatwave"]
     assert heat["Priced"] == 0 and heat["Hazard Only"] == 2
     assert heat["Total EAL"] is None and heat["Priced Asset Value"] is None  # empty, never 0
     overall = totals["All priced hazards"]
     assert overall["Assets Assessed"] == 2 and overall["Priced"] == 2  # a point counts once
     assert overall["Hazard Only"] == 0  # both points are priced for another hazard
-    assert overall["Total EAL"] == pytest.approx(270_000.0 + 2 * 3_576.18)
+    assert overall["Total EAL"] == pytest.approx(330_000.0 + 2 * 3_576.18)
     assert overall["Priced Asset Value"] == pytest.approx(200_000_000.0)
     assert list(totals) == ["Flood", "Typhoon", "Heatwave", "All priced hazards"]
 

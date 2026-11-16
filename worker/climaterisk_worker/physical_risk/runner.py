@@ -418,18 +418,24 @@ def _all_model_rows(
             if progress is not None:
                 progress.step(f"{key} / {model}", len(facilities))
             if iso3 is None and model != ModelId.GLOBAL_BASELINE.value:
-                for f in facilities:
-                    rows.append(
-                        engine.calculate(
-                            f,
-                            None,
-                            tag,
-                            model_id=model,
-                            requested_scenario=scenario,
-                            status_override=CalculationStatus.NO_HAZARD_DATA.value,
-                            status_detail="no single country for the portfolio",
-                        )
+                rows.extend(
+                    _stamp(
+                        [
+                            engine.calculate(
+                                f,
+                                None,
+                                tag,
+                                model_id=model,
+                                requested_scenario=scenario,
+                                status_override=CalculationStatus.NO_HAZARD_DATA.value,
+                                status_detail="no single country for the portfolio",
+                            )
+                            for f in facilities
+                        ],
+                        tag,
+                        model,
                     )
+                )
                 continue
             adapter = adapters.adapter_for(tag, model, scenario, year, iso3 or "")
             model_rows, desc = _rows_for(adapter, tag, facilities, iso3, bbox, curves)
