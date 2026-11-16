@@ -1017,7 +1017,7 @@ class KoreaLocalCoastalFloodAdapter:
 
         where $Z_{AHHW}$ (m above MSL) is the nearest KHOA station's M2+S2+K1+O1 amplitude
         sum, $s$ (m) the sea-level-rise increment and $z_{ground}$ (m above MSL) the asset
-        ground: bare-earth NGII DEM, else Copernicus GLO-30. Connectivity is
+        ground: Copernicus GLO-30 (one national ground, spec rule 5). Connectivity is
         :func:`climaterisk_worker.coastal_connectivity.tidal_mask` on GLO-30 reduced to 3 arcsec
         by the block minimum (structures narrower than ~90 m are removed).
 
@@ -1062,7 +1062,8 @@ class KoreaLocalCoastalFloodAdapter:
                 "method tier T2, hazard only. Depth = max(0, AHHW - ground) where the asset's "
                 "90 m cell is sea-connected. Assumptions: coastal structures narrower than "
                 "~90 m (seawalls, levees) are removed; nearest-station AHHW; present-day tidal "
-                "datum; no storm surge and no waves; ground = bare-earth NGII DEM else GLO-30; "
+                "datum; no storm surge and no waves; ground = Copernicus GLO-30 (surface "
+                "model, one national ground); "
                 "no loss computed"
             ),
         )
@@ -1165,7 +1166,11 @@ class KoreaLocalCoastalFloodAdapter:
 
     @staticmethod
     def _ground(lat: Any, lon: Any, paths: Any, offline: Any) -> tuple[Any, list[str | None]]:
-        """Asset ground (m above MSL): bare-earth NGII where it covers the point, else GLO-30."""
+        """Asset ground (m above MSL) from Copernicus GLO-30 only — one national ground.
+
+        Spec rule 5 (사용자 결정): the coastal main value uses GLO-30 everywhere, so the
+        ground does not switch source at an NGII tile edge. Unknown ground stays NaN.
+        """
         import numpy as np
         from pyproj import Transformer
 
@@ -1176,24 +1181,14 @@ class KoreaLocalCoastalFloodAdapter:
         xy = np.c_[xs, ys]
         ground = np.full(len(xy), np.nan)
         source: list[str | None] = [None] * len(xy)
-        bare = sorted(paths.external_dir("ngii_dem").glob("**/*.img"))
-        bare_s = fd.RasterSampler(bare) if bare else None
         glo = fd.Glo30Sampler(paths.external_dir("copernicus_dem"), allow_download=not offline())
         try:
             for i in range(len(xy)):
-                one = xy[i : i + 1]
-                if bare_s is not None:
-                    v = fd.StrictSampler(bare_s)(one)[0]
-                    if np.isfinite(v):
-                        ground[i], source[i] = v, "ngii_bare_earth_90m"
-                        continue
-                v = glo(one)[0]
+                v = glo(xy[i : i + 1])[0]
                 if np.isfinite(v):
                     ground[i], source[i] = v, "glo30_surface_model"
         finally:
             glo.close()
-            if bare_s is not None:
-                bare_s.close()
         return ground, source
 
     @staticmethod

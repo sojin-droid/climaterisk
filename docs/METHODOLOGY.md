@@ -271,8 +271,10 @@ the asset's 90 m cell is sea-connected, else 0. $A_c$ = KHOA 조화상수 amplit
 3. Tidal = cell below the station's AHHW (+ increment) whose 8-connected component of
    low-or-sea cells contains sea (`scipy.ndimage.label`). The threshold is the nearest station's
    AHHW evaluated per ~1.8 km block.
-4. Ground at the asset: bare-earth NGII DEM where it covers the point, else GLO-30 (a surface model).
-   Unknown ground gives unknown connectivity and depth (null), never 0.
+4. Ground at the asset: Copernicus GLO-30 only (a surface model) — one national ground for the
+   main value (spec rule 5, 사용자 결정 2026-11-16); the NGII bare-earth DEM is not used here, so
+   the ground never switches source at an NGII tile edge. Unknown ground gives unknown
+   connectivity and depth (null), never 0.
 
 Assumptions (stated on the row): structures narrower than ~90 m (seawalls, levees) are removed;
 nearest-station AHHW; present-day tidal datum; no storm surge, no waves; no loss computed.
@@ -295,7 +297,8 @@ $\bar h$ = representative depth (m; `flood_map` config), $n_{obs}$ = covered ass
 $n_{map}$ = covered assets the map floods, $n_{hit}$ = both.
 
 One 100-y event (frequency 0.01), present day only, no loss computed. Sub check: DEM edge depth vs
-the band (shared with river flood). Validation (diagnostic, no verdict): 서울시 침수흔적도
+the band (shared with river flood; its DEM is mixed — bare-earth NGII where it covers, else
+GLO-30 — acceptable for a diagnostic check, never used for a main value). Validation (diagnostic, no verdict): 서울시 침수흔적도
 2010–2025, `F_SHIM` = depth (m, meaning inferred from the name and values), polygons within
 `pluvial_local.trace_buffer_m` of the asset, only assets inside 서울특별시. A 100-y map against
 observed 2010–2025 events is not like-for-like, so `pod` and `share_mapped_observed` are reported
