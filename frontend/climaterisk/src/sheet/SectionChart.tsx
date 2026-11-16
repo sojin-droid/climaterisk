@@ -17,6 +17,7 @@ import {
   runs,
   ticks,
 } from "./scales";
+import { NoDataHatch } from "./NoData";
 
 const W = 1100;
 const H = 480;
@@ -170,6 +171,7 @@ export function SectionChart({ sheet }: { sheet: Sheet }) {
         <marker id="sec-arrow" viewBox="0 0 8 8" refX="4" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
           <path d="M0 1L8 4L0 7Z" fill={INK} />
         </marker>
+        <NoDataHatch id="sec-nodata" />
       </defs>
 
       {/* frame + y axis */}
@@ -263,8 +265,8 @@ export function SectionChart({ sheet }: { sheet: Sheet }) {
             {r.label}
           </text>
           {section.classes[r.k].map((code, i) => {
-            const c = classColor(code);
-            if (c === "none") return null;
+            const c = classColor(code, "sec-nodata");
+            if (c === "none") return null; // outside every polygon: dry, undrawn
             const [e0, e1] = edges[i];
             return (
               <rect
@@ -274,7 +276,9 @@ export function SectionChart({ sheet }: { sheet: Sheet }) {
                 width={Math.max(0.5, sx(e1) - sx(e0) + 0.4)}
                 height={11}
                 fill={c}
-              />
+              >
+                {code == null && <title>값 없음</title>}
+              </rect>
             );
           })}
         </g>

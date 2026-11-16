@@ -247,7 +247,8 @@ basin that has no map reads 0 m (Part 2; source and licence of basin boundaries 
 (b) basin 1202 has only an empty 200-y national file (`empty`); (c) when the index cannot be built
 and a zip header is unreadable, every point without a polygon hit in that family/return period
 becomes unknown (safe-direction bluntness); (d) a zip replaced with identical size and mtime keeps
-stale bounds; (e) 단면 strips skip unknown bands without a hatch (design follow-up). Tests:
+stale bounds. 단면 sheets draw an unknown class (null) with a grey diagonal hatch and an empty
+"값 없음" marker on the frequency curve; "" (outside every polygon) stays blank. Tests:
 `tests/test_korea_local_flood_maps.py` (synthetic end to end, climada env); real-map tests are
 opt-in with `CLIMATERISK_REAL_MAPS=1`.
 
