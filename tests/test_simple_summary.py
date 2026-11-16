@@ -267,3 +267,66 @@ def test_route_returns_the_summary_and_refuses_unfinished_runs(client) -> None: 
         assert client.get("/api/session/s1/run/nope/simple-summary").status_code == 404
     finally:
         client.app.dependency_overrides.clear()
+
+
+# --------------------------------------------------------------------------- #
+# Unknown is never 0 (fix wave 2026-11-16)                                       #
+# --------------------------------------------------------------------------- #
+def _unknown(fid: str, hz: str, *, value: float, prov: str, status: str) -> dict[str, Any]:
+    return _row(fid, hz, 0.0, value=value, prov=prov, calculation_status=status, eal_usd=None)
+
+
+def _with_unknown() -> dict[str, Any]:
+    out = _output()
+    # D's flood is unknown in both runs (e.g. map_unreadable); a PF hazard-only layer exists
+    for key in ("rows", "baseline_rows"):
+        out[key] = [
+            r for r in out[key] if not (r["facility_id"] == "D" and r["hazard_type"] == "RF")
+        ]
+        out[key].append(
+            _unknown("D", "RF", value=10_000.0, prov="부산광역시", status="NO_HAZARD_DATA")
+        )
+    out["rows"] += [
+        {
+            **_row(f, "PF", 0.0, value=v, prov=p, calculation_status="HAZARD_ONLY"),
+            "eal_usd": None,
+            "model_id": "KOREA_LOCAL",
+        }
+        for f, v, p in (("A", 100_000.0, "경기도"), ("D", 10_000.0, "부산광역시"))
+    ]
+    return out
+
+
+def test_unpriced_rows_are_not_summed_as_zero_and_the_denominator_is_priced_value() -> None:
+    s = build_simple_summary(
+        _with_unknown(), krw_per_usd=FX, preferred_models=dc.recommended_models()
+    )
+    rf = s["hazards"]["RF"]
+    assert rf["n_priced"] == 3 and rf["n_assessed"] == 4
+    assert rf["eal_usd"] == 700.0  # A + B + C; D is unknown, not 0
+    assert rf["priced_value_usd"] == 190_000.0
+    assert rf["eal_pct_of_value"] == pytest.approx(700.0 / 190_000.0)
+    assert rf["climate_multiplier"] == pytest.approx(700.0 / 300.0)
+    pf = s["hazards"]["PF"]  # hazard-only: no EAL at all
+    assert pf["n_priced"] == 0 and pf["n_assessed"] == 2
+    assert pf["eal_usd"] is None and pf["eal_pct_of_value"] is None
+    assert pf["baseline_eal_usd"] is None and pf["climate_multiplier"] is None
+    assert pf["concentration"]["top1_share"] is None
+    assert s["total"]["eal_usd"] == 720.0  # RF 700 + TC 20; PF adds nothing
+    assert s["total"]["n_priced"] == 4 and s["total"]["n_assessed"] == 4
+    bs = {p["province_name"]: p for p in s["provinces"]}["부산광역시"]
+    assert bs["per_hazard"]["PF"]["future_usd"] is None
+    assert bs["per_hazard"]["RF"]["future_usd"] == 20.0  # C only
+    assert bs["total"]["future_usd"] == 25.0  # RF 20 + TC 5
+
+
+def test_totals_are_none_when_nothing_is_priced() -> None:
+    out = _with_unknown()
+    out["rows"] = [r for r in out["rows"] if r["hazard_type"] == "PF"]
+    out["baseline_rows"] = []
+    s = build_simple_summary(out, krw_per_usd=FX, preferred_models=dc.recommended_models())
+    assert s["total"]["eal_usd"] is None and s["total"]["eal_pct_of_value"] is None
+    assert s["total"]["n_priced"] == 0 and s["total"]["n_assessed"] == 2
+    for p in s["provinces"]:
+        assert p["total"]["future_usd"] is None
+    assert s["top_assets"] == []
