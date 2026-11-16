@@ -32,8 +32,9 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
+from climaterisk.physical_risk.display_copy import SCOPE_SHORT
 from climaterisk.physical_risk.metrics import ResultRow, jrc_sector_for, load_config
-from climaterisk.physical_risk.results_table import primary_rows
+from climaterisk.physical_risk.results_table import primary_rows, reference_only_cells
 
 __all__ = ["HAZARD_LABELS_KO", "build_simple_summary"]
 
@@ -49,8 +50,14 @@ HAZARD_LABELS_KO: dict[str, str] = {
 _PRICED = ("FULL", "RETURN_PERIOD_NOT_RESOLVABLE")
 
 
-def _primary(rows: Iterable[dict[str, Any]], preferred: dict[str, str] | None) -> list[ResultRow]:
+def _primary(
+    rows: Iterable[ResultRow | dict[str, Any]], preferred: dict[str, str] | None
+) -> list[ResultRow]:
     return list(primary_rows(rows, preferred).values())
+
+
+def _rows(rows: Iterable[ResultRow | dict[str, Any]]) -> list[ResultRow]:
+    return [r if isinstance(r, ResultRow) else ResultRow.from_dict(r) for r in rows]
 
 
 def _priced(r: ResultRow) -> bool:
@@ -135,14 +142,17 @@ def build_simple_summary(
     """
     cfg_all = config or load_config()
     cfg = cfg_all["simple_summary"]
-    future = _primary(output.get("rows") or [], preferred_models)
+    every = _rows(output.get("rows") or [])
+    future = _primary(every, preferred_models)
+    # cells assessed by reference models only: counted as assessed, never as the result
+    ref_only = reference_only_cells(every, preferred_models)
     baseline = _primary(output.get("baseline_rows") or [], preferred_models)
     base_by = {(r.facility_id, r.hazard_type): r for r in baseline}
     has_baseline = bool(baseline)
 
     values: dict[str, float] = {}
     meta: dict[str, dict[str, Any]] = {}
-    for r in future:
+    for r in every:
         if r.asset_value_usd is not None:
             values.setdefault(r.facility_id, float(r.asset_value_usd))
         meta.setdefault(
@@ -156,7 +166,7 @@ def build_simple_summary(
         )
     portfolio_value = sum(values.values())
     hazards = sorted(
-        {r.hazard_type for r in future},
+        {r.hazard_type for r in every},
         key=lambda h: list(HAZARD_LABELS_KO).index(h) if h in HAZARD_LABELS_KO else 99,
     )
 
@@ -170,6 +180,9 @@ def build_simple_summary(
     per_hazard: dict[str, Any] = {}
     for h in hazards:
         rows_h = [r for r in future if r.hazard_type == h]
+        ref_h = [ref_only[k] for k in ref_only if k[1] == h]
+        n_assessed = len(rows_h) + len(ref_h)
+        not_run = not rows_h and bool(ref_h)  # the rank-1 model produced no row at all
         priced = [r for r in rows_h if _priced(r)]
         # hazard-only = a known intensity, no money by design; anything else unpriced is
         # not available (an unknown hazard is NO_HAZARD_DATA, never "hazard only")
@@ -199,7 +212,7 @@ def build_simple_summary(
             multiplier_note = "현재기후 손실이 0 — 배수 정의 안 됨"
         else:
             multiplier = pair_future / pair_base
-        model = rows_h[0].model_id if rows_h else None
+        model = rows_h[0].model_id if rows_h else (ref_h[0] if ref_h else None)
         fut_rp = _portfolio_curve(output.get("portfolio_loss_curves") or [], h, model)
         base_rp = _portfolio_curve(output.get("baseline_portfolio_loss_curves") or [], h, model)
         risk_counts = {
@@ -235,11 +248,13 @@ def build_simple_summary(
         per_hazard[h] = {
             "label": HAZARD_LABELS_KO.get(h, h),
             "model_id": model,
-            "n_assets": len(rows_h),
-            "n_assessed": len(rows_h),
+            "n_assets": n_assessed,
+            "n_assessed": n_assessed,
             "n_priced": len(priced),
             "n_hazard_only": n_hazard_only,
-            "n_not_available": len(rows_h) - len(priced) - n_hazard_only,
+            "n_not_available": n_assessed - len(priced) - n_hazard_only,
+            "n_not_run_by_rank1": len(ref_h),
+            "not_run_by_rank1": not_run,
             "n_with_loss": sum(1 for r in priced if _eal(r) > 0),
             "eal_usd": eal,
             "priced_value_usd": priced_value,
@@ -376,7 +391,19 @@ def build_simple_summary(
                 }
             )
     for h, v in per_hazard.items():
-        if v["n_priced"] < v["n_assets"]:
+        if v["not_run_by_rank1"]:
+            scope = SCOPE_SHORT.get(v["model_id"] or "", v["model_id"])
+            notes.append(
+                {
+                    "kind": "not_run_by_rank1",
+                    "hazard": h,
+                    "text": (
+                        f"{v['label']}: 1순위 방법({scope})으로 실행하지 않음 — 참고 모델 "
+                        "결과만 있어 결과로 쓰지 않음"
+                    ),
+                }
+            )
+        elif v["n_priced"] < v["n_assets"]:
             notes.append(
                 {
                     "kind": "not_priced",
@@ -432,7 +459,7 @@ def build_simple_summary(
         "total": {
             "eal_usd": total_eal,
             "n_priced": len(priced_ids),
-            "n_assessed": len(meta),
+            "n_assessed": len(meta),  # every point with any row, rank 1 or reference
             "priced_value_usd": priced_value_all,
             "eal_pct_of_value": (
                 (total_eal / priced_value_all)

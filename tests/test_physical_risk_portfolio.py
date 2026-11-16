@@ -163,6 +163,33 @@ def test_primary_row_is_the_rank1_row_and_never_falls_back() -> None:
     assert rt.primary_row(only_global, K) is None
 
 
+def test_global_only_run_counts_assets_and_says_not_run_by_rank1() -> None:
+    """A run without the rank-1 model is not "nothing was run" — and never shows G as the result."""
+    only_global = [r for r in _portfolio() if r.model_id == G]
+    rec = dc.recommended_models()
+    label = "Not run by the rank-1 model (Local) — reference rows only"
+    counts = rt.summary_counts(only_global, rec)
+    assert counts["assets_analyzed"] == 3
+    assert counts["not_run_by_rank1"] == 9  # RF, TC, HW at 3 points: only reference rows
+    assert counts["high_risk"] == counts["medium_risk"] == counts["low_risk"] == 0
+    totals = {line["Hazard"]: line for line in rt.portfolio_totals_frame(only_global, None, rec)}
+    flood = totals["Flood"]
+    assert flood["Assets Assessed"] == 3 and flood["Priced"] == 0
+    assert flood["Not Available"] == 3 and flood["Total EAL"] is None
+    assert flood["Note"] == label
+    assert totals["Typhoon"]["Note"] == (
+        "Not run by the rank-1 model (Country) — reference rows only"
+    )
+    every = totals["All priced hazards"]
+    assert every["Assets Assessed"] == 3 and every["Priced"] == 0 and every["Total EAL"] is None
+    summary = {line["Facility ID"]: line for line in rt.portfolio_summary_frame(only_global, rec)}
+    assert summary["F1"]["Flood Status"] == label and summary["F1"]["Flood EAL"] is None
+    assert summary["F1"]["Overall EAL"] is None
+    assert summary["F1"]["Not Available Count"] == 3
+    matrix = {line["Facility ID"]: line for line in rt.asset_risk_matrix_frame(only_global, rec)}
+    assert matrix["F2"]["Flood"] == label and matrix["F2"]["Overall"].startswith("0 of")
+
+
 def test_portfolio_summary_keeps_status_empty_cells_and_real_zeros_apart() -> None:
     frame = {
         line["Facility ID"]: line

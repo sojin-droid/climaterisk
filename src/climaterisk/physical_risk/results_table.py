@@ -439,14 +439,7 @@ def primary_rows(
     to the rank-1 model id. ``None`` means ``display_copy.recommended_models()``, so a frame
     never silently goes empty; pass ``{}`` explicitly to get no primary rows.
     """
-    if preferred is None:
-        from climaterisk.physical_risk.display_copy import recommended_models
-
-        preferred = recommended_models()
-    pref = dict(preferred)
-    if "HEAT" in pref:
-        pref.setdefault("HW", pref["HEAT"])
-        pref.setdefault("HM", pref["HEAT"])
+    pref = _expand_preferred(preferred)
     groups: dict[tuple[str, str], list[ResultRow]] = {}
     for r in _as_rows(rows):
         groups.setdefault((r.facility_id, r.hazard_type), []).append(r)
@@ -456,6 +449,51 @@ def primary_rows(
         if chosen is not None:  # no rank-1 row: no result for this cell
             out[key] = chosen
     return out
+
+
+def _expand_preferred(preferred: dict[str, str] | None) -> dict[str, str]:
+    """``preferred`` (``None`` = the recommended models) with ``HEAT`` copied to HW / HM."""
+    if preferred is None:
+        from climaterisk.physical_risk.display_copy import recommended_models
+
+        preferred = recommended_models()
+    pref = dict(preferred)
+    if "HEAT" in pref:
+        pref.setdefault("HW", pref["HEAT"])
+        pref.setdefault("HM", pref["HEAT"])
+    return pref
+
+
+def reference_only_cells(
+    rows: Iterable[ResultRow | dict[str, Any]], preferred: dict[str, str] | None = None
+) -> dict[tuple[str, str], str | None]:
+    """``{(facility_id, hazard_type): rank-1 model id}`` for cells with rows but no rank-1 row.
+
+    Such a cell was assessed — by reference models only — so it counts as assessed and
+    not available; its reference numbers are never the result. The model id is the
+    ``preferred`` one, else the registry's rank 1 (None when the registry has no entry).
+    """
+    from climaterisk.physical_risk.method_registry import rank1_model
+
+    rs = _as_rows(rows)
+    pref = _expand_preferred(preferred)
+    prim = primary_rows(rs, preferred)
+    out: dict[tuple[str, str], str | None] = {}
+    for r in rs:
+        key = (r.facility_id, r.hazard_type)
+        if key in prim or key in out:
+            continue
+        try:
+            out[key] = pref.get(r.hazard_type) or rank1_model(r.hazard_type)
+        except KeyError:  # a tag the registry does not know
+            out[key] = pref.get(r.hazard_type)
+    return out
+
+
+def not_run_label(model_id: str | None) -> str:
+    """Cell text for a hazard its rank-1 model did not run (reference rows only)."""
+    scope = _scope_short(model_id) if model_id else "unknown"
+    return f"Not run by the rank-1 model ({scope}) — reference rows only"
 
 
 def _scope_short(model_id: str | None) -> str | None:
@@ -481,6 +519,7 @@ def portfolio_summary_frame(
     nothing was priced. No overall risk level is produced (methodology decision pending).
     """
     prim = primary_rows(rows, preferred)
+    ref_only = reference_only_cells(rows, preferred)
     facilities: dict[str, tuple[str, float | None]] = {}
     for row in _as_rows(rows):
         facilities.setdefault(row.facility_id, (row.facility_name, row.asset_value_usd))
@@ -502,7 +541,11 @@ def portfolio_summary_frame(
                 ):
                     not_available += 1
             if r is None:
-                line[f"{label} Status"] = "Not assessed"
+                if (fid, tag) in ref_only:  # reference rows only: assessed, not available
+                    line[f"{label} Status"] = not_run_label(ref_only[(fid, tag)])
+                    not_available += 1
+                else:
+                    line[f"{label} Status"] = "Not assessed"
                 if tag != "HW":
                     line[f"{label} Risk"] = None
                     line[f"{label} EAL"] = None
@@ -540,6 +583,7 @@ def asset_risk_matrix_frame(
     ``Overall`` counts calculated hazards ("2 of 3 calculated") — it is not a risk score.
     """
     prim = primary_rows(rows, preferred)
+    ref_only = reference_only_cells(rows, preferred)
     names = {r.facility_id: r.facility_name for r in _as_rows(rows)}
     hazards = view_hazards(_as_rows(rows), PORTFOLIO_HAZARDS)
     out = []
@@ -549,7 +593,11 @@ def asset_risk_matrix_frame(
         for tag, label in hazards:
             r = prim.get((fid, tag))
             if r is None:
-                line[label] = "Not assessed"
+                line[label] = (
+                    not_run_label(ref_only[(fid, tag)])
+                    if (fid, tag) in ref_only
+                    else "Not assessed"
+                )
             elif r.risk_level is not None:
                 line[label] = r.risk_level
                 priced += 1
@@ -563,11 +611,20 @@ def asset_risk_matrix_frame(
 def summary_counts(
     rows: Iterable[ResultRow | dict[str, Any]], preferred: dict[str, str] | None = None
 ) -> dict[str, int]:
-    """Counts for the results header, over primary rows only — no score, no ranking."""
-    prim = primary_rows(rows, preferred)
+    """Counts for the results header — no score, no ranking.
+
+    Risk and status counts are over primary (rank-1) rows. ``assets_analyzed`` counts every
+    point with any row, so a run without the rank-1 model does not read as "nothing was
+    run"; cells with reference rows only are counted in ``not_run_by_rank1`` (key present
+    only when there are any) and in ``not_available`` — their reference numbers are never
+    counted as a result.
+    """
+    rs = _as_rows(rows)
+    prim = primary_rows(rs, preferred)
+    ref_only = reference_only_cells(rs, preferred)
     counts = {
         # a municipality assessed at two anchors (V0.3 POC) counts once here
-        "assets_analyzed": len({r.municipality_id or fid for (fid, _), r in prim.items()}),
+        "assets_analyzed": len({r.municipality_id or r.facility_id for r in rs}),
         "high_risk": 0,
         "medium_risk": 0,
         "low_risk": 0,
@@ -588,8 +645,11 @@ def summary_counts(
             counts["errors"] += 1
         elif r.calculation_status in _UNAVAILABLE_STATUSES:
             counts["not_available"] += 1
-    if any(r.point_type == "OFFICIAL_OFFICE_POINT" for r in prim.values()):
-        counts["points_analyzed"] = len({fid for fid, _ in prim})
+    if ref_only:  # present only when it happened, like ``points_analyzed``
+        counts["not_run_by_rank1"] = len(ref_only)
+        counts["not_available"] += len(ref_only)
+    if any(r.point_type == "OFFICIAL_OFFICE_POINT" for r in rs):
+        counts["points_analyzed"] = len({r.facility_id for r in rs})
     return counts
 
 
@@ -645,6 +705,7 @@ def municipality_summary_frame(
     """
     rs = _as_rows(rows)
     prim = primary_rows(rs, preferred)
+    ref_only = reference_only_cells(rs, preferred)
     two_anchors = _has_office_rows(rs)
     out = []
     for fid, first in _municipalities(rs).items():
@@ -669,7 +730,11 @@ def municipality_summary_frame(
         for tag, label in view_hazards(rs, MUNICIPALITY_HAZARDS):
             r = prim.get((fid, tag))
             if r is None:
-                line[f"{label} Status"] = "Not assessed"
+                line[f"{label} Status"] = (
+                    not_run_label(ref_only[(fid, tag)])
+                    if (fid, tag) in ref_only
+                    else "Not assessed"
+                )
                 if tag != "HW":
                     line[f"{label} Risk"] = None
                     line[f"{label} EAL"] = None
@@ -710,6 +775,7 @@ def municipality_risk_matrix_frame(
     """
     rs = _as_rows(rows)
     prim = primary_rows(rs, preferred)
+    ref_only = reference_only_cells(rs, preferred)
     two_anchors = _has_office_rows(rs)
     out = []
     for fid, first in _municipalities(rs).items():
@@ -726,7 +792,11 @@ def municipality_risk_matrix_frame(
         for tag, label in hazards:
             r = prim.get((fid, tag))
             if r is None:
-                line[label] = "Not assessed"
+                line[label] = (
+                    not_run_label(ref_only[(fid, tag)])
+                    if (fid, tag) in ref_only
+                    else "Not assessed"
+                )
             elif r.risk_level is not None:
                 line[label] = r.risk_level
                 priced += 1
@@ -974,6 +1044,7 @@ def portfolio_totals_frame(
     """
     rs = one_anchor_per_municipality(_as_rows(rows))
     prim = primary_rows(rs, preferred)
+    ref_only = reference_only_cells(rs, preferred)
     base_prim = primary_rows(one_anchor_per_municipality(_as_rows(baseline_rows or [])), preferred)
     paired = bool(base_prim)
     factor = float(growth["factor"]) if growth else None
@@ -1009,13 +1080,15 @@ def portfolio_totals_frame(
     all_pairs: list[tuple[float, float]] = []
     for tag, label in hazards:
         cells = {fid: r for (fid, h), r in prim.items() if h == tag}
+        # assessed = every point with any row; reference-only points are not available
+        assessed = set(cells) | {fid for (fid, h) in ref_only if h == tag}
         priced = {fid: r for fid, r in cells.items() if r.eal_usd is not None}
         hazard_only = [
             fid
             for fid, r in cells.items()
             if r.eal_usd is None and r.calculation_status in _HAZARD_ONLY_STATUSES
         ]
-        not_available = len(cells) - len(priced) - len(hazard_only)
+        not_available = len(assessed) - len(priced) - len(hazard_only)
         eal = _sum_or_none([float(r.eal_usd) for r in priced.values() if r.eal_usd is not None])
         value = _sum_or_none([float(r.asset_value_usd or 0.0) for r in priced.values()])
         pairs: list[tuple[float, float]] = []
@@ -1025,7 +1098,7 @@ def portfolio_totals_frame(
                 pairs.append((float(b.eal_usd), float(r.eal_usd or 0.0)))
         line: dict[str, Any] = {
             "Hazard": label,
-            f"{point_label} Assessed": len(cells),
+            f"{point_label} Assessed": len(assessed),
             "Priced": len(priced),
             "Hazard Only": len(hazard_only),
             "Not Available": not_available,
@@ -1042,13 +1115,15 @@ def portfolio_totals_frame(
                 "Future EAL (paired)": f_sum,
                 "EAL Change %": change_pct(f_sum, b_sum),
             }
+        if not cells and assessed:  # only reference rows: not run by the rank-1 model
+            line["Note"] = not_run_label(next(ref_only[(f, tag)] for f in sorted(assessed)))
         growth_cells(line)
         lines.append(line)
-        all_points |= set(cells)
+        all_points |= assessed
         for fid, r in priced.items():
             priced_points.setdefault(fid, r.asset_value_usd)
         hazard_only_points |= set(hazard_only)
-        unknown_points |= set(cells) - set(priced) - set(hazard_only)
+        unknown_points |= assessed - set(priced) - set(hazard_only)
         all_eal += [float(r.eal_usd) for r in priced.values() if r.eal_usd is not None]
         all_pairs += pairs
 

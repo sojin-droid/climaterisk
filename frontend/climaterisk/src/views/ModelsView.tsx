@@ -1393,13 +1393,21 @@ function PointDetail({
           const tag = TAG_OF[h];
           const r = primaryRow(rows, pointId, tag, recommended[h]);
           const label = display?.hazard_label[h] ?? h;
-          if (!r)
+          if (!r) {
+            // reference rows without a rank-1 row: assessed, but never shown as the result
+            const hasReference = rows.some((x) => x.facility_id === pointId && x.hazard_type === tag);
+            const scope = recommended[h] ? (display?.scope_short[recommended[h]] ?? recommended[h]) : "unknown";
             return (
               <div key={h} className="card nested" style={{ margin: 0 }}>
                 <b>{label}</b>
-                <div className="hint">Not assessed in this run.</div>
+                <div className="hint">
+                  {hasReference
+                    ? `Not run by the rank-1 model (${scope}) — reference rows only.`
+                    : "Not assessed in this run."}
+                </div>
               </div>
             );
+          }
           const priced = r.eal_usd != null;
           const ccy = r.asset_value_currency ?? "USD";
           const g = rows.find((x) => x.facility_id === pointId && x.hazard_type === tag && x.model_id === "GLOBAL_BASELINE");

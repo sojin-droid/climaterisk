@@ -331,3 +331,23 @@ def test_totals_are_none_when_nothing_is_priced() -> None:
     for p in s["provinces"]:
         assert p["total"]["future_usd"] is None
     assert s["top_assets"] == []
+
+
+def test_global_only_run_is_not_run_by_rank1_never_the_global_numbers() -> None:
+    out = _output(baseline=False)
+    for r in out["rows"]:
+        r["model_id"] = "GLOBAL_BASELINE"  # reference rows only, all priced
+    out["portfolio_loss_curves"] = []
+    s = build_simple_summary(out, krw_per_usd=FX, preferred_models=dc.recommended_models())
+    assert s["total"]["n_assessed"] == 4 and s["scope"]["n_assets"] == 4
+    assert s["total"]["eal_usd"] is None and s["total"]["n_priced"] == 0
+    for h, scope in (("RF", "Local"), ("TC", "Country")):
+        v = s["hazards"][h]
+        assert v["n_assessed"] == 4 and v["n_priced"] == 0 and v["eal_usd"] is None
+        assert v["not_run_by_rank1"] is True and v["model_id"] != "GLOBAL_BASELINE"
+        assert v["risk_counts"] == {"High": 0, "Medium": 0, "Low": 0}
+        note = next(n for n in s["notes"] if n["hazard"] == h)
+        assert note["kind"] == "not_run_by_rank1" and scope in note["text"]
+    assert s["top_assets"] == []
+    for p in s["provinces"]:
+        assert p["total"]["future_usd"] is None
