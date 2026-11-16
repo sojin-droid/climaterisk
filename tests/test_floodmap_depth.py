@@ -608,17 +608,72 @@ def test_map_index_cache_records_size_and_mtime_and_rebuilds_a_replaced_zip(
     assert idx2[0]["bounds"][0] == pytest.approx(300000.0)
 
 
-def test_old_format_cache_without_stat_fields_is_stale(tmp_path: Path) -> None:
+def test_old_format_cache_is_migrated_by_stat_without_opening_any_zip(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    # coordinator ruling 2026-11-16: an older cache (no size / mtime_ns) is migrated by stat
+    # only — a full rebuild would make macOS download every iCloud placeholder
     import json
 
     cache = tmp_path / "cache" / "rfm.json"
-    zp = _write_n100(tmp_path, "RFM_SBSN_NTN_9001_100", box(300000, 500000, 301000, 501000))
+    a = _write_n100(tmp_path, "RFM_SBSN_NTN_9001_100", box(300000, 500000, 301000, 501000))
+    b = _write_n100(tmp_path, "RFM_SBSN_NTN_9002_100", box(310000, 500000, 311000, 501000))
     cache.parent.mkdir(parents=True)
-    old = [{"path": str(zp), "family": "national", "rp": 100, "bounds": [0, 0, 1, 1]}]
+    old = [
+        {"path": str(a), "family": "national", "rp": 100, "bounds": [1.0, 2.0, 3.0, 4.0]},
+        {"path": str(b), "family": "national", "rp": 100, "bounds": [0.0, 0.0, 0.0, 0.0]},
+    ]
     cache.write_text(json.dumps(old))
-    idx = fd.map_index(tmp_path, cache)
-    assert idx[0]["bounds"][0] == pytest.approx(300000.0)  # rebuilt, not trusted
-    assert "mtime_ns" in json.loads(cache.read_text())[0]
+
+    def _never(zp: Path) -> None:
+        raise AssertionError(f"opened {zp.name}")
+
+    monkeypatch.setattr(fd, "_shp_bounds", _never)
+    with caplog.at_level("INFO", logger=fd.log.name):
+        idx = {r["path"]: r for r in fd.map_index(tmp_path, cache)}
+    assert idx[str(a)]["bounds"] == [1.0, 2.0, 3.0, 4.0]  # kept, not re-read
+    assert idx[str(a)]["size"] == a.stat().st_size
+    assert idx[str(a)]["mtime_ns"] == a.stat().st_mtime_ns
+    assert idx[str(b)]["empty"] is True  # degenerate bounds, judged from the cached box
+    written = json.loads(cache.read_text())
+    assert all("size" in r and "mtime_ns" in r for r in written) and len(written) == 2
+    assert any("migrated 2 rows" in r.getMessage() for r in caplog.records)
+    # a second run reuses the migrated cache as is
+    assert {r["path"] for r in fd.map_index(tmp_path, cache)} == {str(a), str(b)}
+
+
+def test_old_format_cache_reads_only_the_new_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+
+    cache = tmp_path / "cache" / "rfm.json"
+    a = _write_n100(tmp_path, "RFM_SBSN_NTN_9001_100", box(300000, 500000, 301000, 501000))
+    gone = str(tmp_path / NAT[100] / "RFM_SBSN_NTN_9009_100.zip")
+    cache.parent.mkdir(parents=True)
+    cache.write_text(
+        json.dumps(
+            [
+                {"path": str(a), "family": "national", "rp": 100, "bounds": [1.0, 2.0, 3.0, 4.0]},
+                {"path": gone, "family": "national", "rp": 100, "bounds": [5.0, 6.0, 7.0, 8.0]},
+            ]
+        )
+    )
+    new = _write_n100(tmp_path, "RFM_SBSN_NTN_9002_100", box(310000, 500000, 311000, 501000))
+    real = fd._shp_bounds
+    opened: list[str] = []
+
+    def _spy(zp: Path) -> tuple[float, float, float, float] | None:
+        opened.append(zp.name)
+        return real(zp)
+
+    monkeypatch.setattr(fd, "_shp_bounds", _spy)
+    idx = {r["path"]: r for r in fd.map_index(tmp_path, cache)}
+    assert opened == [new.name]  # only the file the old cache did not list
+    assert idx[str(a)]["bounds"] == [1.0, 2.0, 3.0, 4.0]
+    assert idx[str(new)]["bounds"][0] == pytest.approx(310000.0)
+    assert gone not in idx  # a file no longer on disk drops out
+    assert len(json.loads(cache.read_text())) == 2
 
 
 def test_unchanged_rows_are_reused_and_an_unreadable_one_keeps_its_last_bounds(

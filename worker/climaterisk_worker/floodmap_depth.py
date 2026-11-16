@@ -347,6 +347,32 @@ def _stat_key(zp: Path) -> tuple[int, int]:
     return int(st.st_size), int(st.st_mtime_ns)
 
 
+def _migrate_old_rows(rows: list[dict[str, Any]], stat: dict[str, tuple[int, int]]) -> int:
+    """Fill ``size`` / ``mtime_ns`` of older-format cache rows from stat, in place.
+
+    An older cache row (no ``size`` or ``mtime_ns``) whose zip still exists keeps its cached
+    bounds and takes the zip's current stat; nothing is opened (opening an iCloud placeholder
+    downloads it). Degenerate cached bounds mark the row ``empty``. Rows whose zip is gone are
+    left as they are (not fresh, so they drop out on the rebuild). Accepted trade-off
+    (coordinator ruling 2026-11-16): a zip replaced before the migration keeps its old bounds.
+
+    Returns:
+        Number of rows migrated.
+    """
+    n = 0
+    for row in rows:
+        if "size" in row and "mtime_ns" in row:
+            continue
+        key = stat.get(str(row.get("path")))
+        if key is None or row.get("bounds") is None:
+            continue
+        row["size"], row["mtime_ns"] = key
+        if _degenerate(row["bounds"]):
+            row["empty"] = True
+        n += 1
+    return n
+
+
 def map_index(
     root: Path, cache: Path | None = None, families: dict[str, dict[int, str]] | None = None
 ) -> list[dict[str, Any]]:
@@ -357,12 +383,14 @@ def map_index(
 
     Cache: a row is valid only while its zip has the same ``size`` and ``mtime_ns`` (stat,
     never opened); the cache as a whole is reused only if it lists exactly the zips that
-    exist by name with matching stat. A cache without these fields (older format) is stale.
-    On a rebuild, a row whose stat still matches is reused without opening the zip; a zip
-    whose header cannot be read now (offline dataless, corrupt) keeps its **last-known**
-    bounds from the old cache if it had a row there (flagged ``last_known_bounds``) so its
-    extent stays known; otherwise it is left out of the index and logged by name. Pass
-    ``named_files`` to :func:`classes_at_points` so a left-out file gives NaN
+    exist by name with matching stat. A cache without these fields (older format) is
+    migrated by stat only (:func:`_migrate_old_rows`, logged ``migrated N rows``): its bounds
+    are kept and no zip is opened; only zips it does not list are read. On a rebuild, a row
+    whose stat still matches is reused without opening the zip; a zip whose header cannot be
+    read now (offline dataless, corrupt) keeps its **last-known** bounds from the old cache if
+    it had a row there (flagged ``last_known_bounds``) so its extent stays known; otherwise
+    it is left out of the index and logged by name. Pass ``named_files`` to
+    :func:`classes_at_points` so a left-out file gives NaN
     (``map_unreadable``) rather than 0 m.
 
     A zip whose header bounds are degenerate (zero width or height; an empty shapefile
@@ -392,7 +420,13 @@ def map_index(
         key = stat.get(str(row.get("path")))
         return key is not None and (row.get("size"), row.get("mtime_ns")) == key
 
+    old = [r for r in old if isinstance(r, dict)]
+    migrated = _migrate_old_rows(old, stat)
+    if migrated:
+        log.info("map_index: migrated %d rows (older cache format, stat only)", migrated)
     if old and {r.get("path") for r in old} == set(stat) and all(_fresh(r) for r in old):
+        if migrated and cache is not None:
+            cache.write_text(json.dumps(old), encoding="utf-8")
         return old
     old_by = {str(r.get("path")): r for r in old if isinstance(r, dict)}
     rows: list[dict[str, Any]] = []
