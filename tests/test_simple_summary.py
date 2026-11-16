@@ -351,3 +351,17 @@ def test_global_only_run_is_not_run_by_rank1_never_the_global_numbers() -> None:
     assert s["top_assets"] == []
     for p in s["provinces"]:
         assert p["total"]["future_usd"] is None
+
+
+def test_value_share_uses_priced_value_and_hazard_only_note_says_by_design() -> None:
+    s = build_simple_summary(
+        _with_unknown(), krw_per_usd=FX, preferred_models=dc.recommended_models()
+    )
+    rf = s["hazards"]["RF"]
+    # same denominator as eal_pct_of_value: the priced assets (A, B, C = 190 000), not D
+    assert rf["risk_value_share"]["High"] == pytest.approx(100_000.0 / 190_000.0)
+    assert rf["risk_value_share"]["Medium"] == pytest.approx(50_000.0 / 190_000.0)
+    notes = {(n["kind"], n["hazard"]): n["text"] for n in s["notes"]}
+    assert "하자드만 산출(금액 없음, 설계상)" in notes[("hazard_only", "PF")]
+    assert ("not_priced", "PF") not in notes  # hazard-only is not a failure to price
+    assert "손실을 계산하지" in notes[("not_priced", "RF")]  # D's flood is unknown

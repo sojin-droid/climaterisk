@@ -22,9 +22,10 @@ Algorithm:
     portfolio climate-change multiplier (dimensionless); ``s_k``: concentration share (0-1).
 
     Unknown is never 0: every sum runs over **priced** rows only (an EAL that is known),
-    and a sum with no priced row is ``None``. ``EAL / value`` divides by the value of the
-    priced assets, and every group reports ``n_priced`` of ``n_assessed``. The multiplier
-    uses the assets priced in both runs.
+    and a sum with no priced row is ``None``. ``EAL / value`` and the risk-level value shares
+    divide by the value of the priced assets, and every group reports ``n_priced`` of
+    ``n_assessed``. The multiplier uses the assets priced in both runs. Hazard-only rows
+    (known intensity, no money by design) are counted apart from unknown ones.
 """
 
 from __future__ import annotations
@@ -218,11 +219,13 @@ def build_simple_summary(
         risk_counts = {
             lv: sum(1 for r in priced if r.risk_level == lv) for lv in ("High", "Medium", "Low")
         }
+        # share of the *priced* value (same denominator as eal_pct_of_value): an asset whose
+        # level is unknown is neither in the numerator nor in the denominator
         risk_value_share = {
             lv: (
                 sum(values.get(r.facility_id, 0.0) for r in priced if r.risk_level == lv)
-                / portfolio_value
-                if portfolio_value and priced
+                / priced_value
+                if priced_value
                 else None  # nothing priced: no level is known, never a 0 share
             )
             for lv in ("High", "Medium", "Low")
@@ -403,17 +406,29 @@ def build_simple_summary(
                     ),
                 }
             )
-        elif v["n_priced"] < v["n_assets"]:
-            notes.append(
-                {
-                    "kind": "not_priced",
-                    "hazard": h,
-                    "text": (
-                        f"{v['label']}: {v['n_assets'] - v['n_priced']}개 자산은 손실을 계산하지 "
-                        "못함 (계산 상태 참고)"
-                    ),
-                }
-            )
+        else:
+            if v["n_hazard_only"]:
+                notes.append(
+                    {
+                        "kind": "hazard_only",
+                        "hazard": h,
+                        "text": (
+                            f"{v['label']}: {v['n_hazard_only']}개 자산은 하자드만 산출"
+                            "(금액 없음, 설계상)"
+                        ),
+                    }
+                )
+            if v["n_not_available"]:
+                notes.append(
+                    {
+                        "kind": "not_priced",
+                        "hazard": h,
+                        "text": (
+                            f"{v['label']}: {v['n_not_available']}개 자산은 손실을 계산하지 "
+                            "못함 (계산 상태 참고)"
+                        ),
+                    }
+                )
         if v["flood_protection_return_periods_years"]:
             rps = " · ".join(f"{x:g}년" for x in v["flood_protection_return_periods_years"])
             notes.append(
