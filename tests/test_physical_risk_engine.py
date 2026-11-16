@@ -476,9 +476,12 @@ def test_totals_cover_priced_assets_only() -> None:
         model_id=ModelId.KOREA_LOCAL.value,
     )
     ok_row.eal_usd = 10.0  # a known EAL so the sum is checkable by hand
-    line = next(r for r in rt.portfolio_totals_frame([nan_row, ok_row]) if r["Hazard"] != "All")
-    assert line["Total EAL"] == pytest.approx(10.0)
-    assert line["Priced"] == 1 and line["Assets Assessed"] == 2
+    frame = {r["Hazard"]: r for r in rt.portfolio_totals_frame([nan_row, ok_row])}
+    for label in ("Flood", "All priced hazards"):  # selected by name, not "!= All"
+        line = frame[label]
+        assert line["Total EAL"] == pytest.approx(10.0)
+        assert line["Priced"] == 1 and line["Assets Assessed"] == 2
+        assert line["Not Available"] == 1
 
 
 def test_zero_centroids_hazard_only_reason_is_no_centroids() -> None:
