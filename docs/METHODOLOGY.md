@@ -221,7 +221,7 @@ depth classes as they are. A future scenario keeps that depth and multiplies eve
 by one national ISIMIP factor $f = \sum_c EAL_c^{\text{window}} / \sum_c EAL_c^{2010\text{–}2030}$
 (unit exposure per KOR centroid, JRC Asia residential curve, same RCP; ASCII: `f = EAL_window /
 EAL_2010_2030`, dimensionless). Climate change enters as frequency only; per-시도 factors are a
-diagnostic sub check (`flood_delta.regional_check`). See `KOREA_FLOODMAP_INVESTIGATION.md` §10.
+diagnostic sub check (`flood_delta.regional_check`). See `KOREA_FLOODMAP_INVESTIGATION.md` §10. The official map assumes levee failure and is never defended; the national 50-y defence applies only to the reference models (ISIMIP, Aqueduct) [사용자 결정 2026-11-16].
 
 ## Korea-local coastal flood — connected bathtub (method tier T2, hazard-only)
 

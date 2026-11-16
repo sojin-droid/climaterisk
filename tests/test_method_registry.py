@@ -261,3 +261,44 @@ def test_success_path_is_stamped(monkeypatch: pytest.MonkeyPatch) -> None:
     rows, _ = runner._rows_for(adapter, "HW", _FAC, "KOR", None)
     assert rows[0].method_role == "reference" and rows[0].method_rank is None
     assert rows[0].method_id == "hw.reference.data_api_country"
+
+
+def test_rank1_flood_map_is_never_defended(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The official map assumes levee failure: no national defence on top of it."""
+    pytest.importorskip("climada")
+    import numpy as np
+    from climada.hazard import Hazard
+    from scipy import sparse
+
+    adapter = _stub_adapter("KOREA_LOCAL", status="READY")
+    from climaterisk_worker import ingest
+    from climaterisk_worker.hazard_convert import _centroids
+    from climaterisk_worker.physical_risk import runner
+
+    def fail(hazard, tag):  # type: ignore[no-untyped-def]
+        raise AssertionError("_with_defences must not run for the rank-1 flood map")
+
+    monkeypatch.setattr(runner, "_with_defences", fail)
+
+    rps = [100, 200, 500]
+    hazard = Hazard(
+        haz_type="RF",
+        units="m",
+        centroids=_centroids(np.array([37.5]), np.array([127.0])),
+        event_id=np.arange(1, 4),
+        event_name=[f"rp{rp}" for rp in rps],
+        date=np.zeros(3, dtype=int),
+        frequency=ingest._incremental_frequency(rps),
+        frequency_unit="1/year",
+        intensity=sparse.csr_matrix(np.ones((3, 1))),
+        fraction=sparse.csr_matrix(np.ones((3, 1))),
+    )
+    hazard.check()
+    adapter.load = lambda bbox, points=None: hazard
+    adapter.spatial_resolution = lambda hz: None
+    adapter.diagnostics = {}
+    rows, rec = runner._rows_for(adapter, "RF", _FAC, "KOR", None)
+    assert rows[0].calculation_status == "FULL"
+    assert rows[0].flood_protection_return_period_years is None
+    assert rows[0].eal_usd > 0
+    assert "flood_protection" not in rec

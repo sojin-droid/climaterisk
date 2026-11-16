@@ -40,7 +40,7 @@ _SRC = Path(__file__).resolve().parents[3] / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
-from climaterisk.physical_risk.method_registry import method_for  # noqa: E402
+from climaterisk.physical_risk.method_registry import defences_allowed, method_for  # noqa: E402
 from climaterisk.physical_risk.metrics import (  # noqa: E402
     CalculationStatus,
     ModelId,
@@ -215,6 +215,8 @@ def _rows_for(
         defences = (
             None  # hazard-only sets are not priced; the design-return-period rule is not applied
         )
+    elif not defences_allowed(tag, desc.model_id):
+        defences = None  # the official map assumes levee failure; never defended a second time
     else:
         hazard, defences = _with_defences(hazard, tag)
     if defences is not None:
