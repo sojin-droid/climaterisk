@@ -339,3 +339,19 @@ def test_run_checks_warn_and_error() -> None:
 
 def test_reference_models_run_no_checks() -> None:
     assert run_checks("RF", "GLOBAL_BASELINE", {}) == []
+
+
+def test_run_checks_no_warn_key_means_ran_without_verdict() -> None:
+    pf = run_checks(
+        "PF",
+        _rank1("PF"),
+        {"sub_check": {"warn": False}, "validation": {"pod": 0.5, "note": "diagnostic only"}},
+    )
+    assert _states(pf) == [("pf.fwdet_edge", "ran"), ("pf.seoul_traces", "ran")]
+    assert pf[1]["reason"] == "diagnostic only"
+
+
+def test_run_checks_warn_reason_falls_back_to_reason() -> None:
+    cf = run_checks("CF", _rank1("CF"), {"sub_check": {"warn": True, "reason": "r"}})
+    assert cf[0]["state"] == "warn"
+    assert cf[0]["reason"] == "r"

@@ -142,6 +142,14 @@ def run_checks(tag: str, model_id: str, diagnostics: dict[str, Any] | None) -> l
 
 
 def _state_of(check: dict[str, Any], diag: dict[str, Any]) -> tuple[str, str | None]:
+    """State and reason of one check from the adapter diagnostics.
+
+    Mapping: ``to_build`` -> skipped ("not built yet"); path absent or not a dict ->
+    skipped ("no diagnostics for this run"); ``error`` -> error; ``warn`` True ->
+    warn (reason: ``warn_reason``, then ``reason``, then ``note``); ``warn`` False ->
+    ran; no ``warn`` key at all -> ran without a verdict (reason: ``note``); an
+    explicit ``warn`` None -> skipped (reason: ``note`` or "not enough points").
+    """
     if check["status"] == "to_build":
         return "skipped", "not built yet"
     value = _dig(diag, check["diagnostics_key"])
@@ -149,11 +157,13 @@ def _state_of(check: dict[str, Any], diag: dict[str, Any]) -> tuple[str, str | N
         return "skipped", "no diagnostics for this run"
     if value.get("error"):
         return "error", str(value["error"])
-    warn = value.get("warn")
+    note = value.get("note")
+    if "warn" not in value:
+        return "ran", None if note is None else str(note)
+    warn = value["warn"]
     if warn is True:
-        reason = value.get("warn_reason") or value.get("note")
+        reason = value.get("warn_reason") or value.get("reason") or note
         return "warn", None if reason is None else str(reason)
     if warn is False:
         return "ran", None
-    note = value.get("note")
     return "skipped", str(note) if note else "not enough points"
