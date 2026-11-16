@@ -114,7 +114,6 @@ S → I 는 1·2 없이도 가능하다. 조건은 "취약성 곡선이 **발표
 | 2026-10-12 | 전체 | 최초 선언. D 없음, I 5종(열사망은 지표별 분할), S 10종 | GAP G1–G7, RISK_REGISTER B1·B2·C1–C6, METHODOLOGY 재해별 표 |
 | 2026-10-14 | `coastal_flood` | **I → S** | 방어시설 미반영으로 매립지 EAL 연 45–48 %; 일괄 방어 수준(50년)을 넣으면 EAL이 약 1/50로 바뀌어 절대값이 가정에 지배됨; 재현주기 레이어 이벤트라 분산효과 0 ([sample-portfolio-1000.md](sample-portfolio-1000.md) §5, [FLOOD_DEFENCE_DATA_KR.md](FLOOD_DEFENCE_DATA_KR.md)). 이전 행의 "단일 GCM(NorESM1-M)"은 하천 레이어 설명이 잘못 옮겨진 것이라 정정 |
 | 2026-10-14 | `river_flood` | 등급 유지(I), 방어 수준 도입 | Models 탭에 전국 일괄 설계빈도 50년 적용 + 방어 미적용 EAL 병기. 지점별 방어가 아니므로 승급 근거는 아님 |
-
 | 2026-11-16 | `coastal_flood`, `river_flood`, `heatwave` | 등급 유지(S / I / S), **방법 등록표 도입** | `assets/libraries/method_registry.json`(로더 `physical_risk/method_registry.py`)이 재해별 방법의 기준. 1순위(rank 1) 모델만 결과이고 다른 모델은 `method_role = reference` 행이며 빈칸을 채우지 않고 합계에도 들어가지 않음; 점검(check)은 등록표 순서대로 실행해 `ran / warn / skipped / error`로 기록(`record["checks"]`); 재해연보·질병청 온열질환은 보조 결과(논의용, 점검 아님). 연안 대표 = KHOA 약최고고조면 bathtub(hazard-only, 금액 없음; Aqueduct는 참고 행). 하천 = 공식 지도 무방어, 재현주기 파일 없으면 NaN, 지방하천 100년 하한. 승급 근거는 아님 |
 
 승급·강등은 이 표에 날짜·근거와 함께 기록하고, 같은 PR에서 §3 행을 고친다.

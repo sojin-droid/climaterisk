@@ -239,7 +239,8 @@ Unknown stays unknown: a missing national return-period file gives NaN for that 
 100-y designs, so at 200/500 y a point under one reads the 100-y depth as a **lower bound** (a
 confidence note on the row). An unreadable, unindexed or truncated zip gives NaN (`map_unreadable`);
 missing or empty map folders make the whole run `NO_HAZARD_DATA` (`hazard_unavailable`); a point
-outside every polygon is 0 m. The bounds index is cached by file names + size + mtime; an older
+outside every polygon is 0 m — dry where a map covers its basin, but see limitation (a): without
+basin boundaries a point in a basin that has no map also reads 0 m. The bounds index is cached by file names + size + mtime; an older
 cache is migrated by stat (no zip is opened, so no mass iCloud download).
 
 Known limitations: (a) basin boundaries are not on disk, so a point outside every polygon in a

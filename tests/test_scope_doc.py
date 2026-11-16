@@ -97,3 +97,13 @@ def test_the_gap_document_points_at_this_declaration() -> None:
     gap = GAP.read_text(encoding="utf-8")
     g8 = gap.split("### G8.")[1].split("### ")[0]
     assert "SCOPE.md" in g8 and "2026-10-12" in g8
+
+
+def test_change_log_is_one_unbroken_table() -> None:
+    """A blank line inside §5 detaches the rows below it from the table (they render as text)."""
+    section = _doc().split("## 5. ")[1].split("\n---")[0]
+    lines = section.splitlines()
+    first = next(i for i, ln in enumerate(lines) if ln.startswith("|"))
+    last = max(i for i, ln in enumerate(lines) if ln.startswith("|"))
+    assert all(ln.startswith("|") for ln in lines[first : last + 1]), "blank line inside §5"
+    assert any(ln.startswith("| 2026-11-16 |") for ln in lines[first : last + 1])
