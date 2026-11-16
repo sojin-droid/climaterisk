@@ -25,8 +25,11 @@ Assumptions (also recorded on the Models-tab row):
 
 * An asset outside every mapped polygon gets 0 m for that return period — the maps cover
   the mapped reaches only, so unmapped small streams are not represented.
-* 지방하천 maps exist at 100 y only; at 200 / 500 y their 100-y class is carried as a lower
-  bound (a larger flood is at least as deep).
+* A national return-period file that does not exist for a basin the asset hit gives NaN
+  (``None`` class) for that return period, with the reason ``no_file_for_rp:<rp>``; no other
+  return period's value is borrowed.
+* 지방하천 maps exist at 100 y only (by design, never "missing"); at 200 / 500 y their 100-y
+  class is used as a lower bound (a larger flood is at least as deep), flagged ``local_only``.
 * The maps assume levee failure or overtopping (design flood), present day only.
 """
 
@@ -435,10 +438,10 @@ def available_files(index: list[dict[str, Any]]) -> set[tuple[str, str, int]]:
 
 
 def class_for_return_period(rp: int, per_family: dict[str, dict[int, str]]) -> str:
-    """Deepest class at ``rp``; a family without ``rp`` lends its largest mapped RP ≤ ``rp``.
+    """Deepest class at ``rp`` over the families' hits at return periods ≤ ``rp``.
 
-    This is the envelope over the files that exist. A national file that does *not* exist
-    is handled by :func:`classes_at_points` (NaN), not here.
+    This is the envelope over the files that exist (map inconsistency is absorbed).
+    A national file that does *not* exist is handled by :func:`classes_at_points` (NaN), not here.
     """
     vals: list[str] = []
     for codes in per_family.values():
@@ -637,7 +640,7 @@ def edge_depth(
 def edge_check(
     xs: Any,
     ys: Any,
-    codes100: list[str],
+    codes100: list[str | None],
     file100: list[str | None],
     dems: list[tuple[str, Callable[[np.ndarray], np.ndarray]]],
     max_points: int = 200,

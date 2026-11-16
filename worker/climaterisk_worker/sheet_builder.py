@@ -67,7 +67,9 @@ def cut_line(
     return np.asarray(lons, dtype=float), np.asarray(lats, dtype=float), km
 
 
-def review_stamp(classes: dict[str, str], check_depths: dict[str, float | None]) -> dict[str, Any]:
+def review_stamp(
+    classes: dict[str, str | None], check_depths: dict[str, float | None]
+) -> dict[str, Any]:
     """The 검토 stamp: does the DEM check depth fall in the official band?
 
     A return period counts when the site is inside the official map (class != "") and a
@@ -126,7 +128,10 @@ def _clean(v: Any, nd: int = 2) -> float | None:
     return round(f, nd) if math.isfinite(f) else None
 
 
-def _band(code: str) -> list[float | None]:
+def _band(code: str | None) -> list[float | None]:
+    """Published band of a class; ``[0, 0]`` outside the map, ``[None, None]`` if unknown."""
+    if code is None:  # no map file for this return period: unknown, never dry
+        return [None, None]
     if not code:
         return [0.0, 0.0]
     lo, hi = fd.BANDS[code]
@@ -145,7 +150,7 @@ def assemble_sheet(
     z_surface: list[float | None],
     surface_source: str,
     section_classes: dict[str, list[str]],
-    site_classes: dict[str, str],
+    site_classes: dict[str, str | None],
     site_z_ground: float | None,
     site_z_surface: float | None,
     check_depths: dict[str, float | None],
@@ -171,7 +176,10 @@ def assemble_sheet(
         for lo, la in zip(lons, lats, strict=True)
     ]
     site_km = km[int(np.argmin(dist2))]
-    depth_m = {k: fd.representative_depth(site_classes[k]) for k in RP_KEYS}
+    depth_m = {
+        k: None if site_classes[k] is None else fd.representative_depth(site_classes[k] or "")
+        for k in RP_KEYS
+    }
     sources = [
         "환경부 홍수위험지도 하천범람지도 (공공누리 제4유형, 겹쳐 읽기만 함)",
         "국토지리정보원 공개 DEM 90 m",
@@ -397,7 +405,7 @@ def build_sheet(
 def _site_check_depths(
     x: float,
     y: float,
-    site_classes: dict[str, str],
+    site_classes: dict[str, str | None],
     index: list[dict[str, Any]],
     cidx: fd.ClassIndex,
     dems: list[tuple[str, Callable[[np.ndarray], np.ndarray] | None]],

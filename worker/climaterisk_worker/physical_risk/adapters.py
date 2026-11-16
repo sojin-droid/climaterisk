@@ -785,8 +785,10 @@ class KoreaLocalFloodAdapter:
                 "method tier T2. Depth = official class band (≤0.5 / 0.5–1 / 1–2 / 2–5 / ≥5 m; "
                 "code order inferred, not officially confirmed). Sub check: DEM edge depth vs "
                 f"the band, diagnostic only. {climate}; "
-                "assets outside the mapped reaches read 0 m; "
-                "지방하천 100-y class carried to 200/500 y as a lower bound; no event below 100 y"
+                "assets outside every mapped polygon read 0 m; a missing national "
+                "return-period file gives NaN (reason no_file_for_rp), never another "
+                "return period's value; 지방하천 maps are 100-y only and used as a lower "
+                "bound at 200/500 y; no event below 100 y"
             ),
         )
 

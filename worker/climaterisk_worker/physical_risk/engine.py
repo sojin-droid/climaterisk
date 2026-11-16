@@ -261,7 +261,8 @@ def calculate(
     row.hazard_intensity = _hazard_intensity_at(hazard, lat, lon)
     row.hazard_intensity_unit = str(getattr(hazard, "units", "") or None)
     if row.hazard_intensity is None and (hazard_only or hazard_type in HAZARD_ONLY_HAZARDS):
-        row.unavailable_reason = point_reason or "nan_hazard"
+        no_centroids = len(hazard.centroids.lat) == 0
+        row.unavailable_reason = "no_centroids" if no_centroids else (point_reason or "nan_hazard")
 
     if hazard_only and hazard_type not in HAZARD_ONLY_HAZARDS:
         row.calculation_status = CalculationStatus.HAZARD_ONLY.value
