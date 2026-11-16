@@ -395,15 +395,42 @@ def test_file_present_by_name_but_missing_from_index_is_unreadable_not_missing()
     assert res2["reason"] == ["no_file_for_rp:200;no_file_for_rp:500"]
 
 
-def test_map_index_skips_dataless_and_unreadable_zips(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    d = tmp_path / "유역별_100년_빈도_국가하천_하천범람지도"
+def test_map_index_leaves_out_unreadable_zip_and_is_not_cached(tmp_path: Path) -> None:
+    d = tmp_path / "유역별_100년_빈도_도시침수지도"
     d.mkdir()
-    good = _zip_map(d, "RFM_SBSN_NTN_2101_100", {"N331": box(0, 0, 10, 10)})
-    (d / "RFM_SBSN_NTN_2102_100.zip").write_bytes(b"not a zip")
-    placeholder = d / "RFM_SBSN_NTN_2103_100.zip"
-    placeholder.write_bytes(b"")
-    monkeypatch.setattr(fd, "is_dataless", lambda p: p == placeholder)
-    idx = fd.map_index(tmp_path)
+    good = _zip_map(d, "CFM_SBSN_2101_100", {"N331": box(0, 0, 10, 10)})
+    (d / "CFM_SBSN_2102_100.zip").write_bytes(b"not a zip")
+    cache = tmp_path / "cache" / "cfm.json"
+    idx = fd.map_index(tmp_path, cache, families=fd.URBAN_FAMILIES)
     assert [r["path"] for r in idx] == [str(good)]
+    assert not cache.exists()  # incomplete index is never cached
+
+
+def test_unreadable_urban_zip_gives_nan_for_points_outside_indexed_bounds(
+    tmp_path: Path,
+) -> None:
+    from pyproj import Transformer
+
+    d = tmp_path / "유역별_100년_빈도_도시침수지도"
+    d.mkdir()
+    good = _zip_map(d, "CFM_SBSN_2101_100", {"N331": box(0, 0, 1000, 1000)})
+    (d / "CFM_SBSN_2102_100.zip").write_bytes(b"not a zip")
+    idx = fd.map_index(tmp_path, families=fd.URBAN_FAMILIES)
+    to_ll = Transformer.from_crs(5186, 4326, always_xy=True)
+    pts = [to_ll.transform(500, 500), to_ll.transform(50000, 50000)]
+    named = fd.named_files(tmp_path, fd.URBAN_FAMILIES)
+    res = fd.classes_at_points(pts, idx, fd.ClassIndex(), named_files=named)
+    assert res["codes"][0][0] == "N331" and res["reason"][0] is None
+    assert res["codes"][0][1] is None and "map_unreadable:100" in res["reason"][1]
+    assert str(good) in {r["path"] for r in idx}
+
+
+def test_map_index_cache_with_a_missing_name_rebuilds(tmp_path: Path) -> None:
+    d = tmp_path / "유역별_100년_빈도_도시침수지도"
+    d.mkdir()
+    a = _zip_map(d, "CFM_SBSN_2101_100", {"N331": box(0, 0, 10, 10)})
+    cache = tmp_path / "cache" / "cfm.json"
+    assert len(fd.map_index(tmp_path, cache, families=fd.URBAN_FAMILIES)) == 1
+    b = _zip_map(d, "CFM_SBSN_2102_100", {"N331": box(20, 20, 30, 30)})
+    idx = fd.map_index(tmp_path, cache, families=fd.URBAN_FAMILIES)
+    assert {r["path"] for r in idx} == {str(a), str(b)}

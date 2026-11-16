@@ -310,13 +310,43 @@ def map_index(
     """``[{path, family, rp, bounds}]`` for every map zip under ``root`` (cached as JSON).
 
     ``families`` defaults to the river maps (:data:`FAMILIES`); pass :data:`URBAN_FAMILIES`
-    for the 도시침수지도. Use a separate ``cache`` file per family set.
+    for the 도시침수지도. Use a separate ``cache`` file per family set. A zip whose header
+    cannot be read (offline dataless, corrupt) is left out of the index and logged by name;
+    the cache is then **not** written, and a cache is only reused if its paths equal the zips
+    that exist by name. Pass ``named_files`` to :func:`classes_at_points` so the left-out
+    files give NaN (``map_unreadable``) rather than 0 m.
     """
     families = FAMILIES if families is None else families
+    names = {
+        str(zp)
+        for folders in families.values()
+        for folder in folders.values()
+        for zp in (root / folder).glob("*.zip")
+    }
     if cache is not None and cache.exists():
         rows: list[dict[str, Any]] = json.loads(cache.read_text(encoding="utf-8"))
-        if all(Path(r["path"]).exists() for r in rows):
+        # valid only if it indexes exactly the zips that exist by name
+        if {r["path"] for r in rows} == names:
             return rows
+    rows = []
+    unindexed: list[str] = []
+    for family, folders in families.items():
+        for rp, folder in folders.items():
+            for zp in sorted((root / folder).glob("*.zip")):
+                try:  # a dataless zip is fetched by macOS when online; offline it raises
+                    b = _shp_bounds(zp)
+                except (OSError, zipfile.BadZipFile, struct.error) as exc:
+                    log.warning("map_unreadable (%s): %s", type(exc).__name__, zp.name)
+                    unindexed.append(zp.name)
+                    continue
+                if b is not None:
+                    rows.append({"path": str(zp), "family": family, "rp": rp, "bounds": b})
+                else:
+                    unindexed.append(zp.name)
+    if cache is not None and not unindexed:
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps(rows), encoding="utf-8")
+    return rows
     rows = []
     for family, folders in families.items():
         for rp, folder in folders.items():
@@ -546,8 +576,12 @@ def classes_at_points(
     once per file (name only). If ``named_files`` (from :func:`named_files`) lists a national
     file that is absent from ``index`` (its header could not be read), a point that hit another
     file of that basin gets the same reason instead of ``no_file_for_rp``. Bounds of an
-    unindexed file are unknown, so only points that hit a sibling file of the basin can be
-    flagged.
+    unindexed file are unknown, so for every (family, rp) that has an unindexed file, every
+    point that hit no indexed file of that family and return period is unknown too
+    (``map_unreadable:<rp>``, national, local and urban alike), whereas a point that did hit
+    one keeps its value. Limitation: a point inside a national basin but outside its 100-y
+    polygons is not flagged when only the 200 / 500-y file is missing or unreadable (that
+    needs basin boundaries, Part 2).
 
     Algorithm:
         $$c_r(p) = \\max_{f}\\ \\max_{r' \\le r,\\ (f,b,r')\\ \\text{exists}}
@@ -568,6 +602,10 @@ def classes_at_points(
     n = len(points_lonlat)
     have = available_files(index)
     unindexed = (named_files or set()) - have
+    if unindexed:
+        log.warning("classes_at_points: %d map files exist but are not indexed", len(unindexed))
+    unindexed_fr = {(f, r) for f, _b, r in unindexed}
+    hit_fr: list[set[tuple[str, int]]] = [set() for _ in range(n)]
     bad_paths: set[str] = set()
     bad_rp: list[int | None] = [None] * n  # shallowest unreadable rp hit per point
     per: list[dict[str, dict[int, str]]] = [{} for _ in range(n)]
@@ -578,6 +616,7 @@ def classes_at_points(
         for i, (x, y) in enumerate(zip(xs, ys, strict=True)):
             if not (x0 <= x <= x1 and y0 <= y <= y1):
                 continue
+            hit_fr[i].add((row["family"], int(row["rp"])))
             if row["path"] in bad_paths:
                 bad_rp[i] = min(int(row["rp"]), bad_rp[i] or 10**9)
                 continue
@@ -605,10 +644,7 @@ def classes_at_points(
         row_missing: list[bool] = []
         for i in range(n):
             unreadable = (bad_rp[i] is not None and bad_rp[i] <= rp) or any(
-                ("national", b, r) in unindexed
-                for b in nat_basins[i]
-                for r in RETURN_PERIODS
-                if r <= rp
+                (f, r) not in hit_fr[i] for f, r in unindexed_fr if r <= rp
             )
             gap = any(("national", b, rp) not in have for b in nat_basins[i])
             row_missing.append(gap or unreadable)

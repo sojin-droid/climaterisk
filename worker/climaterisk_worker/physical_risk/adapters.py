@@ -1350,6 +1350,7 @@ class KoreaLocalPluvialAdapter:
         depth = dep["depth"]
         self.diagnostics = {
             "classes": {"rp100": codes[0]},
+            "per_point_reason": list(res["reason"]),  # aligned with ``points``
             "depth_lower_m": dep["lower"].tolist(),
             "depth_upper_m": [[None if np.isnan(v) else v for v in r] for r in dep["upper"]],
             "sub_check": dem_edge_check(
