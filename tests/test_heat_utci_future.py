@@ -236,4 +236,5 @@ def test_adapter_detail_carries_the_regional_reading_limit(scenario: str, year: 
     """Same UTCI rise != same regional risk rise; the caveat must reach every served output."""
     caveat = _config()["heat_utci"]["risk_caveat"]
     assert "not one-to-one" in caveat and "adaptation" in caveat
+    assert "IPCC 2022" in caveat and "Park and Kim 2026" in caveat  # cited, see METHODOLOGY
     assert caveat in adapters.KoreaLocalUtciAdapter(scenario, year).describe().detail

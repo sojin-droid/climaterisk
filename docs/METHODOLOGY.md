@@ -118,12 +118,50 @@ vs D38 0.044 vs T95 -0.385 / heat days -0.338 (within 0.10 of the better); V4 ye
 0.917 (n = 9, record only). All three passed, so UTCI became the default. Reading: UTCI tracks
 the timing of heat illness as well as air temperature, not better; no indicator explains the
 spatial pattern (rates are highest in 전남 and 제주, where the heat indicators are low).
-Reading limit (`heat_utci.risk_caveat`, attached to every adapter detail): UTCI is the hazard
-only. The same UTCI rise is not the same risk rise in every region; realised heat-illness risk
-also depends on exposure (older people, outdoor and farm work) and adaptation (infrastructure,
-health and welfare budgets), a relation taken from existing studies and not estimated here, so
-risk rises more steeply in some regions and more gently in others. V3 does not explain or rank
-regional differences. Script
+Reading limit (`heat_utci.risk_caveat`, attached to every adapter detail; framing = user
+judgement 2026-11-16, citations from the user's 2023 literature list for 「한국 기후변화
+평가보고서 2025」 ch. 10, checked against Crossref): UTCI is the hazard only. Heat risk is hazard x
+exposure x vulnerability, vulnerability being sensitivity and adaptive capacity [1, 2]. The same
+UTCI rise is therefore not the same risk rise in every region: it rises more steeply in some and
+more gently in others, because who is exposed and how well a place has adapted differ [4, 9].
+Heat-illness cases are mostly older people and outdoor and farm workers [6, 7, 9]; in the KDCA
+cases 2019-2025 (place of onset, n = 16 841, our aggregate) 79.9 % fell ill outdoors, 33.4 % at an
+outdoor workplace and 13.9 % in a field (논밭), 29.0 % were 65 or older, 63.8 % were 65+ or at an
+outdoor workplace or field, and 63.0 % of the field cases were 65+. Adaptive capacity
+(infrastructure, fiscal capacity, park area, health and welfare spending) varies by 시군구 and
+changes the outcome [3, 5, 8, 10]. This relation is taken from these studies and is not estimated
+here; V3 does not explain or rank regional differences.
+
+[1] IPCC, 2022: Summary for Policymakers. Climate Change 2022: Impacts, Adaptation and
+Vulnerability, Cambridge University Press, 3-34 (Crossref). doi:10.1017/9781009325844.001
+[2] Oh, K.-Y., Lee, M.-J., Jeon, S.-W., 2017: Development of the Korean Climate Change
+Vulnerability Assessment Tool (VESTAP)—Centered on Health Vulnerability to Heat Waves.
+Sustainability 9(7), 1103. doi:10.3390/su9071103
+[3] 최예술, 김재원, 임업, 2018: 서울시 폭염 취약지역의 공간적 패턴 및 적응능력 취약지역 분석.
+국토계획 53(7), 87-107. doi:10.17208/jkpa.2018.12.53.7.87
+[4] Park, C. Y., Thorne, J. H., Hashimoto, S., Lee, D. K., Takahashi, K., 2021: Differing
+spatial patterns of the urban heat exposure of elderly populations in two megacities identifies
+alternate adaptation strategies. Sci. Total Environ. 781, 146455.
+doi:10.1016/j.scitotenv.2021.146455
+[5] Park, C. Y., Lee, D. K., Hyun, J. H., 2019: The Effects of Extreme Heat Adaptation Strategies
+under Different Climate Change Mitigation Scenarios in Seoul, Korea. Sustainability 11(14),
+3801. doi:10.3390/su11143801
+[6] 정희태, 2021: 기후변화 속 폭염에 따른 체온조절 취약계층의 원인별 조사. 차세대융합기술학회논문지
+5(1), 65-73. doi:10.33097/jncta.2021.05.01.65
+[7] 권혁기, 최민영, 이채연, 박종철, 2021: 2018년 여름 집계구 단위의 상세 폭염취약성 원인 분석
+- 구례군과 순창군을 대상으로 -. 한국기후변화학회지 12(6), 661-676. doi:10.15531/ksccr.2021.12.6.661
+[8] 배민기, 김보은, 이채연, 2020: 폭염 시 위험지역과 취약계층 거주지역 간의 공간관계 분석. 환경정책
+28(3), 243-280. doi:10.15301/jepa.2020.28.3.243
+[9] Park, M. S., Kim, B. W., 2026: Consistently higher and steeper apparent temperature–heat-related
+illness risk among occupational cases in Korea: evidence from national emergency department
+surveillance. Front. Public Health 14. doi:10.3389/fpubh.2026.1786564
+[10] 리금강, 홍철, 윤순진, 2021: 지역의 사회적 자본이 기후변화 취약성에 미치는 영향. 환경정책 29(1),
+183-210. doi:10.15301/jepa.2021.29.1.183
+Also relevant: Kim, Y.-O., Lee, W., Kim, H., Cho, Y., 2020: Social isolation and vulnerability
+to heatwave-related mortality in the urban elderly population. Environ. Int. 142, 105868.
+doi:10.1016/j.envint.2020.105868
+
+Script
 `scripts/heat_utci_validate_kdca.py`; record `heat_utci.validation.result`.
 
 Sub check (diagnostic only): yearly rank
