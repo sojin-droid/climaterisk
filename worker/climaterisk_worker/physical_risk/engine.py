@@ -193,7 +193,10 @@ def calculate(
 
         hazard_only: The adapter produces a hazard but no loss model exists for it (e.g. the
             Korea-local coastal flood): the intensity is recorded and the row is
-            ``HAZARD_ONLY`` with null money, as for heat.
+            ``HAZARD_ONLY`` with null money, as for heat. When the intensity at the asset
+            is unknown (NaN, or no centroids) the row — hazard-only or heat — is
+            ``NO_HAZARD_DATA`` with ``unavailable_reason`` instead: "Hazard only" always
+            means a known intensity.
         hazard_only_detail: The row's ``status_detail`` for such a row.
         point_reason: Why the hazard is unknown at this asset (e.g. ``no_file_for_rp:200``),
             from the adapter's per-point diagnostics. A priced hazard whose intensity at
@@ -261,8 +264,12 @@ def calculate(
     row.hazard_intensity = _hazard_intensity_at(hazard, lat, lon)
     row.hazard_intensity_unit = str(getattr(hazard, "units", "") or None)
     if row.hazard_intensity is None and (hazard_only or hazard_type in HAZARD_ONLY_HAZARDS):
+        # unknown at this asset: not "Hazard only", which means a known intensity, no money
         no_centroids = len(hazard.centroids.lat) == 0
         row.unavailable_reason = "no_centroids" if no_centroids else (point_reason or "nan_hazard")
+        row.calculation_status = CalculationStatus.NO_HAZARD_DATA.value
+        row.status_detail = f"hazard unknown at this asset: {row.unavailable_reason}"
+        return row.finalise(cfg)
 
     if hazard_only and hazard_type not in HAZARD_ONLY_HAZARDS:
         row.calculation_status = CalculationStatus.HAZARD_ONLY.value

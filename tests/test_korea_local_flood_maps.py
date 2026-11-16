@@ -207,6 +207,15 @@ def test_urban_pluvial_end_to_end_reasons_stay_at_100_years(data_root: Path) -> 
     assert by["A"].hazard_intensity == pytest.approx(0.25)  # N330 under the urban polygon
     assert by["O"].hazard_intensity is None  # unindexed urban file: extent unknown
     assert by["O"].unavailable_reason == "map_unreadable:100"  # no 200 / 500-y reason
+    # unknown is not "Hazard only": the row is unavailable and counted as such
+    assert by["O"].calculation_status == "NO_HAZARD_DATA"
+    assert "map_unreadable:100" in (by["O"].status_detail or "")
+    from climaterisk.physical_risk import results_table as rt
+
+    counts = rt.summary_counts(rows)
+    assert counts["hazard_only"] == 1 and counts["not_available"] == 1
+    pf = {line["Hazard"]: line for line in rt.portfolio_totals_frame(rows)}["Urban Pluvial Flood"]
+    assert pf["Hazard Only"] == 1 and pf["Not Available"] == 1
 
 
 # --------------------------------------------------------------------------- #

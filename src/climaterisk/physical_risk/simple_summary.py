@@ -171,6 +171,9 @@ def build_simple_summary(
     for h in hazards:
         rows_h = [r for r in future if r.hazard_type == h]
         priced = [r for r in rows_h if _priced(r)]
+        # hazard-only = a known intensity, no money by design; anything else unpriced is
+        # not available (an unknown hazard is NO_HAZARD_DATA, never "hazard only")
+        n_hazard_only = sum(1 for r in rows_h if r.calculation_status == "HAZARD_ONLY")
         eal = _sum([_eal(r) for r in priced])
         priced_value = _sum([values.get(r.facility_id, 0.0) for r in priced])
         base_rows_h = [base_by[(r.facility_id, h)] for r in rows_h if (r.facility_id, h) in base_by]
@@ -235,6 +238,8 @@ def build_simple_summary(
             "n_assets": len(rows_h),
             "n_assessed": len(rows_h),
             "n_priced": len(priced),
+            "n_hazard_only": n_hazard_only,
+            "n_not_available": len(rows_h) - len(priced) - n_hazard_only,
             "n_with_loss": sum(1 for r in priced if _eal(r) > 0),
             "eal_usd": eal,
             "priced_value_usd": priced_value,
