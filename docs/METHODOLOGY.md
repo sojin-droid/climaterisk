@@ -107,7 +107,7 @@ it: direction and size reference, as on the heat-days board. `rcp26`, `rcp60` an
 are answered with the historical period and the reason. Seoul 108: D38 16.8 -> 31.1 (SSP2-4.5)
 / 36.6 (SSP5-8.5) days/yr.
 
-Validation (승인), 2026-11-16: KDCA heat-illness cases (data.go.kr 15149889, 2011-2019 May-Sep,
+Supplementary result (보조 결과, not a validation), 2026-11-16: KDCA heat-illness cases (data.go.kr 15149889, 2011-2019 May-Sep,
 14,294 cases; region = hospital location up to 2018, place of onset from 2019, so 시도 level
 only) against the station daily maximum UTCI, with the current default's air temperature as the
 comparator, under criteria fixed before the run
@@ -115,7 +115,10 @@ comparator, under criteria fixed before the run
 V1 daily national 0.789 vs air temperature 0.807 (pass: >= 0.5 and within 0.02); V2 daily by
 시도, median of 16, 0.565 vs 0.571 (within 0.02); V3 spatial across 16 시도, rate per 100 000
 vs D38 0.044 vs T95 -0.385 / heat days -0.338 (within 0.10 of the better); V4 yearly national
-0.917 (n = 9, record only). All three passed, so UTCI became the default. Reading: UTCI tracks
+0.917 (n = 9, record only). These numbers are kept for the discussion only: case counts also
+reflect exposure and adaptation, so they cannot validate a hazard [사용자 판단 2026-11-16].
+UTCI is the default by user decision (2026-11-16) because it is a felt-heat index that combines
+air temperature, humidity, wind and radiation (`heat_utci.basis`). Reading: UTCI tracks
 the timing of heat illness as well as air temperature, not better; no indicator explains the
 spatial pattern (rates are highest in 전남 and 제주, where the heat indicators are low).
 Reading limit (`heat_utci.risk_caveat`, attached to every adapter detail; framing = user

@@ -1581,10 +1581,11 @@ class KoreaLocalUtciAdapter:
 
         res = load_config()["heat_utci"].get("validation", {}).get("result")
         if not res:
-            return ". Validation: none"
+            return ". Supplementary result: none"
         v1, v2, v3 = res["V1"], res["V2"], res["V3"]
         return (
-            f". Validation ({res['run_date']}): {res['label']}; KDCA heat-illness cases "
+            f". Supplementary result ({res['run_date']}, not a validation): {res['label']}; "
+            f"KDCA heat-illness cases "
             f"2011-2019 May-Sep, Spearman V1 daily national UTCI {v1['rho_u']:.2f} vs air "
             f"temperature {v1['rho_t']:.2f}, V2 daily by 시도 median {v2['median_u']:.2f} vs "
             f"{v2['median_t']:.2f}, V3 spatial {v3['rho_u']:.2f} vs T95 {v3['rho_t95']:.2f} / "

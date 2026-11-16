@@ -632,11 +632,13 @@ def _config() -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def test_config_section_present_and_switch_follows_the_kdca_check() -> None:
+def test_config_section_present_and_switch_is_the_user_decision() -> None:
     c = _config()["heat_utci"]
-    # on since 2026-11-16: the pre-registered KDCA check passed (tests/test_heat_validation.py
-    # re-derives the switch from the recorded numbers)
-    assert c["enabled"] is c["validation"]["result"]["switch"]
+    # on since 2026-11-16 by user decision (UTCI = felt-heat index); the KDCA comparison is a
+    # supplementary result, not the switch rule (user 2026-11-16)
+    assert c["enabled"] is True
+    assert "사용자 결정 2026-11-16" in c["basis"]
+    assert "보조 결과" in c["validation"]["result"]["label"]
     for key in (
         "obs_years",
         "months",

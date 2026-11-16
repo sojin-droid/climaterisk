@@ -578,7 +578,7 @@ the runner returns it as `parameter_status` and the Results card displays it.
 `[CUSTOM]` hazard (no CLIMADA heat module): observation-based hourly UTCI per asset point,
 packed into a one-event CLIMADA `Hazard` (`haz_type="HW"`, `units="days/yr"`, NaN for missing).
 No impact function, no loss; the engine reports intensity only. Default HW Korea-local adapter
-since 2026-11-16 (`heat_utci.enabled = true`, after the KDCA heat-illness check); with the switch
+since 2026-11-16 (`heat_utci.enabled = true`, user decision: a felt-heat index; the KDCA heat-illness comparison is a supplementary result, not a validation); with the switch
 off the catalog `heatwave` layer is used. Future SSP2-4.5/5-8.5 2051-2060 by monthly delta
 (`[CUSTOM]`, same delta as `heat_days.py`). Reading limit `heat_utci.risk_caveat`: the same UTCI
 rise is not the same regional risk rise (exposure and adaptation differ). Method record:

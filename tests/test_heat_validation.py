@@ -246,7 +246,7 @@ def test_adapter_detail_carries_the_validation() -> None:
     from climaterisk_worker.physical_risk import adapters
 
     detail = adapters.KoreaLocalUtciAdapter("rcp85", 2050).describe().detail or ""
-    assert "KDCA" in detail and "Validation (2026-11-16)" in detail
+    assert "KDCA" in detail and "Supplementary result (2026-11-16, not a validation)" in detail
 
 
 # --------------------------------------------------------------------------- #
