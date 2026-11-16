@@ -947,7 +947,9 @@ def portfolio_totals_frame(
     Every line says how many points the sum covers (``Priced``) out of how many were
     assessed, and ``Priced Asset Value`` is the value behind it, so a total over 3 of 30
     points cannot read as a total over 30. Counts are per point, one primary row per
-    point × hazard (:func:`primary_rows`); the all-hazards line counts a point once.
+    point × hazard (:func:`primary_rows`); the all-hazards line counts a point once. There,
+    an unpriced point is ``Hazard Only`` only if none of its hazards is unknown; a point with
+    an unknown hazard (e.g. ``NO_HAZARD_DATA``) and hazard-only others is ``Not Available``.
 
     With a baseline run the paired columns compare the *same* points under the *same*
     model in both scenarios — a pair needs both rows priced — and ``EAL Change %`` is
@@ -996,6 +998,7 @@ def portfolio_totals_frame(
     all_points: set[str] = set()
     priced_points: dict[str, float | None] = {}  # point -> its asset value
     hazard_only_points: set[str] = set()
+    unknown_points: set[str] = set()  # a rank-1 cell neither priced nor hazard-only
     all_eal: list[float] = []
     all_pairs: list[tuple[float, float]] = []
     for tag, label in hazards:
@@ -1039,17 +1042,20 @@ def portfolio_totals_frame(
         for fid, r in priced.items():
             priced_points.setdefault(fid, r.asset_value_usd)
         hazard_only_points |= set(hazard_only)
+        unknown_points |= set(cells) - set(priced) - set(hazard_only)
         all_eal += [float(r.eal_usd) for r in priced.values() if r.eal_usd is not None]
         all_pairs += pairs
 
     all_value = _sum_or_none([float(v or 0.0) for v in priced_points.values()])
     all_total = _sum_or_none(all_eal)
+    # an unpriced point counts as hazard-only only if none of its hazards is unknown
+    only_hazard = hazard_only_points - set(priced_points) - unknown_points
     overall: dict[str, Any] = {
         "Hazard": "All priced hazards",
         f"{point_label} Assessed": len(all_points),
         "Priced": len(priced_points),
-        "Hazard Only": len(hazard_only_points - set(priced_points)),
-        "Not Available": len(all_points - set(priced_points) - hazard_only_points),
+        "Hazard Only": len(only_hazard),
+        "Not Available": len(all_points - set(priced_points) - only_hazard),
         "Priced Asset Value": all_value,
         "Total EAL": all_total,
         "Total EAL / Assets": eal_as_pct_of_assets(all_total, all_value),

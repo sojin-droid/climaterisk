@@ -312,6 +312,7 @@ def test_unpriced_rows_are_not_summed_as_zero_and_the_denominator_is_priced_valu
     assert pf["eal_usd"] is None and pf["eal_pct_of_value"] is None
     assert pf["baseline_eal_usd"] is None and pf["climate_multiplier"] is None
     assert pf["concentration"]["top1_share"] is None
+    assert pf["risk_value_share"] == {"High": None, "Medium": None, "Low": None}
     assert s["total"]["eal_usd"] == 720.0  # RF 700 + TC 20; PF adds nothing
     assert s["total"]["n_priced"] == 4 and s["total"]["n_assessed"] == 4
     bs = {p["province_name"]: p for p in s["provinces"]}["부산광역시"]

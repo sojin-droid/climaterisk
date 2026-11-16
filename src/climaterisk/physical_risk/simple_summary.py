@@ -206,8 +206,8 @@ def build_simple_summary(
             lv: (
                 sum(values.get(r.facility_id, 0.0) for r in priced if r.risk_level == lv)
                 / portfolio_value
-                if portfolio_value
-                else None
+                if portfolio_value and priced
+                else None  # nothing priced: no level is known, never a 0 share
             )
             for lv in ("High", "Medium", "Low")
         }

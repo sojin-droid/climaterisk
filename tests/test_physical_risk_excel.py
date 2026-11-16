@@ -427,3 +427,35 @@ def test_cli_reads_facilities_with_aliases_and_refuses_missing_columns(tmp_path:
 def test_export_route_404s_for_an_unknown_run(client) -> None:  # type: ignore[no-untyped-def]
     r = client.get("/api/session/nope/run/nope/physical-risk-export.xlsx")
     assert r.status_code == 404
+
+
+def test_all_hazards_line_never_hides_an_unknown_hazard_behind_hazard_only() -> None:
+    from climaterisk.physical_risk import results_table as rt
+
+    def r(fid: str, haz: str, status: str, eal: float | None = None) -> ResultRow:
+        return ResultRow(
+            facility_id=fid,
+            facility_name=fid,
+            hazard_type=haz,
+            model_id="KOREA_LOCAL",
+            calculation_status=status,
+            eal_usd=eal,
+            asset_value_usd=1_000.0,
+        )
+
+    rows = [
+        r("A", "RF", "NO_HAZARD_DATA"),  # river flood unknown at A (e.g. map_unreadable)
+        r("A", "HW", "HAZARD_ONLY"),
+        r("B", "RF", "FULL", 5.0),
+        r("B", "HW", "HAZARD_ONLY"),
+        r("C", "RF", "FULL", 0.0),  # C: known for every hazard, hazard-only otherwise
+        r("C", "HW", "HAZARD_ONLY"),
+        r("D", "HW", "HAZARD_ONLY"),  # D: hazard-only everywhere it was assessed
+    ]
+    totals = {line["Hazard"]: line for line in rt.portfolio_totals_frame(rows)}
+    flood = totals["Flood"]  # per-hazard line unchanged
+    assert (flood["Priced"], flood["Hazard Only"], flood["Not Available"]) == (2, 0, 1)
+    overall = totals["All priced hazards"]
+    assert overall["Assets Assessed"] == 4 and overall["Priced"] == 2
+    assert overall["Not Available"] == 1  # A: its river flood is unknown, not "hazard only"
+    assert overall["Hazard Only"] == 1  # D only
