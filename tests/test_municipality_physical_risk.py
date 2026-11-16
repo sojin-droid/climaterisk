@@ -555,7 +555,10 @@ def _rank1_rows() -> list[ResultRow]:
     """``_run_rows`` with flood under its rank-1 model (KOREA_LOCAL): rank 1 is the result."""
     import dataclasses
 
-    return [dataclasses.replace(r, model_id=K) if r.hazard_type == "RF" else r for r in _run_rows()]
+    # drop the original KOREA_LOCAL RF rows (Seoul's NOT_IMPLEMENTED one) so each point has one
+    # rank-1 flood row: the relabelled country row (Seoul: NO_EXPOSURE_DATA, no asset value)
+    rows = [r for r in _run_rows() if not (r.hazard_type == "RF" and r.model_id == K)]
+    return [dataclasses.replace(r, model_id=K) if r.hazard_type == "RF" else r for r in rows]
 
 
 def test_province_summary_counts_bands_and_adds_no_money() -> None:
