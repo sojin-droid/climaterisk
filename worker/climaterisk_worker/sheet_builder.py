@@ -330,7 +330,7 @@ def build_sheet(
     points = [(float(x), float(y)) for x, y in zip(lons, lats, strict=True)] + [(lon, lat)]
     index = fd.map_index(root, paths.cache_dir("floodmap", "rfm_index.json"))
     cidx = fd.ClassIndex()
-    res = fd.classes_at_points(points, index, cidx)
+    res = fd.classes_at_points(points, index, cidx, named_files=fd.named_files(root))
     codes = res["codes"]  # [rp][point]
     section_classes = {k: list(codes[i][:n]) for i, k in enumerate(RP_KEYS)}
     site_classes = {k: codes[i][n] for i, k in enumerate(RP_KEYS)}

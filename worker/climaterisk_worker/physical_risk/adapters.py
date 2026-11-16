@@ -839,7 +839,12 @@ class KoreaLocalFloodAdapter:
         if not root.is_dir():
             raise HazardUnavailable(f"홍수위험지도 not found under {root}")
         index = fd.map_index(root, paths.cache_dir("floodmap", "rfm_index.json"))
-        res = fd.classes_at_points([(lon, lat) for lat, lon in points], index, fd.ClassIndex())
+        res = fd.classes_at_points(
+            [(lon, lat) for lat, lon in points],
+            index,
+            fd.ClassIndex(),
+            named_files=fd.named_files(root),
+        )
         dep = fd.class_depths(res["codes"], self.mode, self.open_depth)
         depth = dep["depth"]
         self.diagnostics = {
@@ -1337,7 +1342,9 @@ class KoreaLocalPluvialAdapter:
         if not index:
             raise HazardUnavailable(f"도시침수지도 (CFM) files not found under {root}")
         lonlat = [(lon, lat) for lat, lon in points]
-        res = fd.classes_at_points(lonlat, index, fd.ClassIndex())
+        res = fd.classes_at_points(
+            lonlat, index, fd.ClassIndex(), named_files=fd.named_files(root, fd.URBAN_FAMILIES)
+        )
         codes = [res["codes"][0]]  # the 100-y row
         dep = fd.class_depths(codes, self.mode, self.open_depth)
         depth = dep["depth"]

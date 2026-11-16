@@ -305,3 +305,105 @@ def test_strict_sampler_refuses_partial_coverage() -> None:
     strict = fd.StrictSampler(inner)
     assert np.isfinite(strict(np.array([[1.0, 0.0], [2.0, 0.0]]))).all()
     assert np.isnan(strict(np.array([[1.0, 0.0], [20.0, 0.0]]))).all()
+
+
+# --------------------------------------------------------------------------- #
+# Coverage table by file name, dataless detection, unreadable maps               #
+# --------------------------------------------------------------------------- #
+def test_coverage_table_from_names(tmp_path: Path) -> None:
+    d100 = tmp_path / "유역별_100년_빈도_국가하천_하천범람지도"
+    d500 = tmp_path / "유역별_500년_빈도_국가하천_하천범람지도"
+    d100.mkdir()
+    d500.mkdir()
+    (d100 / "RFM_SBSN_NTN_2101_100.zip").write_bytes(b"")
+    (d500 / "RFM_SBSN_NTN_2101_500.zip").write_bytes(b"")
+    rows = fd.coverage_table(tmp_path)
+    assert sorted((r["family"], r["basin"], r["rp"], r["state"]) for r in rows) == [
+        ("national", "2101", 100, "present"),
+        ("national", "2101", 500, "present"),
+    ]
+    assert set(rows[0]) == {"family", "basin", "rp", "state"}
+
+
+def test_coverage_table_marks_dataless(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    d = tmp_path / "유역별_100년_빈도_국가하천_하천범람지도"
+    d.mkdir()
+    (d / "RFM_SBSN_NTN_2101_100.zip").write_bytes(b"")
+    (d / "RFM_SBSN_NTN_2102_100.zip").write_bytes(b"")
+    monkeypatch.setattr(fd, "is_dataless", lambda p: p.name.endswith("2102_100.zip"))
+    got = {r["basin"]: r["state"] for r in fd.coverage_table(tmp_path)}
+    assert got == {"2101": "present", "2102": "dataless"}
+    assert fd.named_files(tmp_path) == {("national", "2101", 100), ("national", "2102", 100)}
+
+
+def test_is_dataless_reads_the_flag_only_on_macos(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import os
+    from types import SimpleNamespace
+
+    f = tmp_path / "a.zip"
+    f.write_bytes(b"")
+    monkeypatch.setattr(fd.sys, "platform", "darwin")
+    monkeypatch.setattr(os, "stat", lambda p: SimpleNamespace(st_flags=0x40000000))
+    assert fd.is_dataless(f) is True
+    monkeypatch.setattr(os, "stat", lambda p: SimpleNamespace(st_flags=0))
+    assert fd.is_dataless(f) is False
+    monkeypatch.setattr(fd.sys, "platform", "linux")
+    monkeypatch.setattr(os, "stat", lambda p: SimpleNamespace(st_flags=0x40000000))
+    assert fd.is_dataless(f) is False
+
+
+class _RaisingCidx(_FakeCidx):
+    def __init__(self, codes: dict[str, str], bad: set[str]) -> None:
+        super().__init__(codes)
+        self.bad = bad
+
+    def code_at(self, path: str, x: float, y: float) -> str:
+        if path in self.bad:
+            raise OSError("dataless / unreadable")
+        return super().code_at(path, x, y)
+
+
+def test_unreadable_file_gives_nan_with_reason(caplog: pytest.LogCaptureFixture) -> None:
+    ok = _fake_row("national", "2101", 100)
+    bad = _fake_row("national", "2102", 100)
+    cidx = _RaisingCidx({ok["path"]: "N331"}, {bad["path"]})  # type: ignore[dict-item]
+    with caplog.at_level("WARNING"):
+        res = fd.classes_at_points(_PT + _PT, [ok, bad], cidx)  # type: ignore[arg-type]
+    # both points sit inside both files' bounds: the unreadable file makes them unknown
+    assert res["codes"][0] == [None, None]
+    assert all("map_unreadable" in r for r in res["reason"])
+    warns = [r for r in caplog.records if "map_unreadable" in r.getMessage()]
+    assert len(warns) == 1 and "2102_100.zip" in warns[0].getMessage()
+    assert "/maps/" not in warns[0].getMessage()  # file name only
+    # another file still reads
+    all_rp = [_fake_row("national", "2101", rp) for rp in (100, 200, 500)]
+    res2 = fd.classes_at_points(_PT, all_rp, _RaisingCidx({ok["path"]: "N331"}, {bad["path"]}))  # type: ignore[arg-type,dict-item]
+    assert [res2["codes"][k][0] for k in range(3)] == ["N331"] * 3 and res2["reason"] == [None]
+
+
+def test_file_present_by_name_but_missing_from_index_is_unreadable_not_missing() -> None:
+    rows = [_fake_row("national", "2101", 100)]
+    cidx = _FakeCidx({rows[0]["path"]: "N331"})  # type: ignore[dict-item]
+    named = {("national", "2101", 100), ("national", "2101", 200)}  # 200 exists, not indexed
+    res = fd.classes_at_points(_PT, rows, cidx, named_files=named)  # type: ignore[arg-type]
+    assert [res["codes"][k][0] for k in range(3)] == ["N331", None, None]
+    assert res["reason"] == ["map_unreadable:200;map_unreadable:500"]
+    # without the name list the same point is "no file" (genuinely absent)
+    res2 = fd.classes_at_points(_PT, rows, cidx)  # type: ignore[arg-type]
+    assert res2["reason"] == ["no_file_for_rp:200;no_file_for_rp:500"]
+
+
+def test_map_index_skips_dataless_and_unreadable_zips(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    d = tmp_path / "유역별_100년_빈도_국가하천_하천범람지도"
+    d.mkdir()
+    good = _zip_map(d, "RFM_SBSN_NTN_2101_100", {"N331": box(0, 0, 10, 10)})
+    (d / "RFM_SBSN_NTN_2102_100.zip").write_bytes(b"not a zip")
+    placeholder = d / "RFM_SBSN_NTN_2103_100.zip"
+    placeholder.write_bytes(b"")
+    monkeypatch.setattr(fd, "is_dataless", lambda p: p == placeholder)
+    idx = fd.map_index(tmp_path)
+    assert [r["path"] for r in idx] == [str(good)]

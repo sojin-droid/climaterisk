@@ -37,8 +37,10 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import struct
+import sys
 import zipfile
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
@@ -47,6 +49,8 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+log = logging.getLogger(__name__)
 
 #: River map families: folder name per (family, return period). 도시침수 (CFM) is pluvial and
 #: is read by the separate urban-pluvial adapter through :data:`URBAN_FAMILIES`
@@ -227,6 +231,67 @@ def depth_for_return_period(rp: int, per_family: dict[str, dict[int, float]]) ->
 # --------------------------------------------------------------------------- #
 # Map files: a bounds index read from the shapefile headers inside the zips      #
 # --------------------------------------------------------------------------- #
+SF_DATALESS = 0x40000000
+
+
+def is_dataless(path: Path) -> bool:
+    """True if ``path`` is an iCloud "dataless" placeholder (macOS only; stat, never opens it).
+
+    A dataless file has its metadata locally but no content; opening it triggers a download
+    that may be slow or fail offline. The macOS ``st_flags`` bit ``SF_DATALESS`` is
+    ``0x40000000``, defined in ``<sys/stat.h>`` of the macOS SDK
+    (``#define SF_DATALESS 0x40000000 /* file is dataless object */``). On other systems the
+    flag does not exist and this returns False.
+
+    Args:
+        path: File to test.
+
+    Returns:
+        Whether the file is a dataless placeholder; False if it cannot be stat-ed.
+    """
+    if sys.platform != "darwin":
+        return False
+    try:
+        return bool(os.stat(path).st_flags & SF_DATALESS)  # type: ignore[attr-defined]
+    except OSError:
+        return False
+
+
+def coverage_table(
+    root: Path, families: dict[str, dict[int, str]] | None = None
+) -> list[dict[str, Any]]:
+    """Which map zips exist under ``root``, from file names and stat only (nothing is opened).
+
+    Args:
+        root: The 홍수위험지도 folder (``paths.floodmap_dir()``).
+        families: ``{family: {rp: folder}}``; default river maps plus the urban maps.
+
+    Returns:
+        Rows ``{"family", "basin", "rp", "state"}``, ``state`` being ``"present"`` or
+        ``"dataless"`` (iCloud placeholder), sorted by family, rp, basin. Only file names and
+        counts are recorded — no geometry.
+    """
+    if families is None:
+        families = {**FAMILIES, **URBAN_FAMILIES}
+    rows: list[dict[str, Any]] = []
+    for family, folders in families.items():
+        for rp, folder in folders.items():
+            for zp in sorted((root / folder).glob("*.zip")):
+                basin = basin_of(str(zp))
+                if basin is None:
+                    continue
+                state = "dataless" if is_dataless(zp) else "present"
+                rows.append({"family": family, "basin": basin, "rp": rp, "state": state})
+    return rows
+
+
+def named_files(
+    root: Path, families: dict[str, dict[int, str]] | None = None
+) -> set[tuple[str, str, int]]:
+    """``(family, basin, rp)`` of every map zip that exists by name (dataless ones included)."""
+    return {(r["family"], r["basin"], int(r["rp"])) for r in coverage_table(root, families)}
+
+
 def _shp_bounds(zpath: Path) -> tuple[float, float, float, float] | None:
     """Bounding box from the .shp header (bytes 36–68) without reading the geometry."""
     with zipfile.ZipFile(zpath) as z:
@@ -256,7 +321,14 @@ def map_index(
     for family, folders in families.items():
         for rp, folder in folders.items():
             for zp in sorted((root / folder).glob("*.zip")):
-                b = _shp_bounds(zp)
+                if is_dataless(zp):  # iCloud placeholder: never read it (would download)
+                    log.warning("map_unreadable (dataless, skipped): %s", zp.name)
+                    continue
+                try:
+                    b = _shp_bounds(zp)
+                except (OSError, zipfile.BadZipFile, struct.error) as exc:
+                    log.warning("map_unreadable (%s): %s", type(exc).__name__, zp.name)
+                    continue
                 if b is not None:
                     rows.append({"path": str(zp), "family": family, "rp": rp, "bounds": b})
     if cache is not None:
@@ -452,7 +524,10 @@ def class_for_return_period(rp: int, per_family: dict[str, dict[int, str]]) -> s
 
 
 def classes_at_points(
-    points_lonlat: list[tuple[float, float]], index: list[dict[str, Any]], cidx: ClassIndex
+    points_lonlat: list[tuple[float, float]],
+    index: list[dict[str, Any]],
+    cidx: ClassIndex,
+    named_files: set[tuple[str, str, int]] | None = None,
 ) -> dict[str, Any]:
     """Official class per point and return period; a missing national file is unknown.
 
@@ -464,6 +539,15 @@ def classes_at_points(
     The 지방하천 family is 100-y by design and is never missing at 200 / 500 y; a point
     under local maps only is flagged ``local_only`` (its 100-y class is a lower bound).
     A point outside every polygon keeps ``""`` (0 m).
+
+    A file that exists but cannot be read (``cidx.code_at`` raises, e.g. an iCloud dataless
+    zip) makes every point inside its bounds unknown (``None``) at its return period and
+    deeper ones (the envelope would include it), reason ``map_unreadable:<rp>``; it is logged
+    once per file (name only). If ``named_files`` (from :func:`named_files`) lists a national
+    file that is absent from ``index`` (its header could not be read), a point that hit another
+    file of that basin gets the same reason instead of ``no_file_for_rp``. Bounds of an
+    unindexed file are unknown, so only points that hit a sibling file of the basin can be
+    flagged.
 
     Algorithm:
         $$c_r(p) = \\max_{f}\\ \\max_{r' \\le r,\\ (f,b,r')\\ \\text{exists}}
@@ -483,6 +567,9 @@ def classes_at_points(
     xs, ys = to_map.transform([p[0] for p in points_lonlat], [p[1] for p in points_lonlat])
     n = len(points_lonlat)
     have = available_files(index)
+    unindexed = (named_files or set()) - have
+    bad_paths: set[str] = set()
+    bad_rp: list[int | None] = [None] * n  # shallowest unreadable rp hit per point
     per: list[dict[str, dict[int, str]]] = [{} for _ in range(n)]
     nat_basins: list[set[str]] = [set() for _ in range(n)]
     file100: list[str | None] = [None] * n
@@ -491,7 +578,16 @@ def classes_at_points(
         for i, (x, y) in enumerate(zip(xs, ys, strict=True)):
             if not (x0 <= x <= x1 and y0 <= y <= y1):
                 continue
-            code = cidx.code_at(row["path"], x, y)
+            if row["path"] in bad_paths:
+                bad_rp[i] = min(int(row["rp"]), bad_rp[i] or 10**9)
+                continue
+            try:
+                code = cidx.code_at(row["path"], x, y)
+            except Exception:  # unreadable polygons (dataless, corrupt): unknown, not an error
+                bad_paths.add(row["path"])
+                log.warning("map_unreadable: %s", Path(row["path"]).name)
+                bad_rp[i] = min(int(row["rp"]), bad_rp[i] or 10**9)
+                continue
             if not code:
                 continue
             fam = per[i].setdefault(row["family"], {})
@@ -508,9 +604,18 @@ def classes_at_points(
         row_codes: list[str | None] = []
         row_missing: list[bool] = []
         for i in range(n):
+            unreadable = (bad_rp[i] is not None and bad_rp[i] <= rp) or any(
+                ("national", b, r) in unindexed
+                for b in nat_basins[i]
+                for r in RETURN_PERIODS
+                if r <= rp
+            )
             gap = any(("national", b, rp) not in have for b in nat_basins[i])
-            row_missing.append(gap)
-            if gap:
+            row_missing.append(gap or unreadable)
+            if unreadable:
+                row_codes.append(None)
+                reasons[i].append(f"map_unreadable:{rp}")
+            elif gap:
                 row_codes.append(None)
                 reasons[i].append(f"no_file_for_rp:{rp}")
             else:
@@ -518,7 +623,7 @@ def classes_at_points(
         codes.append(row_codes)
         missing.append(row_missing)
     local_only = [bool(per[i]) and set(per[i]) == {"local"} for i in range(n)]
-    logging.getLogger(__name__).debug(
+    log.debug(
         "classes_at_points: points=%d missing_points=%d local_only=%d",
         n,
         sum(1 for r in reasons if r),
