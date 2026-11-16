@@ -185,11 +185,12 @@ def test_method_fields_reach_table_rows() -> None:
         facility_name="F1",
         hazard_type="RF",
         model_id="KOREA_LOCAL",
-        method_id="rf.official_map",
+        method_id="rf.floodmap_class",
         method_rank=1,
         method_role="main",
         unavailable_reason="map_unreadable",
     )
+    assert row.method_id == main_method("RF")["method_id"]  # a real registry id
     out = rt.table_rows([row])[0]
     for key in ("method_id", "method_rank", "method_role", "unavailable_reason"):
         assert key in out
@@ -355,3 +356,37 @@ def test_run_checks_warn_reason_falls_back_to_reason() -> None:
     cf = run_checks("CF", _rank1("CF"), {"sub_check": {"warn": True, "reason": "r"}})
     assert cf[0]["state"] == "warn"
     assert cf[0]["reason"] == "r"
+
+
+# --------------------------------------------------------------------------- #
+# Every unavailable row says why, as a short key                               #
+# --------------------------------------------------------------------------- #
+def test_not_implemented_rows_carry_a_reason() -> None:
+    adapter = _stub_adapter("KOREA_LOCAL", status="NOT_IMPLEMENTED")
+    from climaterisk_worker.physical_risk import runner
+
+    rows, _ = runner._rows_for(adapter, "HW", _FAC, "KOR", None)
+    assert rows[0].calculation_status == "NOT_IMPLEMENTED"
+    assert rows[0].unavailable_reason == "not_implemented"
+
+
+def test_error_rows_carry_a_reason() -> None:
+    adapter = _stub_adapter("KOREA_LOCAL", status="READY")
+    from climaterisk_worker.physical_risk import runner
+
+    def boom(bbox, points=None):  # type: ignore[no-untyped-def]
+        raise RuntimeError("broken file")
+
+    adapter.load = boom
+    rows, rec = runner._rows_for(adapter, "HW", _FAC, "KOR", None)
+    assert rows[0].calculation_status == "ERROR" and "broken file" in rec["load_error"]
+    assert rows[0].unavailable_reason == "error"
+
+
+def test_no_single_country_rows_carry_a_reason() -> None:
+    _stub_adapter("KOREA_LOCAL")  # puts the worker on sys.path (needs CLIMADA)
+    from climaterisk_worker.physical_risk import runner
+
+    rows, _ = runner._all_model_rows(_FAC, "historical", 2030, ["RF"], ["KOREA_LOCAL"], None, None)
+    assert rows[0].calculation_status == "NO_HAZARD_DATA"
+    assert rows[0].unavailable_reason == "no_single_country"

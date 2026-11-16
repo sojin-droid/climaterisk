@@ -61,6 +61,12 @@ PRICEABLE_HAZARDS: tuple[str, ...] = ("RF", "CF", "TC")
 #: Hazard tags that are computed as exposure only — no published impact function exists.
 HAZARD_ONLY_HAZARDS: tuple[str, ...] = ("HM", "HW")
 
+#: Short ``unavailable_reason`` key for a status the caller decided (``status_override``).
+_OVERRIDE_REASON: dict[str, str] = {
+    CalculationStatus.ERROR.value: "error",
+    CalculationStatus.NOT_IMPLEMENTED.value: "not_implemented",
+}
+
 
 def _facility_exposure(facility: dict[str, Any], impf_col: str, impf_id: int) -> Any:
     """A one-row CLIMADA ``Exposures`` for a facility, valued in its own currency."""
@@ -254,6 +260,8 @@ def calculate(
     if status_override is not None:
         row.calculation_status = status_override
         row.status_detail = status_detail
+        # the text stays in status_detail; the reason is a short key (callers may refine it)
+        row.unavailable_reason = _OVERRIDE_REASON.get(status_override)
         return row.finalise(cfg)
 
     if hazard is None:
@@ -371,6 +379,7 @@ def calculate(
     except Exception as exc:  # a real failure, reported as one
         row.calculation_status = CalculationStatus.ERROR.value
         row.status_detail = f"{type(exc).__name__}: {exc}"
+        row.unavailable_reason = "error"
         return row.finalise(cfg)
 
     row.eal_usd = float(impact.aai_agg)

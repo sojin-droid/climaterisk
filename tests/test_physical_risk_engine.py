@@ -598,3 +598,18 @@ def test_unknown_pluvial_is_not_available_in_counts_totals_matrix_and_summary() 
     pf = summary["hazards"]["PF"]
     assert pf["n_assessed"] == 2 and pf["n_priced"] == 0 and pf["eal_usd"] is None
     assert pf["n_not_available"] == 1 and pf["n_hazard_only"] == 1
+
+
+def test_impact_failure_is_error_with_reason(monkeypatch: pytest.MonkeyPatch) -> None:
+    import climada.engine
+
+    class Broken:
+        def __init__(self, *a: object, **k: object) -> None:
+            raise RuntimeError("impact failed")
+
+    monkeypatch.setattr(climada.engine, "ImpactCalc", Broken)
+    row = calculate(
+        FACILITY, synth("RF", "m", [1.0], [0.01]), "RF", model_id=ModelId.KOREA_LOCAL.value
+    )
+    assert row.calculation_status == CalculationStatus.ERROR.value
+    assert row.unavailable_reason == "error" and row.eal_usd is None
