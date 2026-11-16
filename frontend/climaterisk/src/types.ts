@@ -671,6 +671,9 @@ export interface PhysicalRiskRow {
   risk_level_criteria: string | null;
   calculation_status: string;
   status_detail: string | null;
+  // why a row carries no value, as a short key (e.g. "no_file_for_rp:200", "map_unreadable:100",
+  // "hazard_unavailable"); null when the hazard is known
+  unavailable_reason?: string | null;
   confidence: string | null;
   property_type: string | null;
   // V0.2 — assessment target and spatial resolution

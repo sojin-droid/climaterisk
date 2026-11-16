@@ -1481,6 +1481,7 @@ function PointDetail({
                     muted
                   />
                   <div className="hint">Why? {statusCopy}</div>
+                  {r.unavailable_reason && <div className="hint">Reason: {r.unavailable_reason}</div>}
                   {r.status_detail && statusCopy !== r.status_detail && <div className="hint">Detail: {r.status_detail}</div>}
                 </>
               )}
