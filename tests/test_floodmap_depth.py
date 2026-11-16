@@ -738,3 +738,29 @@ def test_check_summary_with_too_few_points_gives_no_verdict() -> None:
         "skipped",
         "not enough points (n=0)",
     )
+
+
+def test_shp_cut_in_the_middle_of_its_records_is_unreadable_not_dry(tmp_path: Path) -> None:
+    # header length field (bytes 24-27, big-endian 16-bit words) says 2 records; the member
+    # holds 1.5: the lost polygon must be unknown, never dry
+    d = tmp_path / NAT[100]
+    d.mkdir()
+    zp = _zip_map(
+        d,
+        "RFM_SBSN_NTN_9010_100",
+        {"N331": box(240000, 500000, 241000, 501000), "N333": box(250000, 500000, 251000, 501000)},
+    )
+    with zipfile.ZipFile(zp) as z:
+        items = {n: z.read(n) for n in z.namelist()}
+    shp = next(n for n in items if n.endswith(".shp"))
+    assert len(items[shp]) == 372  # 100-byte header + 2 x 136-byte box records
+    with zipfile.ZipFile(zp, "w") as z:
+        for n, b in items.items():
+            z.writestr(n, b[:256] if n == shp else b)
+    assert fd.shp_member_complete(zp) is False
+    idx = fd.map_index(tmp_path)
+    res = fd.classes_at_points([_ll(250500, 500500), _ll(240500, 500500)], idx, fd.ClassIndex())
+    assert res["codes"][0] == [None, None]  # the whole file is unreadable, both points
+    assert res["reason"][0].startswith("map_unreadable:100")
+    good = _zip_map(tmp_path, "RFM_SBSN_NTN_9011_100", {"N331": box(0, 0, 10, 10)})
+    assert fd.shp_member_complete(good) is True

@@ -323,6 +323,32 @@ def files_fingerprint(
     return tuple(sorted(out))
 
 
+def shp_member_complete(zpath: Path | str) -> bool:
+    """Whether the ``.shp`` member holds as many bytes as its own header says.
+
+    The shapefile header stores the file length at bytes 24–27 (big-endian int32, in 16-bit
+    words, so ×2 for bytes). A member cut in the middle of its records keeps a valid header
+    but is shorter: GDAL then reads the surviving records only, and the lost polygons would
+    read as dry. Only the first 28 bytes are decompressed; the size comes from the zip
+    directory (``ZipInfo.file_size``).
+
+    Returns:
+        False when the member is shorter or longer than the header length, has no ``.shp``,
+        or its header is shorter than 28 bytes.
+    """
+    with zipfile.ZipFile(zpath) as z:
+        names = [n for n in z.namelist() if n.lower().endswith(".shp")]
+        if not names:
+            return False
+        info = z.getinfo(names[0])
+        with z.open(info) as f:
+            head = f.read(28)
+    if len(head) < 28:
+        return False
+    (words,) = struct.unpack(">i", head[24:28])
+    return int(words) * 2 == int(info.file_size)
+
+
 def _shp_bounds(zpath: Path) -> tuple[float, float, float, float] | None:
     """Bounding box from the .shp header (bytes 36–68) without reading the geometry."""
     with zipfile.ZipFile(zpath) as z:
@@ -612,6 +638,10 @@ class ClassIndex:
     repaired or prepared as a whole; parts are queried by bounding box and tested one by
     one. Nothing is written to disk.
 
+    A ``.shp`` member shorter (or longer) than its header's file length raises
+    :class:`MapUnreadable` before it is read (:func:`shp_member_complete`): a cut in the middle
+    of the records would otherwise read the lost polygons as dry.
+
     A file that yields **no** polygon part raises :class:`MapUnreadable`: it is only ever
     queried for a point inside its header bounds, and an indexed file has non-degenerate
     bounds (:func:`map_index` marks degenerate ones ``empty`` and they are never queried),
@@ -626,6 +656,8 @@ class ClassIndex:
         if path not in self._trees:
             import shapely
 
+            if not shp_member_complete(path):
+                raise MapUnreadable(f"truncated .shp member in {Path(path).name}")
             parts: list[np.ndarray] = []
             codes: list[str] = []
             for code, g in _read_polygons(path):
