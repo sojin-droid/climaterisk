@@ -117,8 +117,13 @@ V1 daily national 0.789 vs air temperature 0.807 (pass: >= 0.5 and within 0.02);
 vs D38 0.044 vs T95 -0.385 / heat days -0.338 (within 0.10 of the better); V4 yearly national
 0.917 (n = 9, record only). All three passed, so UTCI became the default. Reading: UTCI tracks
 the timing of heat illness as well as air temperature, not better; no indicator explains the
-spatial pattern (rates are highest in 전남 and 제주, where the heat indicators are low), which
-points to exposure (outdoor and farm work, age) rather than climate. Script
+spatial pattern (rates are highest in 전남 and 제주, where the heat indicators are low).
+Reading limit (`heat_utci.risk_caveat`, attached to every adapter detail): UTCI is the hazard
+only. The same UTCI rise is not the same risk rise in every region; realised heat-illness risk
+also depends on exposure (older people, outdoor and farm work) and adaptation (infrastructure,
+health and welfare budgets), a relation taken from existing studies and not estimated here, so
+risk rises more steeply in some regions and more gently in others. V3 does not explain or rank
+regional differences. Script
 `scripts/heat_utci_validate_kdca.py`; record `heat_utci.validation.result`.
 
 Sub check (diagnostic only): yearly rank

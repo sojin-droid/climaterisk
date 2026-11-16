@@ -93,7 +93,7 @@
    - `KOREA_LOCAL` 하천: 홍수위험지도 원문 폴리곤 겹침
    - 해안: 약최고고조면 + 연결성
    - 도시 내수: 도시침수지도 100년 겹침 (`PF`, hazard-only)
-   - 폭염: 개활지 UTCI (2026-11-16부터 기본값 `heat_utci.enabled=true`, hazard-only; 미래 SSP2-4.5·5-8.5 2051–2060 월별 델타; 승인 = 질병청 온열질환 2011–2019 대조 V1–V3 통과, 기온과 같은 수준)
+   - 폭염: 개활지 UTCI (2026-11-16부터 기본값 `heat_utci.enabled=true`, hazard-only; 미래 SSP2-4.5·5-8.5 2051–2060 월별 델타; 승인 = 질병청 온열질환 2011–2019 대조 V1–V3 통과, 기온과 같은 수준; 같은 UTCI 증가 ≠ 같은 지역 리스크 증가, `heat_utci.risk_caveat`)
 3. **도시 내수**: 새 재해로 추가한다([ADDING_A_PERIL.md](ADDING_A_PERIL.md)). T2는 도시침수지도 겹침(2026-11-15 Models 탭 `PF`로 연결, hazard-only, 서울시 침수흔적도 검증은 진단), T3는 itzi다. 하수관망은 `restricted`라 배수 용량을 가정으로 명시한다.
 4. **T3 시범**: 서울 1 km² SOLWEIG, 한 곳의 SFINCS로 계산 시간을 재고, 같은 사건을 T1·T2와 비교한다.
 

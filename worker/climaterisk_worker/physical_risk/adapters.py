@@ -1559,9 +1559,20 @@ class KoreaLocalUtciAdapter:
                 "Assumptions: A1 grid daily-max difference added to every hour; A2 equal vapour "
                 "pressure at asset and station; A3 irradiance is the preceding-hour mean; "
                 "A4 night cloud fraction = day mean; A5 ground emissivity 0.95; A6 ground "
-                "albedo 0.20 (0.15-0.25 range reported). " + tail + self._approval()
+                "albedo 0.20 (0.15-0.25 range reported). "
+                + tail
+                + self._approval()
+                + self._caveat()
             ),
         )
+
+    @staticmethod
+    def _caveat() -> str:
+        """The reading limit (``heat_utci.risk_caveat``): same UTCI rise != same regional risk."""
+        from climaterisk.physical_risk.metrics import load_config
+
+        text = load_config()["heat_utci"].get("risk_caveat")
+        return f". {text}" if text else ""
 
     @staticmethod
     def _approval() -> str:

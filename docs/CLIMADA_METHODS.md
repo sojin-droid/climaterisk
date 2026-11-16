@@ -580,7 +580,8 @@ packed into a one-event CLIMADA `Hazard` (`haz_type="HW"`, `units="days/yr"`, Na
 No impact function, no loss; the engine reports intensity only. Default HW Korea-local adapter
 since 2026-11-16 (`heat_utci.enabled = true`, after the KDCA heat-illness check); with the switch
 off the catalog `heatwave` layer is used. Future SSP2-4.5/5-8.5 2051-2060 by monthly delta
-(`[CUSTOM]`, same delta as `heat_days.py`). Method record:
+(`[CUSTOM]`, same delta as `heat_days.py`). Reading limit `heat_utci.risk_caveat`: the same UTCI
+rise is not the same regional risk rise (exposure and adaptation differ). Method record:
 `docs/METHODOLOGY.md` (heat T2 entry).
 
 ### 5.9 Local hazard catalog perils (`hail`, `landslide`, `tc_rain`, `drought`, `crop_yield`, `low_flow`, `heatwave`) — `P:966-1113`

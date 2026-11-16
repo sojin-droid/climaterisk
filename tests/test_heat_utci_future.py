@@ -229,3 +229,11 @@ def test_seoul_present_numbers_unchanged_by_future_run(seoul_future: dict) -> No
     assert seoul_future["per_asset"][0]["utci_days_ge38"] == pytest.approx(
         want["utci_days_ge38"], rel=1e-6
     )
+
+
+@pytest.mark.parametrize(("scenario", "year"), [("rcp85", 2050), ("rcp26", 2050)])
+def test_adapter_detail_carries_the_regional_reading_limit(scenario: str, year: int) -> None:
+    """Same UTCI rise != same regional risk rise; the caveat must reach every served output."""
+    caveat = _config()["heat_utci"]["risk_caveat"]
+    assert "not one-to-one" in caveat and "adaptation" in caveat
+    assert caveat in adapters.KoreaLocalUtciAdapter(scenario, year).describe().detail
