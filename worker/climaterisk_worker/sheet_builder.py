@@ -128,10 +128,10 @@ def _clean(v: Any, nd: int = 2) -> float | None:
     return round(f, nd) if math.isfinite(f) else None
 
 
-def _band(code: str | None) -> list[float | None]:
-    """Published band of a class; ``[0, 0]`` outside the map, ``[None, None]`` if unknown."""
+def _band(code: str | None) -> list[float | None] | None:
+    """Published band of a class; ``[0, 0]`` outside the map, ``None`` if unknown."""
     if code is None:  # no map file for this return period: unknown, never dry
-        return [None, None]
+        return None
     if not code:
         return [0.0, 0.0]
     lo, hi = fd.BANDS[code]
@@ -149,7 +149,7 @@ def assemble_sheet(
     ground_source: str,
     z_surface: list[float | None],
     surface_source: str,
-    section_classes: dict[str, list[str]],
+    section_classes: dict[str, list[str | None]],
     site_classes: dict[str, str | None],
     site_z_ground: float | None,
     site_z_surface: float | None,

@@ -479,3 +479,20 @@ def test_totals_cover_priced_assets_only() -> None:
     line = next(r for r in rt.portfolio_totals_frame([nan_row, ok_row]) if r["Hazard"] != "All")
     assert line["Total EAL"] == pytest.approx(10.0)
     assert line["Priced"] == 1 and line["Assets Assessed"] == 2
+
+
+def test_zero_centroids_hazard_only_reason_is_no_centroids() -> None:
+    empty = Hazard(
+        haz_type="CF",
+        centroids=Centroids(lat=np.array([]), lon=np.array([])),
+        event_id=np.array([], dtype=int),
+        event_name=[],
+        date=np.array([], dtype=int),
+        frequency=np.array([]),
+        frequency_unit="1/year",
+        intensity=sparse.csr_matrix((0, 0)),
+        fraction=sparse.csr_matrix((0, 0)),
+        units="m",
+    )
+    row = calculate(FACILITY, empty, "CF", model_id=ModelId.KOREA_LOCAL.value, hazard_only=True)
+    assert row.unavailable_reason == "no_centroids"

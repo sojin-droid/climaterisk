@@ -140,3 +140,36 @@ def test_build_sheet_on_the_real_maps_when_present() -> None:
     assert validate_sheet(sheet) == []
     assert sheet["site"]["classes"] == {"rp100": "N333", "rp200": "N333", "rp500": "N334"}
     assert sheet["site"]["depth_m"] == {"rp100": 3.5, "rp200": 3.5, "rp500": 5.0}
+
+
+def test_missing_national_rp_class_stays_none_not_dry() -> None:
+    lon, lat, km = sb.cut_line(37.547, 127.047, bearing_deg=90.0, half_km=0.3, step_km=0.1)
+    n = len(km)
+    sheet = sb.assemble_sheet(
+        sheet_id="DM-T2",
+        title="시험 도면",
+        place="시험",
+        site={"lat": 37.547, "lon": 127.047},
+        cut={"lon": lon.tolist(), "lat": lat.tolist(), "km": km.tolist(), "bearing_deg": 90.0},
+        z_ground=[10.0] * n,
+        ground_source="test_dem",
+        z_surface=[11.0] * n,
+        surface_source="test_dsm",
+        section_classes={"rp100": ["N333"] * n, "rp200": [None] * n, "rp500": ["N334"] * n},
+        site_classes={"rp100": "N333", "rp200": None, "rp500": ""},
+        site_z_ground=10.0,
+        site_z_surface=11.0,
+        check_depths={"rp100": 4.0, "rp200": None, "rp500": None},
+        check_dem="test_dem",
+        global_depths={"historical": {"rp": [], "depth_m": []}},
+        date="2026-11-16",
+    )
+    assert validate_sheet(sheet) == []
+    assert sheet["site"]["classes"]["rp200"] is None
+    assert sheet["site"]["bands_m"]["rp200"] is None  # whole band null: unknown
+    assert sheet["site"]["depth_m"]["rp200"] is None
+    assert sheet["site"]["depth_m"]["rp500"] == 0.0  # outside every polygon is dry
+    assert sheet["site"]["bands_m"]["rp500"] == [0.0, 0.0]
+    assert sheet["section"]["classes"]["rp200"][0] is None
+    assert sheet["stamps"]["review"]["of"] == 1  # only rp100 can be compared
+    assert sb._band(None) is None

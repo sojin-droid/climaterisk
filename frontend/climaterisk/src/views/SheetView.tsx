@@ -15,17 +15,23 @@ const HAZARD_KO: Record<string, string> = { river_flood: "하천 범람" };
 
 function Headline({ sheet }: { sheet: Sheet }) {
   const b = sheet.site.bands_m.rp100;
-  const outside = !sheet.site.classes.rp100 || !b;
+  const unknown100 = sheet.site.classes.rp100 === null;
+  const outside = !unknown100 && (!sheet.site.classes.rp100 || !b);
   const sub = (["rp200", "rp500"] as const)
     .map((k, i) => {
       const t = formatBand(sheet.site.bands_m[k]);
-      return `${i === 0 ? "200" : "500"}년 빈도${i === 0 ? "도" : "는"} ${t ?? "범위 밖"}`;
+      const none = sheet.site.classes[k] === null; // no map file for that return period
+      return `${i === 0 ? "200" : "500"}년 빈도${i === 0 ? "도" : "는"} ${
+        none ? "그 빈도 지도 없음 (값 없음)" : (t ?? "범위 밖")
+      }`;
     })
     .join(", ");
   return (
     <>
       <h1>
-        {outside ? (
+        {unknown100 ? (
+          "이 자리의 100년 빈도 지도가 없어 값을 알 수 없습니다 (값 없음)."
+        ) : outside ? (
           "이 자리는 100년 빈도 침수 범위 밖입니다."
         ) : (
           <>

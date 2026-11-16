@@ -35,7 +35,8 @@ export interface Sheet {
     km: number;
     z_ground_m: number | null;
     z_surface_m: number | null;
-    classes: Record<RpKey, string>;
+    /** "" = outside every polygon (0 m); null = no map file for that return period (unknown). */
+    classes: Record<RpKey, string | null>;
     bands_m: Record<RpKey, [number, number | null] | null>;
     depth_m: Record<RpKey, number | null>;
     check_depth_m: Record<RpKey, number | null> | null;
@@ -48,12 +49,12 @@ export interface Sheet {
     z_surface_m: (number | null)[];
     ground_source?: string;
     surface_source?: string;
-    classes: Record<RpKey, string[]>;
+    classes: Record<RpKey, (string | null)[]>;
     vertical_exaggeration: number;
   };
   frequency: {
     return_periods: number[];
-    official: { tier: string; classes: string[] };
+    official: { tier: string; classes: (string | null)[] };
     global: Record<string, unknown>;
   };
   stamps: { author: SheetStamp; review: SheetStamp; approve: SheetStamp };
