@@ -123,11 +123,8 @@ def test_assemble_sheet_from_plain_inputs_is_valid_and_keeps_nulls() -> None:
     assert 0.0 <= sheet["site"]["km"] <= sheet["section"]["cut"]["length_km"]
 
 
-def test_build_sheet_on_the_real_maps_when_present() -> None:
-    from climaterisk_worker._paths import paths
-
-    if not paths.floodmap_dir().is_dir():
-        pytest.skip("홍수위험지도 not on this machine")
+def test_build_sheet_on_the_real_maps_when_present(real_floodmaps: Path) -> None:
+    # opt-in: CLIMATERISK_REAL_MAPS=1 (conftest ``real_floodmaps``); skipped otherwise
     sheet = sb.build_sheet(
         37.547,
         127.047,

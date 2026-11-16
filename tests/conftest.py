@@ -73,3 +73,44 @@ def client(_isolate_data: None) -> TestClient:
     from climaterisk.api.main import create_app
 
     return TestClient(create_app())
+
+
+#: Opt-in switch for the tests that read the real licensed 홍수위험지도 (never on by default).
+REAL_MAPS_ENV = "CLIMATERISK_REAL_MAPS"
+
+
+@pytest.fixture
+def real_floodmaps(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """The real 홍수위험지도 folder, only when ``CLIMATERISK_REAL_MAPS=1``; else the test skips.
+
+    The tests run under an isolated temporary data root, so the real root is resolved
+    explicitly: ``CLIMATERISK_REAL_DATA_ROOT``, else the repo ``.env`` value of
+    ``CLIMATERISK_DATA_ROOT``, else ``~/Data/climaterisk``. Only ``floodmap_dir`` is pointed
+    there. The real index caches are **copied** into ``tmp_path`` (the real cache is never
+    written); without them the test skips, since a fresh index would open every zip.
+    Offline is forced so no DEM tile is downloaded.
+    """
+    import shutil
+
+    if os.environ.get(REAL_MAPS_ENV, "").strip() != "1":
+        pytest.skip(f"reads the real licensed 홍수위험지도: opt-in, set {REAL_MAPS_ENV}=1")
+    from climaterisk import paths
+
+    value = os.environ.get("CLIMATERISK_REAL_DATA_ROOT") or paths._dotenv(
+        str(paths.env_file())
+    ).get(paths.ENV_DATA_ROOT)
+    real_root = paths._as_path(value) if value else paths.default_data_root()
+    maps = real_root / "external" / "other" / "floodmap"
+    if not maps.is_dir():
+        pytest.skip(f"{REAL_MAPS_ENV}=1 but no 홍수위험지도 under {real_root}")
+    cache = tmp_path / "cache"
+    for name in ("rfm_index.json", "cfm_index.json"):
+        src = real_root / "cache" / "floodmap" / name
+        if not src.is_file():
+            pytest.skip(f"no real index cache {src} (a fresh index would open every zip)")
+        (cache / "floodmap").mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, cache / "floodmap" / name)
+    monkeypatch.setattr(paths, "floodmap_dir", lambda: maps)
+    monkeypatch.setattr(paths, "cache_dir", lambda *p: cache.joinpath(*p))
+    monkeypatch.setenv("CLIMATERISK_OFFLINE", "1")
+    return maps
