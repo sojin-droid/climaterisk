@@ -12,6 +12,7 @@ from typing import Any
 
 import pytest
 
+from climaterisk.physical_risk import display_copy as dc
 from climaterisk.physical_risk.simple_summary import build_simple_summary
 
 C = "DATA_API_COUNTRY"
@@ -25,7 +26,7 @@ def _row(
         "facility_id": fid,
         "facility_name": f"{fid} name",
         "hazard_type": hz,
-        "model_id": C,
+        "model_id": "KOREA_LOCAL" if hz == "RF" else C,  # rank-1 model per hazard
         "eal_usd": eal,
         "asset_value_usd": value,
         "province_name": prov,
@@ -40,7 +41,7 @@ def _row(
 def _curve(hz: str, losses: dict[int, float]) -> dict[str, Any]:
     return {
         "hazard_type": hz,
-        "model_id": C,
+        "model_id": "KOREA_LOCAL" if hz == "RF" else C,  # rank-1 model per hazard
         "group_level": "PORTFOLIO",
         "group_name": None,
         "losses": [{"return_period_years": rp, "loss": v} for rp, v in losses.items()],
@@ -140,7 +141,7 @@ def _output(baseline: bool = True, refused: bool = False) -> dict[str, Any]:
 
 
 def test_portfolio_figures_are_sums_and_ratios() -> None:
-    s = build_simple_summary(_output(), krw_per_usd=FX)
+    s = build_simple_summary(_output(), krw_per_usd=FX, preferred_models=dc.recommended_models())
     assert s["portfolio_value_usd"] == 200_000.0
     rf, tc = s["hazards"]["RF"], s["hazards"]["TC"]
     assert rf["eal_usd"] == 700.0 and rf["baseline_eal_usd"] == 300.0
@@ -155,7 +156,9 @@ def test_portfolio_figures_are_sums_and_ratios() -> None:
 
 
 def test_return_periods_are_read_from_the_curves_never_summed() -> None:
-    rf = build_simple_summary(_output(), krw_per_usd=FX)["hazards"]["RF"]
+    rf = build_simple_summary(_output(), krw_per_usd=FX, preferred_models=dc.recommended_models())[
+        "hazards"
+    ]["RF"]
     assert rf["return_periods"] == [
         {"return_period_years": 10, "future_usd": 0.0, "baseline_usd": 0.0},
         {"return_period_years": 100, "future_usd": 5_000.0, "baseline_usd": 2_000.0},
@@ -163,7 +166,9 @@ def test_return_periods_are_read_from_the_curves_never_summed() -> None:
 
 
 def test_risk_counts_value_shares_and_concentration() -> None:
-    rf = build_simple_summary(_output(), krw_per_usd=FX)["hazards"]["RF"]
+    rf = build_simple_summary(_output(), krw_per_usd=FX, preferred_models=dc.recommended_models())[
+        "hazards"
+    ]["RF"]
     assert rf["risk_counts"] == {"High": 1, "Medium": 1, "Low": 2}
     assert rf["risk_value_share"]["High"] == pytest.approx(0.5)
     assert rf["risk_value_share"]["Medium"] == pytest.approx(0.25)
@@ -176,7 +181,10 @@ def test_risk_counts_value_shares_and_concentration() -> None:
 
 def test_province_change_kinds() -> None:
     provs = {
-        p["province_name"]: p for p in build_simple_summary(_output(), krw_per_usd=FX)["provinces"]
+        p["province_name"]: p
+        for p in build_simple_summary(
+            _output(), krw_per_usd=FX, preferred_models=dc.recommended_models()
+        )["provinces"]
     }
     gg, bs = provs["경기도"], provs["부산광역시"]
     assert gg["n_assets"] == 2 and gg["value_usd"] == 150_000.0
@@ -192,7 +200,9 @@ def test_province_change_kinds() -> None:
 
 
 def test_top_assets_are_ranked_by_total_eal() -> None:
-    top = build_simple_summary(_output(), krw_per_usd=FX)["top_assets"]
+    top = build_simple_summary(_output(), krw_per_usd=FX, preferred_models=dc.recommended_models())[
+        "top_assets"
+    ]
     assert [a["facility_id"] for a in top] == ["A", "B", "C", "D"]
     assert top[0]["eal_usd"] == 610.0 and top[0]["main_hazard"] == "RF"
     assert top[0]["main_hazard_baseline_eal_usd"] == 200.0
@@ -200,7 +210,9 @@ def test_top_assets_are_ranked_by_total_eal() -> None:
 
 
 def test_refused_model_chain_gives_no_flood_multiplier() -> None:
-    s = build_simple_summary(_output(refused=True), krw_per_usd=FX)
+    s = build_simple_summary(
+        _output(refused=True), krw_per_usd=FX, preferred_models=dc.recommended_models()
+    )
     assert s["hazards"]["RF"]["climate_multiplier"] is None
     assert "모델 체인" in s["hazards"]["RF"]["climate_multiplier_note"]
     assert s["hazards"]["TC"]["climate_multiplier"] is not None
@@ -210,7 +222,9 @@ def test_refused_model_chain_gives_no_flood_multiplier() -> None:
 
 
 def test_without_a_baseline_the_change_is_not_invented() -> None:
-    s = build_simple_summary(_output(baseline=False), krw_per_usd=FX)
+    s = build_simple_summary(
+        _output(baseline=False), krw_per_usd=FX, preferred_models=dc.recommended_models()
+    )
     rf = s["hazards"]["RF"]
     assert rf["climate_multiplier"] is None and rf["baseline_eal_usd"] is None
     assert rf["climate_multiplier_note"] == "현재기후 기준 실행 없음"
@@ -220,7 +234,10 @@ def test_without_a_baseline_the_change_is_not_invented() -> None:
 
 def test_notes_name_missing_hazards_defences_and_the_tier() -> None:
     kinds = {
-        (n["kind"], n["hazard"]) for n in build_simple_summary(_output(), krw_per_usd=FX)["notes"]
+        (n["kind"], n["hazard"])
+        for n in build_simple_summary(
+            _output(), krw_per_usd=FX, preferred_models=dc.recommended_models()
+        )["notes"]
     }
     assert ("not_assessed", "CF") in kinds  # coastal flood was not run
     assert ("defences", "RF") in kinds

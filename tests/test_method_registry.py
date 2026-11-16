@@ -104,3 +104,93 @@ def test_load_registry_path_override(tmp_path: Path) -> None:
     p = tmp_path / "r.json"
     p.write_text('{"tags": {}}', encoding="utf-8")
     assert load_registry(p) == {"tags": {}}
+
+
+# --------------------------------------------------------------------------- #
+# Task 2: rank 1 is the result; references never fill; rows carry their method #
+# --------------------------------------------------------------------------- #
+def test_recommended_models_are_the_registry_rank1() -> None:
+    import copy
+
+    from climaterisk.physical_risk import display_copy as dc
+
+    assert dc.recommended_models() == {
+        "RF": "KOREA_LOCAL",
+        "PF": "KOREA_LOCAL",
+        "CF": "KOREA_LOCAL",
+        "TC": "DATA_API_COUNTRY",
+        "HEAT": "KOREA_LOCAL",
+    }
+    table = copy.deepcopy(READINESS)
+    table["RF"]["KOREA_LOCAL"]["status"] = "NOT_IMPLEMENTED"
+    assert "RF" not in dc.recommended_models(readiness=table)
+
+
+def _stub_adapter(model_id: str):  # type: ignore[no-untyped-def]
+    pytest.importorskip("climada")
+    import sys
+
+    for extra in (_REPO / "worker", _REPO / "src"):
+        if str(extra) not in sys.path:
+            sys.path.insert(0, str(extra))
+    from climaterisk_worker.physical_risk.adapters import HazardDescription
+
+    desc = HazardDescription(
+        hazard_type="HW",
+        model_id=model_id,
+        status="NO_HAZARD_DATA",
+        hazard_source="stub",
+        hazard_dataset=None,
+        hazard_data_version=None,
+        hazard_country="KOR",
+        requested_scenario="historical",
+        served_scenario="historical",
+        time_horizon=None,
+    )
+
+    class Stub:
+        def describe(self):  # type: ignore[no-untyped-def]
+            return desc
+
+    return Stub()
+
+
+def test_rows_are_stamped_with_their_method() -> None:
+    adapter = _stub_adapter("KOREA_LOCAL")
+    from climaterisk_worker.physical_risk import runner
+
+    fac = [
+        {
+            "facility_id": "F1",
+            "facility_name": "F1",
+            "latitude": 37.5,
+            "longitude": 127.0,
+            "asset_value_usd": 1.0e6,
+        }
+    ]
+    rows, _ = runner._rows_for(adapter, "HW", fac, "KOR", None)
+    assert rows[0].method_id == "hw.open_field_utci"
+    assert rows[0].method_rank == 1 and rows[0].method_role == "main"
+    rows, _ = runner._rows_for(_stub_adapter("GLOBAL_BASELINE"), "HW", fac, "KOR", None)
+    assert rows[0].method_role == "reference" and rows[0].method_rank is None
+
+
+def test_method_fields_reach_table_rows() -> None:
+    from climaterisk.physical_risk import results_table as rt
+    from climaterisk.physical_risk.metrics import ResultRow
+
+    row = ResultRow(
+        facility_id="F1",
+        facility_name="F1",
+        hazard_type="RF",
+        model_id="KOREA_LOCAL",
+        method_id="rf.official_map",
+        method_rank=1,
+        method_role="main",
+        unavailable_reason="map_unreadable",
+    )
+    out = rt.table_rows([row])[0]
+    for key in ("method_id", "method_rank", "method_role", "unavailable_reason"):
+        assert key in out
+    assert out["method_rank"] == 1
+    assert key in rt.hazard_results_frame([row])[0]

@@ -40,6 +40,7 @@ _SRC = Path(__file__).resolve().parents[3] / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
+from climaterisk.physical_risk.method_registry import method_for  # noqa: E402
 from climaterisk.physical_risk.metrics import (  # noqa: E402
     CalculationStatus,
     ModelId,
@@ -114,6 +115,16 @@ def _iso3_for(facilities: list[dict[str, Any]], explicit: str | None) -> str | N
     return None
 
 
+def _stamp(rows: list[ResultRow], tag: str, model_id: str) -> list[ResultRow]:
+    """Label every row with its registry method (id, rank, main/reference role)."""
+    method = method_for(tag, model_id)
+    for row in rows:
+        row.method_id = method["method_id"]
+        row.method_rank = method["method_rank"]
+        row.method_role = method["method_role"]
+    return rows
+
+
 def _rows_for(
     adapter: Any,
     tag: str,
@@ -151,7 +162,7 @@ def _rows_for(
             )
             for f in facilities
         ]
-        return rows, {**desc.to_dict(), "spatial_resolution": None}
+        return _stamp(rows, tag, desc.model_id), {**desc.to_dict(), "spatial_resolution": None}
 
     try:
         hazard = adapter.load(bbox, points=[(f["latitude"], f["longitude"]) for f in facilities])
@@ -167,7 +178,11 @@ def _rows_for(
             )
             for f in facilities
         ]
-        return rows, {**desc.to_dict(), "spatial_resolution": None, "load_error": str(exc)}
+        return _stamp(rows, tag, desc.model_id), {
+            **desc.to_dict(),
+            "spatial_resolution": None,
+            "load_error": str(exc),
+        }
     except Exception as exc:
         detail = f"{type(exc).__name__}: {exc}"
         rows = [
@@ -181,7 +196,11 @@ def _rows_for(
             )
             for f in facilities
         ]
-        return rows, {**desc.to_dict(), "spatial_resolution": None, "load_error": detail}
+        return _stamp(rows, tag, desc.model_id), {
+            **desc.to_dict(),
+            "spatial_resolution": None,
+            "load_error": detail,
+        }
 
     desc = adapter.describe()  # the version is known only after the load
     common["hazard_data_version"] = desc.hazard_data_version
@@ -232,7 +251,7 @@ def _rows_for(
         record["flood_protection"] = record_defences
     if resolution_error:
         record["spatial_resolution_error"] = resolution_error
-    return rows, record
+    return _stamp(rows, tag, desc.model_id), record
 
 
 def compute_physical_risk_models(request: dict[str, Any]) -> dict[str, Any]:

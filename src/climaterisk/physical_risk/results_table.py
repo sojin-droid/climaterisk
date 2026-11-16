@@ -33,6 +33,10 @@ CANONICAL_COLUMNS: tuple[str, ...] = (
     "facility_name",
     "hazard_type",
     "model_id",
+    "method_id",
+    "method_rank",
+    "method_role",
+    "unavailable_reason",
     "risk_level",
     "potential_loss_usd",
     "eal_usd",
@@ -396,13 +400,6 @@ def view_hazards(
     return tuple((t, lab) for t, lab in table if t not in _OPTIONAL_VIEW_TAGS or t in present)
 
 
-#: Preference when several models priced the same facility x hazard: most local first.
-_MODEL_PREFERENCE: tuple[str, ...] = (
-    ModelId.KOREA_LOCAL.value,
-    ModelId.DATA_API_COUNTRY.value,
-    ModelId.GLOBAL_BASELINE.value,
-)
-
 _UNAVAILABLE_STATUSES = frozenset(
     {
         "NOT_IMPLEMENTED",
@@ -417,28 +414,14 @@ _UNAVAILABLE_STATUSES = frozenset(
 def primary_row(
     candidates: list[ResultRow], preferred_model: str | None = None
 ) -> ResultRow | None:
-    """The row that represents a facility x hazard when several models produced one.
+    """The row that represents a facility x hazard: the rank-1 model's, whatever its status.
 
-    The recommended model wins when it produced a row with numbers or hazard intensity;
-    otherwise the most local model that did; otherwise the most local row of any status —
-    so an unavailable model never hides a priced one.
+    No fallback: when the rank-1 model produced no row (or ``preferred_model`` is None) the
+    hazard has no result; another model's numbers are references and never fill the gap.
     """
-    if not candidates:
+    if preferred_model is None:
         return None
-    by_model = {r.model_id: r for r in candidates}
-
-    def informative(r: ResultRow) -> bool:
-        return r.eal_usd is not None or r.calculation_status == "HAZARD_ONLY"
-
-    order = ([preferred_model] if preferred_model else []) + list(_MODEL_PREFERENCE)
-    for model in order:
-        r = by_model.get(model)
-        if r is not None and informative(r):
-            return r
-    for model in order:
-        if model in by_model:
-            return by_model[model]
-    return candidates[0]
+    return next((r for r in candidates if r.model_id == preferred_model), None)
 
 
 def primary_rows(
@@ -459,7 +442,7 @@ def primary_rows(
     out: dict[tuple[str, str], ResultRow] = {}
     for key, cands in groups.items():
         chosen = primary_row(cands, pref.get(key[1]))
-        if chosen is not None:
+        if chosen is not None:  # no rank-1 row: no result for this cell
             out[key] = chosen
     return out
 

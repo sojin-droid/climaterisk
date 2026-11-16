@@ -77,8 +77,9 @@ def test_fixture_portfolio_has_the_five_cases_and_matches_the_evidence(evidence)
         "HEAT": LOCAL,
     }
     # river flood became KOREA_LOCAL on 2026-11-15 and the hazard-only pluvial key PF was
-    # added the same day; the captured run predates both
-    assert recommended_models() == {**CAPTURED_PICKS, "RF": LOCAL, "PF": LOCAL}
+    # added the same day, and coastal CF became the hazard-only KHOA bathtub (rank 1,
+    # 2026-11-16); the captured run predates all three
+    assert recommended_models() == {**CAPTURED_PICKS, "RF": LOCAL, "PF": LOCAL, "CF": LOCAL}
     assert not any(a["model_id"] == "GLOBAL_BASELINE" for a in evidence["adapters"])
     assert not any("global" in str(a.get("hazard_dataset")) for a in evidence["adapters"])
 
@@ -220,7 +221,24 @@ def test_excel_from_the_evidence_keeps_zero_blank_and_status_apart(evidence) -> 
     assert local["eal_usd"] is None and local["calculation_status"] == "NOT_IMPLEMENTED"
     pos = by[(A, "RF", COUNTRY)]
     assert pos["eal_usd"] > 0 and pos["risk_level"] == "High" and pos["impact_function_id"] == 22
+    # no fallback: the captured run's rank-1 flood row (KOREA_LOCAL) is NOT_IMPLEMENTED, so
+    # the summary leaves flood blank even though the country row is priced
     ps = wb["Portfolio Summary"]
+    ph = [c.value for c in ps[1]]
+    line = {
+        ps.cell(row=i, column=ph.index("Facility ID") + 1).value: i
+        for i in range(2, ps.max_row + 1)
+    }
+    assert ps.cell(row=line[A], column=ph.index("Flood EAL") + 1).value is None
+    assert ps.cell(row=line[E], column=ph.index("Heatwave Status") + 1).value == "Hazard only"
+    # the same run with flood under its rank-1 model: zero stays 0, bands and status kept apart
+    ranked = dict(evidence)
+    ranked["rows"] = [
+        {**r, "model_id": LOCAL} if (r["hazard_type"] == "RF" and r["model_id"] == COUNTRY) else r
+        for r in evidence["rows"]
+        if not (r["hazard_type"] == "RF" and r["model_id"] == LOCAL)
+    ]
+    ps = load_workbook(io.BytesIO(xl.workbook_bytes(ranked)))["Portfolio Summary"]
     ph = [c.value for c in ps[1]]
     line = {
         ps.cell(row=i, column=ph.index("Facility ID") + 1).value: i

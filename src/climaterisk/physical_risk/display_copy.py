@@ -22,6 +22,7 @@ from climaterisk.physical_risk.coverage import (
     coverage_table,
     resolution_registry,
 )
+from climaterisk.physical_risk.method_registry import rank1_model
 from climaterisk.physical_risk.metrics import CalculationStatus, ModelId, load_config
 from climaterisk.physical_risk.models import HAZARD_KEYS, READINESS
 from climaterisk.physical_risk.municipalities import (
@@ -241,42 +242,24 @@ def method_copy(hazard_tag: str) -> str:
     )
 
 
-#: Preference order when choosing a model per hazard: most local first.
-_LOCAL_FIRST: tuple[str, ...] = (
-    ModelId.KOREA_LOCAL.value,
-    ModelId.DATA_API_COUNTRY.value,
-    ModelId.GLOBAL_BASELINE.value,
-)
-
-
 def recommended_models(
     hazards: list[str] | None = None, readiness: dict[str, dict[str, dict[str, str]]] | None = None
 ) -> dict[str, str]:
-    """Per hazard key, the most local model whose readiness cell can run.
+    """Per hazard key, the registry's rank-1 model, when its readiness cell can run.
 
-    ``READY`` beats ``HAZARD_ONLY``; ``NOT_IMPLEMENTED`` and ``NO_HAZARD_DATA`` are never
-    chosen, and neither is a cell marked ``"trial": "yes"`` (runnable and shown, but not the
-    headline until it has been compared with the incumbent — docs/TIERS.md §4). For Korea
-    today: RF → KOREA_LOCAL (official map; 2026-11-15), TC → DATA_API_COUNTRY, HEAT → KOREA_LOCAL.
-    A hazard with no runnable cell is omitted.
+    Rank 1 is the result (``method_registry``); no other model or rank ever fills a gap.
+    The key is omitted when the rank-1 cell is not ``READY`` / ``HAZARD_ONLY`` or is marked
+    ``"trial": "yes"`` (runnable and shown, but not the headline — docs/TIERS.md §4).
+    For Korea today: RF/PF/CF/HEAT → KOREA_LOCAL, TC → DATA_API_COUNTRY.
     """
     table = readiness or READINESS
     out: dict[str, str] = {}
     for key in hazards or list(HAZARD_KEYS):
-        cells = table.get(key, {})
-        for wanted in ("READY", "HAZARD_ONLY"):
-            pick = next(
-                (
-                    m
-                    for m in _LOCAL_FIRST
-                    if cells.get(m, {}).get("status") == wanted
-                    and cells.get(m, {}).get("trial") != "yes"
-                ),
-                None,
-            )
-            if pick:
-                out[key] = pick
-                break
+        tag = "HW" if key == "HEAT" else key
+        model = rank1_model(tag)
+        cell = table.get(key, {}).get(model or "", {})
+        if cell.get("status") in ("READY", "HAZARD_ONLY") and cell.get("trial") != "yes":
+            out[key] = str(model)
     return out
 
 

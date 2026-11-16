@@ -73,7 +73,7 @@ def _portfolio() -> list[ResultRow]:
         rows += [
             _full(fid, "RF", G, flood_eal),
             _full(fid, "RF", C, flood_eal),
-            _row(fid, "RF", K, calculation_status="NOT_IMPLEMENTED"),
+            _full(fid, "RF", K, flood_eal),  # rank-1 model carries the result
             _full(fid, "TC", G, 3_576.0),
             _full(fid, "TC", C, 3_576.0),
             _row(fid, "TC", K, calculation_status="NOT_IMPLEMENTED"),
@@ -106,8 +106,8 @@ def test_display_copy_quotes_the_configured_thresholds() -> None:
 
 def test_recommended_models_follow_readiness_and_never_pick_an_unrunnable_cell() -> None:
     rec = dc.recommended_models()
-    assert rec == {"RF": K, "PF": K, "CF": G, "TC": C, "HEAT": K}
-    # a registry where local flood is READY flips the recommendation without code changes
+    assert rec == {"RF": K, "PF": K, "CF": K, "TC": C, "HEAT": K}
+    # rank 1 is the result: when its cell cannot run the hazard is omitted, never refilled
     table = {
         "RF": {G: {"status": "READY"}, C: {"status": "READY"}, K: {"status": "READY"}},
         "TC": {
@@ -122,11 +122,11 @@ def test_recommended_models_follow_readiness_and_never_pick_an_unrunnable_cell()
         },
     }
     rec2 = dc.recommended_models(readiness=table)
-    assert rec2 == {"RF": K, "TC": G}  # HEAT omitted: nothing can run
+    assert rec2 == {"RF": K}  # TC rank 1 (country) and HEAT rank 1 cannot run: omitted, no fallback
     avail = dc.scope_availability()
     # a trial cell (Korea-local flood, TIERS §4) runs and is shown but is not recommended
     trial = {"RF": {C: {"status": "READY"}, K: {"status": "READY", "trial": "yes"}}}
-    assert dc.recommended_models(readiness=trial) == {"RF": C}
+    assert dc.recommended_models(readiness=trial) == {}  # rank 1 is a trial cell: no fallback
     assert avail[K] == {
         "RF": "available",
         "PF": "hazard only",
@@ -145,21 +145,22 @@ def test_recommended_models_follow_readiness_and_never_pick_an_unrunnable_cell()
 # --------------------------------------------------------------------------- #
 # Primary rows, summary, matrix, counts                                        #
 # --------------------------------------------------------------------------- #
-def test_primary_row_prefers_the_recommended_model_but_never_hides_a_priced_one() -> None:
+def test_primary_row_is_the_rank1_row_and_never_falls_back() -> None:
     rows = _portfolio()
     prim = rt.primary_rows(rows, dc.recommended_models())
-    assert prim[("F1", "RF")].model_id == C and prim[("F1", "HW")].model_id == K
-    # recommended model absent from the run -> fall back to the model that priced it
+    assert prim[("F1", "RF")].model_id == K and prim[("F1", "HW")].model_id == K
+    # the rank-1 row is the result whatever its status, even when a country row is priced
+    f1_rf = [
+        _row("F1", "RF", K, calculation_status="NOT_IMPLEMENTED"),
+        _full("F1", "RF", C, 75_000.0),
+    ]
+    assert rt.primary_row(f1_rf, K).model_id == K
+    assert rt.primary_row(f1_rf, K).calculation_status == "NOT_IMPLEMENTED"
+    # with only global rows the hazard has no result: the global numbers do not fill it
     only_global = [r for r in rows if r.model_id == G]
     prim_g = rt.primary_rows(only_global, dc.recommended_models())
-    assert prim_g[("F1", "RF")].model_id == G
-    # an unavailable local row never wins over a priced country row
-    assert (
-        rt.primary_row(
-            [r for r in rows if r.facility_id == "F1" and r.hazard_type == "RF"], K
-        ).model_id
-        == C
-    )
+    assert ("F1", "RF") not in prim_g
+    assert rt.primary_row(only_global, K) is None
 
 
 def test_portfolio_summary_keeps_status_empty_cells_and_real_zeros_apart() -> None:
@@ -171,7 +172,7 @@ def test_portfolio_summary_keeps_status_empty_cells_and_real_zeros_apart() -> No
     assert (
         f1["Flood Risk"] == "Low"
         and f1["Flood EAL"] == 75_000.0
-        and f1["Flood Data Source"] == "Country"
+        and f1["Flood Data Source"] == "Local"
     )
     assert f2["Flood Risk"] == "Medium" and f2["Flood EAL / Assets"] == pytest.approx(0.2)
     assert f3["Flood Risk"] == "Low" and f3["Flood EAL"] == 0.0  # a computed zero stays 0
@@ -185,10 +186,21 @@ def test_portfolio_summary_keeps_status_empty_cells_and_real_zeros_apart() -> No
         [
             _row("X", "RF", K, calculation_status="NOT_IMPLEMENTED"),
             _row("X", "HW", K, calculation_status="HAZARD_ONLY"),
-        ]
+        ],
+        dc.recommended_models(),
     )[0]
     assert unpriced["Flood EAL"] is None and unpriced["Flood Status"] == "Unavailable"
     assert unpriced["Overall EAL"] is None and unpriced["Typhoon Status"] == "Not assessed"
+    # no fallback: a priced country row does not fill an unavailable rank-1 row
+    nofill = rt.portfolio_summary_frame(
+        [
+            _row("Y", "RF", K, calculation_status="NOT_IMPLEMENTED"),
+            _full("Y", "RF", C, 50_000.0),
+        ],
+        dc.recommended_models(),
+    )[0]
+    assert nofill["Flood EAL"] is None and nofill["Flood Status"] == "Unavailable"
+    assert nofill["Overall EAL"] is None
 
 
 def test_asset_matrix_and_counts_use_levels_or_status_labels_only() -> None:
@@ -215,7 +227,9 @@ def test_asset_matrix_and_counts_use_levels_or_status_labels_only() -> None:
         "errors": 0,
     }
     # statuses that are "not available" are counted, not hidden
-    c2 = rt.summary_counts([_row("X", "RF", C, calculation_status="SCENARIO_MISMATCH")])
+    c2 = rt.summary_counts(
+        [_row("X", "RF", K, calculation_status="SCENARIO_MISMATCH")], dc.recommended_models()
+    )
     assert c2["not_available"] == 1 and c2["assets_analyzed"] == 1
 
 
@@ -329,7 +343,7 @@ def test_cli_understands_plain_words_and_recommended_reads_readiness() -> None:
     # must not add a Global run of flood and typhoon
     assert cli.parse_hazard_models(["recommended"], ["RF", "CF", "TC", "HEAT"]) == {
         "RF": [K],
-        "CF": [G],
+        "CF": [K],
         "TC": [C],
         "HEAT": [K],
     }
