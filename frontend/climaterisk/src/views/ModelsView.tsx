@@ -54,6 +54,37 @@ const fmtPct = (v: number | null | undefined) => (v == null ? "—" : `${v.toFix
 const fmtDelta = (v: number | null | undefined, unit: "%" | "pp") =>
   v == null ? "n/a" : `${v >= 0 ? "+" : ""}${v.toFixed(unit === "pp" ? 4 : 1)} ${unit}`;
 const fmtDate = (iso: string | undefined) => (iso ? iso.slice(0, 10) : "");
+/** Readable Korean label for an unavailable_reason key (the raw key stays in the tooltip). */
+function reasonLabel(key: string): string {
+  return key
+    .split(";")
+    .map((part) => {
+      const [kind, rp] = part.trim().split(":");
+      switch (kind) {
+        case "no_file_for_rp":
+          return `${rp}년 빈도 지도 없음`;
+        case "map_unreadable":
+          return rp ? `${rp}년 빈도 지도를 읽을 수 없음` : "지도를 읽을 수 없음";
+        case "hazard_unavailable":
+          return "자료를 불러올 수 없음";
+        case "nan_hazard":
+          return "값 없음";
+        case "no_centroids":
+          return "격자 없음";
+        case "error":
+          return "계산 오류";
+        case "not_implemented":
+          return "미구현";
+        case "no_hazard_data":
+          return "이 범위의 자료 없음";
+        case "no_single_country":
+          return "단일 국가로 정할 수 없음";
+        default:
+          return part.trim();
+      }
+    })
+    .join(" · ");
+}
 const fmtIntensity = (r: PhysicalRiskRow) =>
   r.hazard_intensity == null ? "—" : `${r.hazard_intensity.toFixed(2)} ${r.hazard_intensity_unit ?? ""}`.trim();
 const fmtResolution = (r: PhysicalRiskRow) =>
@@ -1489,7 +1520,11 @@ function PointDetail({
                     muted
                   />
                   <div className="hint">Why? {statusCopy}</div>
-                  {r.unavailable_reason && <div className="hint">Reason: {r.unavailable_reason}</div>}
+                  {r.unavailable_reason && (
+                    <div className="hint" title={r.unavailable_reason}>
+                      Reason: {reasonLabel(r.unavailable_reason)}
+                    </div>
+                  )}
                   {r.status_detail && statusCopy !== r.status_detail && <div className="hint">Detail: {r.status_detail}</div>}
                 </>
               )}
