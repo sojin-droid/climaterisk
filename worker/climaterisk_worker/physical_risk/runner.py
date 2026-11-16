@@ -40,7 +40,11 @@ _SRC = Path(__file__).resolve().parents[3] / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
-from climaterisk.physical_risk.method_registry import defences_allowed, method_for  # noqa: E402
+from climaterisk.physical_risk.method_registry import (  # noqa: E402
+    defences_allowed,
+    method_for,
+    run_checks,
+)
 from climaterisk.physical_risk.metrics import (  # noqa: E402
     CalculationStatus,
     ModelId,
@@ -162,7 +166,11 @@ def _rows_for(
             )
             for f in facilities
         ]
-        return _stamp(rows, tag, desc.model_id), {**desc.to_dict(), "spatial_resolution": None}
+        return _stamp(rows, tag, desc.model_id), {
+            **desc.to_dict(),
+            "spatial_resolution": None,
+            "checks": [],
+        }
 
     try:
         hazard = adapter.load(bbox, points=[(f["latitude"], f["longitude"]) for f in facilities])
@@ -181,6 +189,7 @@ def _rows_for(
         return _stamp(rows, tag, desc.model_id), {
             **desc.to_dict(),
             "spatial_resolution": None,
+            "checks": [],
             "load_error": str(exc),
         }
     except Exception as exc:
@@ -199,6 +208,7 @@ def _rows_for(
         return _stamp(rows, tag, desc.model_id), {
             **desc.to_dict(),
             "spatial_resolution": None,
+            "checks": [],
             "load_error": detail,
         }
 
@@ -245,6 +255,7 @@ def _rows_for(
     if curves is not None and event_losses is not None:
         curves.extend(_loss_curves(rows, event_losses, hazard.frequency, tag, common))
     record = {**desc.to_dict(), "spatial_resolution": resolution}
+    record["checks"] = run_checks(tag, desc.model_id, getattr(adapter, "diagnostics", None))
     sub_check = (getattr(adapter, "diagnostics", None) or {}).get("sub_check")
     if sub_check is not None:
         record["sub_check"] = sub_check  # diagnostic only; never changes the rows

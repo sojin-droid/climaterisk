@@ -96,3 +96,64 @@ def supplementary(tag: str) -> list[dict[str, Any]]:
 def readiness_key(tag: str) -> str:
     """Key into ``models.READINESS``: ``HEAT`` for HW/HM, else the tag."""
     return "HEAT" if tag in ("HW", "HM") else tag
+
+
+def _dig(diagnostics: dict[str, Any], dotted: str) -> Any:
+    """Value at a dot path in nested dicts, or None when any step is absent."""
+    node: Any = diagnostics
+    for part in dotted.split("."):
+        if not isinstance(node, dict) or part not in node:
+            return None
+        node = node[part]
+    return node
+
+
+def run_checks(tag: str, model_id: str, diagnostics: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Run the registry checks of ``tag`` in order and record what each one did.
+
+    Checks are diagnostic only; they never change a hazard or a loss. Reference
+    models (not a ranked main method) have no checks.
+
+    Args:
+        tag: Peril tag, e.g. ``"RF"``.
+        model_id: Model that produced the hazard.
+        diagnostics: The adapter's diagnostics dict, or None.
+
+    Returns:
+        One dict per registry check, in order, with keys ``check_id``, ``order``,
+        ``state`` (``ran`` / ``warn`` / ``skipped`` / ``error``) and ``reason``
+        (None when the check ran cleanly).
+    """
+    if method_for(tag, model_id)["method_role"] != "main":
+        return []
+    diag = diagnostics or {}
+    out: list[dict[str, Any]] = []
+    for check in checks(tag):
+        state, reason = _state_of(check, diag)
+        out.append(
+            {
+                "check_id": check["check_id"],
+                "order": check["order"],
+                "state": state,
+                "reason": reason,
+            }
+        )
+    return out
+
+
+def _state_of(check: dict[str, Any], diag: dict[str, Any]) -> tuple[str, str | None]:
+    if check["status"] == "to_build":
+        return "skipped", "not built yet"
+    value = _dig(diag, check["diagnostics_key"])
+    if not isinstance(value, dict):
+        return "skipped", "no diagnostics for this run"
+    if value.get("error"):
+        return "error", str(value["error"])
+    warn = value.get("warn")
+    if warn is True:
+        reason = value.get("warn_reason") or value.get("note")
+        return "warn", None if reason is None else str(reason)
+    if warn is False:
+        return "ran", None
+    note = value.get("note")
+    return "skipped", str(note) if note else "not enough points"

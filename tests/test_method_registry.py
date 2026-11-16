@@ -16,6 +16,7 @@ from climaterisk.physical_risk.method_registry import (
     method_for,
     rank1_model,
     readiness_key,
+    run_checks,
     supplementary,
 )
 from climaterisk.physical_risk.metrics import load_config
@@ -302,3 +303,39 @@ def test_rank1_flood_map_is_never_defended(monkeypatch: pytest.MonkeyPatch) -> N
     assert rows[0].flood_protection_return_period_years is None
     assert rows[0].eal_usd > 0
     assert "flood_protection" not in rec
+
+
+def _states(rows: list[dict]) -> list[tuple[str, str]]:  # type: ignore[type-arg]
+    return [(r["check_id"], r["state"]) for r in rows]
+
+
+def _rank1(tag: str) -> str:
+    model = rank1_model(tag)
+    assert model is not None
+    return model
+
+
+def test_run_checks_rf_present_day() -> None:
+    rows = run_checks("RF", _rank1("RF"), {"sub_check": {"warn": False}})
+    assert _states(rows) == [
+        ("rf.fwdet_edge", "ran"),
+        ("rf.isimip_sido_factor", "skipped"),
+        ("rf.isimip_grid_depth", "skipped"),
+    ]
+    assert [r["order"] for r in rows] == [1, 2, 3]
+    assert rows[1]["reason"] == "no diagnostics for this run"
+    assert rows[2]["reason"] == "not built yet"
+
+
+def test_run_checks_warn_and_error() -> None:
+    hw = run_checks("HW", _rank1("HW"), {"sub_check": {"warn": True, "warn_reason": "x"}})
+    assert _states(hw) == [("hw.utci_vs_heat_days", "warn")]
+    assert hw[0]["reason"] == "x"
+    pf = run_checks("PF", _rank1("PF"), {"sub_check": {"warn": None}, "validation": {"error": "E"}})
+    assert _states(pf) == [("pf.fwdet_edge", "skipped"), ("pf.seoul_traces", "error")]
+    assert pf[0]["reason"] == "not enough points"
+    assert pf[1]["reason"] == "E"
+
+
+def test_reference_models_run_no_checks() -> None:
+    assert run_checks("RF", "GLOBAL_BASELINE", {}) == []
