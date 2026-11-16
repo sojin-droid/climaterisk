@@ -257,22 +257,20 @@ def is_dataless(path: Path) -> bool:
         return False
 
 
-def coverage_table(
-    root: Path, families: dict[str, dict[int, str]] | None = None
-) -> list[dict[str, Any]]:
+def coverage_table(root: Path, families: dict[str, dict[int, str]]) -> list[dict[str, Any]]:
     """Which map zips exist under ``root``, from file names and stat only (nothing is opened).
 
     Args:
         root: The 홍수위험지도 folder (``paths.floodmap_dir()``).
-        families: ``{family: {rp: folder}}``; default river maps plus the urban maps.
+        families: ``{family: {rp: folder}}`` — :data:`FAMILIES` (river) or
+            :data:`URBAN_FAMILIES`, or both merged. Required: a river caller that also
+            counted the urban zips would see each of them as an unindexed river file.
 
     Returns:
         Rows ``{"family", "basin", "rp", "state"}``, ``state`` being ``"present"`` or
         ``"dataless"`` (iCloud placeholder), sorted by family, rp, basin. Only file names and
         counts are recorded — no geometry.
     """
-    if families is None:
-        families = {**FAMILIES, **URBAN_FAMILIES}
     rows: list[dict[str, Any]] = []
     for family, folders in families.items():
         for rp, folder in folders.items():
@@ -285,11 +283,44 @@ def coverage_table(
     return rows
 
 
-def named_files(
-    root: Path, families: dict[str, dict[int, str]] | None = None
-) -> set[tuple[str, str, int]]:
-    """``(family, basin, rp)`` of every map zip that exists by name (dataless ones included)."""
+def named_files(root: Path, families: dict[str, dict[int, str]]) -> set[tuple[str, str, int]]:
+    """``(family, basin, rp)`` of every map zip of ``families`` that exists by name.
+
+    Dataless ones are included. ``families`` is required (see :func:`coverage_table`).
+    """
     return {(r["family"], r["basin"], int(r["rp"])) for r in coverage_table(root, families)}
+
+
+def missing_folders(root: Path, families: dict[str, dict[int, str]]) -> list[str]:
+    """Folders of ``families`` under ``root`` that do not exist or hold no ``*.zip``.
+
+    A missing or empty folder (e.g. a partial iCloud sync) would make every asset read
+    "outside every polygon" (0 m); callers refuse to run instead. Stat and listing only.
+    """
+    out: list[str] = []
+    for folders in families.values():
+        for folder in folders.values():
+            d = root / folder
+            if not d.is_dir() or not any(d.glob("*.zip")):
+                out.append(folder)
+    return out
+
+
+def files_fingerprint(
+    root: Path, families: dict[str, dict[int, str]]
+) -> tuple[tuple[str, int, int], ...]:
+    """``(folder/name, size, mtime_ns)`` of every map zip of ``families``, sorted (stat only).
+
+    Identifies the files an index is built from, e.g. to key an in-process memo so a result
+    is never reused for another map root or after a zip was added, removed or replaced.
+    """
+    out: list[tuple[str, int, int]] = []
+    for folders in families.values():
+        for folder in folders.values():
+            for zp in sorted((root / folder).glob("*.zip")):
+                size, mtime_ns = _stat_key(zp)
+                out.append((f"{folder}/{zp.name}", size, mtime_ns))
+    return tuple(sorted(out))
 
 
 def _shp_bounds(zpath: Path) -> tuple[float, float, float, float] | None:
@@ -304,64 +335,121 @@ def _shp_bounds(zpath: Path) -> tuple[float, float, float, float] | None:
     return xmin, ymin, xmax, ymax
 
 
+def _degenerate(b: tuple[float, float, float, float] | list[float]) -> bool:
+    """A header box of zero width or height (an empty shapefile writes ``0, 0, 0, 0``)."""
+    xmin, ymin, xmax, ymax = (float(v) for v in b)
+    return not (xmax > xmin and ymax > ymin)
+
+
+def _stat_key(zp: Path) -> tuple[int, int]:
+    """``(size, mtime_ns)`` from stat only (a dataless placeholder is not downloaded)."""
+    st = zp.stat()
+    return int(st.st_size), int(st.st_mtime_ns)
+
+
 def map_index(
     root: Path, cache: Path | None = None, families: dict[str, dict[int, str]] | None = None
 ) -> list[dict[str, Any]]:
-    """``[{path, family, rp, bounds}]`` for every map zip under ``root`` (cached as JSON).
+    """``[{path, family, rp, bounds, size, mtime_ns}]`` for the map zips under ``root``.
 
     ``families`` defaults to the river maps (:data:`FAMILIES`); pass :data:`URBAN_FAMILIES`
-    for the 도시침수지도. Use a separate ``cache`` file per family set. A zip whose header
-    cannot be read (offline dataless, corrupt) is left out of the index and logged by name;
-    the cache is then **not** written, and a cache is only reused if its paths equal the zips
-    that exist by name. Pass ``named_files`` to :func:`classes_at_points` so the left-out
-    files give NaN (``map_unreadable``) rather than 0 m.
+    for the 도시침수지도. Use a separate ``cache`` file per family set.
+
+    Cache: a row is valid only while its zip has the same ``size`` and ``mtime_ns`` (stat,
+    never opened); the cache as a whole is reused only if it lists exactly the zips that
+    exist by name with matching stat. A cache without these fields (older format) is stale.
+    On a rebuild, a row whose stat still matches is reused without opening the zip; a zip
+    whose header cannot be read now (offline dataless, corrupt) keeps its **last-known**
+    bounds from the old cache if it had a row there (flagged ``last_known_bounds``) so its
+    extent stays known; otherwise it is left out of the index and logged by name. Pass
+    ``named_files`` to :func:`classes_at_points` so a left-out file gives NaN
+    (``map_unreadable``) rather than 0 m.
+
+    A zip whose header bounds are degenerate (zero width or height; an empty shapefile
+    writes ``0, 0, 0, 0``) holds no polygon: its row is kept with ``empty`` True, and
+    :func:`available_files` does not count it as an existing file.
+
+    The cache is written only when every zip was indexed from a fresh read or a matching
+    row, and never when the index is empty.
     """
     families = FAMILIES if families is None else families
-    names = {
-        str(zp)
-        for folders in families.values()
-        for folder in folders.values()
-        for zp in (root / folder).glob("*.zip")
-    }
+    zips = [
+        (family, rp, zp)
+        for family, folders in families.items()
+        for rp, folder in folders.items()
+        for zp in sorted((root / folder).glob("*.zip"))
+    ]
+    stat = {str(zp): _stat_key(zp) for _, _, zp in zips}
+    old: list[dict[str, Any]] = []
     if cache is not None and cache.exists():
-        rows: list[dict[str, Any]] = json.loads(cache.read_text(encoding="utf-8"))
-        # valid only if it indexes exactly the zips that exist by name
-        if {r["path"] for r in rows} == names:
-            return rows
-    rows = []
+        try:
+            loaded = json.loads(cache.read_text(encoding="utf-8"))
+            old = loaded if isinstance(loaded, list) else []
+        except (OSError, ValueError):
+            old = []
+
+    def _fresh(row: dict[str, Any]) -> bool:
+        key = stat.get(str(row.get("path")))
+        return key is not None and (row.get("size"), row.get("mtime_ns")) == key
+
+    if old and {r.get("path") for r in old} == set(stat) and all(_fresh(r) for r in old):
+        return old
+    old_by = {str(r.get("path")): r for r in old if isinstance(r, dict)}
+    rows: list[dict[str, Any]] = []
     unindexed: list[str] = []
-    for family, folders in families.items():
-        for rp, folder in folders.items():
-            for zp in sorted((root / folder).glob("*.zip")):
-                try:  # a dataless zip is fetched by macOS when online; offline it raises
-                    b = _shp_bounds(zp)
-                except (OSError, zipfile.BadZipFile, struct.error) as exc:
-                    log.warning("map_unreadable (%s): %s", type(exc).__name__, zp.name)
-                    unindexed.append(zp.name)
-                    continue
-                if b is not None:
-                    rows.append({"path": str(zp), "family": family, "rp": rp, "bounds": b})
-                else:
-                    unindexed.append(zp.name)
-    if cache is not None and not unindexed:
-        cache.parent.mkdir(parents=True, exist_ok=True)
-        cache.write_text(json.dumps(rows), encoding="utf-8")
-    return rows
-    rows = []
-    for family, folders in families.items():
-        for rp, folder in folders.items():
-            for zp in sorted((root / folder).glob("*.zip")):
-                if is_dataless(zp):  # iCloud placeholder: never read it (would download)
-                    log.warning("map_unreadable (dataless, skipped): %s", zp.name)
-                    continue
-                try:
-                    b = _shp_bounds(zp)
-                except (OSError, zipfile.BadZipFile, struct.error) as exc:
-                    log.warning("map_unreadable (%s): %s", type(exc).__name__, zp.name)
-                    continue
-                if b is not None:
-                    rows.append({"path": str(zp), "family": family, "rp": rp, "bounds": b})
-    if cache is not None:
+    last_known: list[str] = []
+    for family, rp, zp in zips:
+        size, mtime_ns = stat[str(zp)]
+        prev = old_by.get(str(zp))
+        if prev is not None and _fresh(prev) and prev.get("bounds") is not None:
+            rows.append(prev)  # unchanged on disk: not opened again
+            continue
+        try:  # a dataless zip is fetched by macOS when online; offline it raises
+            b = _shp_bounds(zp)
+        except (OSError, zipfile.BadZipFile, struct.error) as exc:
+            if prev is not None and prev.get("bounds") is not None:
+                log.warning(
+                    "map_unreadable (%s), last-known bounds kept: %s", type(exc).__name__, zp.name
+                )
+                rows.append(
+                    {
+                        "path": str(zp),
+                        "family": family,
+                        "rp": rp,
+                        "bounds": prev["bounds"],
+                        "empty": bool(prev.get("empty", False)),
+                        "last_known_bounds": True,
+                    }
+                )
+                last_known.append(zp.name)
+                continue
+            log.warning("map_unreadable (%s): %s", type(exc).__name__, zp.name)
+            unindexed.append(zp.name)
+            continue
+        if b is None:
+            log.warning("map_unreadable (no .shp in zip): %s", zp.name)
+            unindexed.append(zp.name)
+            continue
+        row: dict[str, Any] = {
+            "path": str(zp),
+            "family": family,
+            "rp": rp,
+            "bounds": list(b),
+            "size": size,
+            "mtime_ns": mtime_ns,
+        }
+        if _degenerate(b):
+            log.warning("map_empty (degenerate header bounds, no polygons): %s", zp.name)
+            row["empty"] = True
+        rows.append(row)
+    log.debug(
+        "map_index: zips=%d indexed=%d unindexed=%d last_known=%d",
+        len(zips),
+        len(rows),
+        len(unindexed),
+        len(last_known),
+    )
+    if cache is not None and rows and not unindexed and not last_known:
         cache.parent.mkdir(parents=True, exist_ok=True)
         cache.write_text(json.dumps(rows), encoding="utf-8")
     return rows
@@ -479,12 +567,22 @@ class Glo30Sampler:
 # --------------------------------------------------------------------------- #
 # Main method: official class at each point (no DEM)                            #
 # --------------------------------------------------------------------------- #
+class MapUnreadable(OSError):
+    """A map file exists but its polygons cannot be used (e.g. a truncated ``.shp``)."""
+
+
 class ClassIndex:
     """Per map file, an in-memory STRtree over the exploded class-polygon parts.
 
     Built lazily per file. Whole national-river files are huge, so nothing is merged,
     repaired or prepared as a whole; parts are queried by bounding box and tested one by
     one. Nothing is written to disk.
+
+    A file that yields **no** polygon part raises :class:`MapUnreadable`: it is only ever
+    queried for a point inside its header bounds, and an indexed file has non-degenerate
+    bounds (:func:`map_index` marks degenerate ones ``empty`` and they are never queried),
+    so zero parts means the records were lost (a truncated ``.shp`` reads as zero
+    features), not that the area is dry.
     """
 
     def __init__(self) -> None:
@@ -504,6 +602,8 @@ class ClassIndex:
                 parts.append(p)
                 codes += [code] * len(p)
             arr = np.concatenate(parts) if parts else np.array([], dtype=object)
+            if len(arr) == 0:
+                raise MapUnreadable(f"no polygon in {Path(path).name}")
             self._trees[path] = (shapely.STRtree(arr), arr, np.array(codes, dtype=object))
         return self._trees[path]
 
@@ -530,9 +630,15 @@ def basin_of(path: str) -> str | None:
 
 
 def available_files(index: list[dict[str, Any]]) -> set[tuple[str, str, int]]:
-    """The ``(family, basin, rp)`` of every map file in the index."""
+    """The ``(family, basin, rp)`` of every map file in the index that holds polygons.
+
+    A row flagged ``empty`` (degenerate header bounds) is not counted: the file exists but
+    holds nothing, so a basin's return period it stands for is treated as having no file.
+    """
     out: set[tuple[str, str, int]] = set()
     for row in index:
+        if row.get("empty"):
+            continue
         basin = basin_of(row["path"])
         if basin is not None:
             out.add((row["family"], basin, int(row["rp"])))
@@ -558,37 +664,50 @@ def classes_at_points(
     index: list[dict[str, Any]],
     cidx: ClassIndex,
     named_files: set[tuple[str, str, int]] | None = None,
+    return_periods: Iterable[int] | None = None,
 ) -> dict[str, Any]:
-    """Official class per point and return period; a missing national file is unknown.
+    """Official class per point and return period; a missing or unreadable file is unknown.
 
     Rule: the class at return period ``r`` is the deepest code over families and over the
     *existing* files with return period ``r' <= r`` (the envelope, which absorbs map
     inconsistency). Exception: if the point hit a national file of basin ``b`` and the file
-    ``(national, b, r)`` does not exist, the class at ``r`` is unknown (``None``, NaN depth)
-    with reason ``no_file_for_rp:<r>`` — another return period's value is never borrowed.
-    The 지방하천 family is 100-y by design and is never missing at 200 / 500 y; a point
-    under local maps only is flagged ``local_only`` (its 100-y class is a lower bound).
-    A point outside every polygon keeps ``""`` (0 m).
+    ``(national, b, r)`` does not exist (or is ``empty``), the class at ``r`` is unknown
+    (``None``, NaN depth) with reason ``no_file_for_rp:<r>`` — another return period's value
+    is never borrowed. The 지방하천 family is 100-y by design and is never missing at
+    200 / 500 y; a point under local maps only is flagged ``local_only`` (its 100-y class is
+    a lower bound). A point outside every polygon keeps ``""`` (0 m).
 
-    A file that exists but cannot be read (``cidx.code_at`` raises, e.g. an iCloud dataless
-    zip) makes every point inside its bounds unknown (``None``) at its return period and
-    deeper ones (the envelope would include it), reason ``map_unreadable:<rp>``; it is logged
-    once per file (name only). If ``named_files`` (from :func:`named_files`) lists a national
-    file that is absent from ``index`` (its header could not be read), a point that hit another
-    file of that basin gets the same reason instead of ``no_file_for_rp``. Bounds of an
-    unindexed file are unknown, so for every (family, rp) that has an unindexed file, every
-    point that hit no indexed file of that family and return period is unknown too
-    (``map_unreadable:<rp>``, national, local and urban alike), whereas a point that did hit
-    one keeps its value. Limitation: a point inside a national basin but outside its 100-y
-    polygons is not flagged when only the 200 / 500-y file is missing or unreadable (that
-    needs basin boundaries, Part 2).
+    Unreadable files give ``None`` with reason ``map_unreadable:<rp>`` at their return period
+    and the deeper ones (the envelope would include them):
+
+    * a file that is indexed but cannot be read now (``cidx.code_at`` raises — e.g. an
+      iCloud dataless zip offline, or a truncated ``.shp`` with no records): every point
+      inside its bounds; logged once per file (name only);
+    * a file that exists by name (``named_files``, from :func:`named_files`) but is not in
+      ``index`` (its header could not be read, so its extent is unknown): for its
+      ``(family, rp)``, every point **without a polygon hit** in an indexed file of that
+      family and return period. A bounding-box hit is not enough: the readable file's box
+      may span the point while the unindexed file is the one that covers it.
+
+    Limitation: a point inside a national basin but outside its 100-y polygons is not
+    flagged when only that basin's 200 / 500-y file is missing (that needs basin
+    boundaries, Part 2).
 
     Algorithm:
         $$c_r(p) = \\max_{f}\\ \\max_{r' \\le r,\\ (f,b,r')\\ \\text{exists}}
         \\text{code}_{f,r'}(p)$$
         ASCII: c_r(p) = max over families f and existing files (f,b,r'), r' <= r,
-        of code[f,r'](p); None when (national,b,r) is absent for a basin b hit.
+        of code[f,r'](p); None when (national,b,r) is absent for a basin b hit, or when a
+        file that could hold p at r' <= r is unreadable.
         ``code`` is the ordinal SEG_CODE N330..N334 (dimensionless).
+
+    Args:
+        points_lonlat: ``(lon, lat)`` per point (degrees, WGS84).
+        index: Rows of :func:`map_index`.
+        cidx: Polygon lookup (:class:`ClassIndex`).
+        named_files: Files that exist by name for the same family set as ``index``.
+        return_periods: Return periods to report (years); default :data:`RETURN_PERIODS`.
+            Pass ``(100,)`` for the 100-y-only urban maps so no 200 / 500-y reason appears.
 
     Returns:
         ``{"codes": [[code or None per point] per RP], "rps", "file100", "xy",
@@ -597,26 +716,33 @@ def classes_at_points(
     """
     from pyproj import Transformer
 
+    rps_out = tuple(int(r) for r in (RETURN_PERIODS if return_periods is None else return_periods))
     to_map = Transformer.from_crs(4326, MAP_CRS, always_xy=True)
     xs, ys = to_map.transform([p[0] for p in points_lonlat], [p[1] for p in points_lonlat])
     n = len(points_lonlat)
     have = available_files(index)
-    unindexed = (named_files or set()) - have
+    empty = {
+        (str(r["family"]), b, int(r["rp"]))
+        for r in index
+        if r.get("empty") and (b := basin_of(r["path"])) is not None
+    }
+    unindexed = (named_files or set()) - have - empty
     if unindexed:
         log.warning("classes_at_points: %d map files exist but are not indexed", len(unindexed))
     unindexed_fr = {(f, r) for f, _b, r in unindexed}
-    hit_fr: list[set[tuple[str, int]]] = [set() for _ in range(n)]
+    poly_fr: list[set[tuple[str, int]]] = [set() for _ in range(n)]  # polygon hits only
     bad_paths: set[str] = set()
     bad_rp: list[int | None] = [None] * n  # shallowest unreadable rp hit per point
     per: list[dict[str, dict[int, str]]] = [{} for _ in range(n)]
     nat_basins: list[set[str]] = [set() for _ in range(n)]
     file100: list[str | None] = [None] * n
     for row in index:
+        if row.get("empty"):
+            continue  # no polygon in it: it covers nothing
         x0, y0, x1, y1 = row["bounds"]
         for i, (x, y) in enumerate(zip(xs, ys, strict=True)):
             if not (x0 <= x <= x1 and y0 <= y <= y1):
                 continue
-            hit_fr[i].add((row["family"], int(row["rp"])))
             if row["path"] in bad_paths:
                 bad_rp[i] = min(int(row["rp"]), bad_rp[i] or 10**9)
                 continue
@@ -629,6 +755,7 @@ def classes_at_points(
                 continue
             if not code:
                 continue
+            poly_fr[i].add((row["family"], int(row["rp"])))
             fam = per[i].setdefault(row["family"], {})
             fam[row["rp"]] = max(fam.get(row["rp"], ""), code)
             basin = basin_of(row["path"])
@@ -639,12 +766,12 @@ def classes_at_points(
     codes: list[list[str | None]] = []
     missing: list[list[bool]] = []
     reasons: list[list[str]] = [[] for _ in range(n)]
-    for rp in RETURN_PERIODS:
+    for rp in rps_out:
         row_codes: list[str | None] = []
         row_missing: list[bool] = []
         for i in range(n):
             unreadable = (bad_rp[i] is not None and bad_rp[i] <= rp) or any(
-                (f, r) not in hit_fr[i] for f, r in unindexed_fr if r <= rp
+                (f, r) not in poly_fr[i] for f, r in unindexed_fr if r <= rp
             )
             gap = any(("national", b, rp) not in have for b in nat_basins[i])
             row_missing.append(gap or unreadable)
@@ -660,14 +787,15 @@ def classes_at_points(
         missing.append(row_missing)
     local_only = [bool(per[i]) and set(per[i]) == {"local"} for i in range(n)]
     log.debug(
-        "classes_at_points: points=%d missing_points=%d local_only=%d",
+        "classes_at_points: points=%d rps=%s missing_points=%d local_only=%d",
         n,
+        rps_out,
         sum(1 for r in reasons if r),
         sum(local_only),
     )
     return {
         "codes": codes,
-        "rps": list(RETURN_PERIODS),
+        "rps": list(rps_out),
         "file100": file100,
         "xy": (xs, ys),
         "missing": missing,
@@ -819,7 +947,9 @@ def check_summary(
     """Agreement of the edge depth with the official band; ``warn`` per the documented rule.
 
     Warn when at least ``min_n`` points have a finite check depth and either the share
-    inside the band is below ``min_share`` or the class medians are not monotonic.
+    inside the band is below ``min_share`` or the class medians are not monotonic. With
+    fewer than ``min_n`` points nothing was compared: ``warn`` is ``None`` (no verdict, the
+    check is recorded as skipped) and ``note`` says ``not enough points (n=…)``.
     """
     ok = [(c, h, d) for c, h, d in pairs if c and np.isfinite(h)]
     n = len(ok)
@@ -841,8 +971,9 @@ def check_summary(
         "median_by_class": {k: round(v, 2) for k, v in mono["median_by_class"].items()},
         "monotonic": mono["monotonic"],
         "dem_used": dem_counts,
-        "warn": bool(reasons),
+        "warn": bool(reasons) if n >= min_n else None,
         "warn_reason": "; ".join(reasons) or None,
+        "note": None if n >= min_n else f"not enough points (n={n})",
         "rule": f"warn if n >= {min_n} and (share < {min_share} or medians not monotonic)",
     }
 

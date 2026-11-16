@@ -35,7 +35,7 @@ def main(argv: list[str] | None = None) -> int:
     if not root.is_dir():
         print(f"floodmap folder not found: {root}", file=sys.stderr)
         return 1
-    rows = fd.coverage_table(root)
+    rows = fd.coverage_table(root, {**fd.FAMILIES, **fd.URBAN_FAMILIES})
     out = paths.derived_dir("floodmap") / "coverage.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(rows, ensure_ascii=False, indent=1), encoding="utf-8")

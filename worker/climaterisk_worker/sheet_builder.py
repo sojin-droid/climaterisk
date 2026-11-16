@@ -138,6 +138,27 @@ def _band(code: str | None) -> list[float | None] | None:
     return [lo, hi]
 
 
+def reasons_by_rp(reason: str | None) -> dict[str, str | None]:
+    """Split a per-point reason (``"no_file_for_rp:200;map_unreadable:500"``) by period.
+
+    Returns:
+        ``{rp100, rp200, rp500}`` → ``"no_file_for_rp"``, ``"map_unreadable"`` or ``None``
+        (the class is known). Only the reason kind is kept; it never names a file.
+    """
+    out: dict[str, str | None] = dict.fromkeys(RP_KEYS)
+    for token in (reason or "").split(";"):
+        kind, _, rp = token.partition(":")
+        key = f"rp{rp}"
+        if key in out and kind in SITE_REASONS and out[key] is None:
+            out[key] = kind
+    return out
+
+
+#: Why a site class is unknown (``null``): no map file for that return period, or a map
+#: file that exists but could not be read. Mirrors ``climaterisk.sheets.SITE_REASONS``.
+SITE_REASONS = ("no_file_for_rp", "map_unreadable")
+
+
 def assemble_sheet(
     *,
     sheet_id: str,
@@ -159,8 +180,12 @@ def assemble_sheet(
     date: str,
     use: str = DEFAULT_USE,
     extra_sources: list[str] | None = None,
+    site_reason: str | None = None,
 ) -> dict[str, Any]:
     """Put the pieces together as a schema-valid sheet. Missing heights stay ``None``.
+
+    ``site_reason`` is the site's per-point reason from ``classes_at_points``; it becomes
+    ``site.reasons`` so the screen can tell "no map for that period" from "map unreadable".
 
     ``cut`` holds ``lon``, ``lat``, ``km`` (sample arrays/lists), ``bearing_deg`` and
     optionally ``length_km`` (default: the last sample's km). ``site.km`` is the distance
@@ -205,6 +230,7 @@ def assemble_sheet(
             "z_ground_m": _clean(site_z_ground),
             "z_surface_m": _clean(site_z_surface),
             "classes": {k: site_classes[k] for k in RP_KEYS},
+            "reasons": reasons_by_rp(site_reason),
             "bands_m": {k: _band(site_classes[k]) for k in RP_KEYS},
             "depth_m": depth_m,
             "check_depth_m": {k: _clean(check_depths.get(k)) for k in RP_KEYS},
@@ -325,12 +351,17 @@ def build_sheet(
     root = paths.floodmap_dir()
     if not root.is_dir():
         raise FileNotFoundError(f"홍수위험지도 not found under {root}")
+    missing = fd.missing_folders(root, fd.FAMILIES)
+    if missing:  # a partial sync would draw every sample as outside the maps (0 m)
+        raise FileNotFoundError(
+            f"홍수위험지도 river-map folder(s) missing or empty under {root}: " + ", ".join(missing)
+        )
     lons, lats, km = cut_line(lat, lon, bearing_deg, half_km, step_km)
     n = len(km)
     points = [(float(x), float(y)) for x, y in zip(lons, lats, strict=True)] + [(lon, lat)]
     index = fd.map_index(root, paths.cache_dir("floodmap", "rfm_index.json"))
     cidx = fd.ClassIndex()
-    res = fd.classes_at_points(points, index, cidx, named_files=fd.named_files(root))
+    res = fd.classes_at_points(points, index, cidx, named_files=fd.named_files(root, fd.FAMILIES))
     codes = res["codes"]  # [rp][point]
     section_classes = {k: list(codes[i][:n]) for i, k in enumerate(RP_KEYS)}
     site_classes = {k: codes[i][n] for i, k in enumerate(RP_KEYS)}
@@ -399,6 +430,7 @@ def build_sheet(
         check_dem=check_dem,
         global_depths=global_depths,
         date=_date.today().isoformat(),
+        site_reason=res["reason"][n],
     )
 
 
@@ -425,9 +457,12 @@ def _site_check_depths(
         best: tuple[str, str] | None = None  # (code, path)
         for row in index:
             x0, y0, x1, y1 = row["bounds"]
-            if row["rp"] != rp or not (x0 <= x <= x1 and y0 <= y <= y1):
+            if row.get("empty") or row["rp"] != rp or not (x0 <= x <= x1 and y0 <= y <= y1):
                 continue
-            code = cidx.code_at(row["path"], x, y)
+            try:
+                code = cidx.code_at(row["path"], x, y)
+            except Exception:  # unreadable file: no check depth from it (diagnostic only)
+                continue
             if code and (best is None or code > best[0]):
                 best = (code, row["path"])
         if best is None:

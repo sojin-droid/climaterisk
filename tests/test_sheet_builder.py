@@ -173,3 +173,35 @@ def test_missing_national_rp_class_stays_none_not_dry() -> None:
     assert sheet["section"]["classes"]["rp200"][0] is None
     assert sheet["stamps"]["review"]["of"] == 1  # only rp100 can be compared
     assert sb._band(None) is None
+
+
+def test_site_reasons_say_why_a_class_is_unknown() -> None:
+    lon, lat, km = sb.cut_line(37.547, 127.047, bearing_deg=90.0, half_km=0.3, step_km=0.1)
+    n = len(km)
+    sheet = sb.assemble_sheet(
+        sheet_id="DM-T3",
+        title="시험 도면",
+        place="시험",
+        site={"lat": 37.547, "lon": 127.047},
+        cut={"lon": lon.tolist(), "lat": lat.tolist(), "km": km.tolist(), "bearing_deg": 90.0},
+        z_ground=[None] * n,
+        ground_source="test_dem",
+        z_surface=[None] * n,
+        surface_source="test_dsm",
+        section_classes={"rp100": ["N333"] * n, "rp200": [None] * n, "rp500": [None] * n},
+        site_classes={"rp100": "N333", "rp200": None, "rp500": None},
+        site_z_ground=None,
+        site_z_surface=None,
+        check_depths={"rp100": None, "rp200": None, "rp500": None},
+        check_dem="none",
+        global_depths=None,
+        date="2026-11-16",
+        site_reason="no_file_for_rp:200;map_unreadable:500",
+    )
+    assert validate_sheet(sheet) == []
+    assert sheet["site"]["reasons"] == {
+        "rp100": None,
+        "rp200": "no_file_for_rp",
+        "rp500": "map_unreadable",
+    }
+    assert sb.reasons_by_rp(None) == {"rp100": None, "rp200": None, "rp500": None}

@@ -799,7 +799,17 @@ class KoreaLocalFloodAdapter:
     ) -> Any:
         if not points:
             raise ValueError("the Korea-local flood adapter reads asset points; none were given")
-        key = (tuple((float(a), float(b)) for a, b in points), self.mode, self.open_depth)
+        from climaterisk_worker import floodmap_depth as fd
+        from climaterisk_worker._paths import paths
+
+        root = paths.floodmap_dir()
+        key = (
+            tuple((float(a), float(b)) for a, b in points),
+            self.mode,
+            self.open_depth,
+            str(root),
+            fd.files_fingerprint(root, fd.FAMILIES),  # the files the index is built from
+        )
         memo = KoreaLocalFloodAdapter._map_memo
         if memo is not None and memo[0] == key:
             # the same assets under the same map (e.g. the 2010–2030 baseline run after a
@@ -820,7 +830,8 @@ class KoreaLocalFloodAdapter:
         self.diagnostics["climate_delta"] = delta
         return fdl.scale_frequency(hazard, delta["factor"])
 
-    #: Last map overlay ``(key, hazard, diagnostics)``, reused within one process.
+    #: Last map overlay ``(key, hazard, diagnostics)``, reused within one process. The key
+    #: holds the points, the depth settings, the map root and the stat of every map zip.
     _map_memo: tuple[Any, Any, dict[str, Any]] | None = None
 
     def _map_hazard(self, points: list[tuple[float, float]]) -> Any:
@@ -838,12 +849,18 @@ class KoreaLocalFloodAdapter:
         root = paths.floodmap_dir()
         if not root.is_dir():
             raise HazardUnavailable(f"홍수위험지도 not found under {root}")
+        missing = fd.missing_folders(root, fd.FAMILIES)
+        if missing:  # a partial sync would read every asset as outside the maps (0 m)
+            raise HazardUnavailable(
+                f"홍수위험지도 river-map folder(s) missing or empty under {root}: "
+                + ", ".join(missing)
+            )
         index = fd.map_index(root, paths.cache_dir("floodmap", "rfm_index.json"))
         res = fd.classes_at_points(
             [(lon, lat) for lat, lon in points],
             index,
             fd.ClassIndex(),
-            named_files=fd.named_files(root),
+            named_files=fd.named_files(root, fd.FAMILIES),
         )
         dep = fd.class_depths(res["codes"], self.mode, self.open_depth)
         depth = dep["depth"]
@@ -1304,11 +1321,17 @@ class KoreaLocalPluvialAdapter:
     ) -> Any:
         if not points:
             raise ValueError("the Korea-local pluvial adapter reads asset points; none were given")
+        from climaterisk_worker import floodmap_depth as fd
+        from climaterisk_worker._paths import paths
+
+        root = paths.floodmap_dir()
         key = (
             tuple((float(a), float(b)) for a, b in points),
             self.mode,
             self.open_depth,
             self.trace_buffer_m,
+            str(root),
+            fd.files_fingerprint(root, fd.URBAN_FAMILIES),
         )
         memo = KoreaLocalPluvialAdapter._memo
         if memo is not None and memo[0] == key:
@@ -1336,14 +1359,23 @@ class KoreaLocalPluvialAdapter:
         root = paths.floodmap_dir()
         if not root.is_dir():
             raise HazardUnavailable(f"홍수위험지도 not found under {root}")
+        missing = fd.missing_folders(root, fd.URBAN_FAMILIES)
+        if missing:
+            raise HazardUnavailable(
+                f"도시침수지도 (CFM) folder missing or empty under {root}: " + ", ".join(missing)
+            )
         index = fd.map_index(
             root, paths.cache_dir("floodmap", "cfm_index.json"), families=fd.URBAN_FAMILIES
         )
         if not index:
-            raise HazardUnavailable(f"도시침수지도 (CFM) files not found under {root}")
+            raise HazardUnavailable(f"도시침수지도 (CFM) files not readable under {root}")
         lonlat = [(lon, lat) for lat, lon in points]
         res = fd.classes_at_points(
-            lonlat, index, fd.ClassIndex(), named_files=fd.named_files(root, fd.URBAN_FAMILIES)
+            lonlat,
+            index,
+            fd.ClassIndex(),
+            named_files=fd.named_files(root, fd.URBAN_FAMILIES),
+            return_periods=(100,),  # the urban maps are 100-y only
         )
         codes = [res["codes"][0]]  # the 100-y row
         dep = fd.class_depths(codes, self.mode, self.open_depth)

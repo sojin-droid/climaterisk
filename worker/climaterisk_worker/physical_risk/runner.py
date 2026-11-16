@@ -166,6 +166,9 @@ def _rows_for(
             )
             for f in facilities
         ]
+        if status == CalculationStatus.NO_HAZARD_DATA.value:
+            for row in rows:  # the text stays in status_detail; the reason is a short key
+                row.unavailable_reason = "no_hazard_data"
         return _stamp(rows, tag, desc.model_id), {
             **desc.to_dict(),
             "spatial_resolution": None,
@@ -186,6 +189,8 @@ def _rows_for(
             )
             for f in facilities
         ]
+        for row in rows:  # the text stays in status_detail; the reason is a short key
+            row.unavailable_reason = "hazard_unavailable"
         return _stamp(rows, tag, desc.model_id), {
             **desc.to_dict(),
             "spatial_resolution": None,
@@ -252,6 +257,9 @@ def _rows_for(
         )
         for i, f in enumerate(facilities)
     ]
+    local_only = (getattr(adapter, "diagnostics", None) or {}).get("local_only")
+    if local_only is not None:
+        _flag_lower_bound(rows, local_only)
     if curves is not None and event_losses is not None:
         curves.extend(_loss_curves(rows, event_losses, hazard.frequency, tag, common))
     record = {**desc.to_dict(), "spatial_resolution": resolution}
@@ -267,6 +275,27 @@ def _rows_for(
     if resolution_error:
         record["spatial_resolution_error"] = resolution_error
     return _stamp(rows, tag, desc.model_id), record
+
+
+#: Row note for an asset under a 지방하천 (local, 100-y only) map and no national map.
+LOWER_BOUND_NOTE = "lower bound: local 100-y map only (its class is used at 200 / 500 y)"
+
+
+def _flag_lower_bound(rows: list[ResultRow], local_only: list[bool]) -> None:
+    """Mark rows whose depth comes from a 100-y local map only (aligned with ``rows``).
+
+    The note is appended to ``confidence`` and ``status_detail`` so it reaches the table,
+    the Excel hazard sheet and the UI. A row without a known hazard is left unchanged.
+    """
+    for row, flag in zip(rows, local_only, strict=False):
+        if not flag or row.unavailable_reason is not None:
+            continue
+        row.confidence = (
+            f"{row.confidence}; {LOWER_BOUND_NOTE}" if row.confidence else LOWER_BOUND_NOTE
+        )
+        row.status_detail = (
+            f"{row.status_detail}; {LOWER_BOUND_NOTE}" if row.status_detail else LOWER_BOUND_NOTE
+        )
 
 
 def compute_physical_risk_models(request: dict[str, Any]) -> dict[str, Any]:

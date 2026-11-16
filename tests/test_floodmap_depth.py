@@ -296,7 +296,7 @@ def test_check_summary_agreement_and_warn_rule() -> None:
 def test_check_summary_needs_enough_points_and_ignores_nan() -> None:
     few = [("N333", 0.1, "dem")] * 5 + [("N333", float("nan"), "")]
     s = fd.check_summary(few)
-    assert s["n_points"] == 5 and s["n_not_computable"] == 1 and s["warn"] is False
+    assert s["n_points"] == 5 and s["n_not_computable"] == 1 and s["warn"] is None
     assert fd.check_summary([])["share_in_band"] is None
 
 
@@ -317,7 +317,7 @@ def test_coverage_table_from_names(tmp_path: Path) -> None:
     d500.mkdir()
     (d100 / "RFM_SBSN_NTN_2101_100.zip").write_bytes(b"")
     (d500 / "RFM_SBSN_NTN_2101_500.zip").write_bytes(b"")
-    rows = fd.coverage_table(tmp_path)
+    rows = fd.coverage_table(tmp_path, {**fd.FAMILIES, **fd.URBAN_FAMILIES})
     assert sorted((r["family"], r["basin"], r["rp"], r["state"]) for r in rows) == [
         ("national", "2101", 100, "present"),
         ("national", "2101", 500, "present"),
@@ -331,9 +331,12 @@ def test_coverage_table_marks_dataless(tmp_path: Path, monkeypatch: pytest.Monke
     (d / "RFM_SBSN_NTN_2101_100.zip").write_bytes(b"")
     (d / "RFM_SBSN_NTN_2102_100.zip").write_bytes(b"")
     monkeypatch.setattr(fd, "is_dataless", lambda p: p.name.endswith("2102_100.zip"))
-    got = {r["basin"]: r["state"] for r in fd.coverage_table(tmp_path)}
+    got = {r["basin"]: r["state"] for r in fd.coverage_table(tmp_path, fd.FAMILIES)}
     assert got == {"2101": "present", "2102": "dataless"}
-    assert fd.named_files(tmp_path) == {("national", "2101", 100), ("national", "2102", 100)}
+    assert fd.named_files(tmp_path, fd.FAMILIES) == {
+        ("national", "2101", 100),
+        ("national", "2102", 100),
+    }
 
 
 def test_is_dataless_reads_the_flag_only_on_macos(
@@ -434,3 +437,249 @@ def test_map_index_cache_with_a_missing_name_rebuilds(tmp_path: Path) -> None:
     b = _zip_map(d, "CFM_SBSN_2102_100", {"N331": box(20, 20, 30, 30)})
     idx = fd.map_index(tmp_path, cache, families=fd.URBAN_FAMILIES)
     assert {r["path"] for r in idx} == {str(a), str(b)}
+
+
+# --------------------------------------------------------------------------- #
+# Fix wave 2026-11-16 (Fable deep check): unknown never becomes 0 m              #
+# --------------------------------------------------------------------------- #
+NAT = fd.FAMILIES["national"]
+LOC = fd.FAMILIES["local"][100]
+URB = fd.URBAN_FAMILIES["urban"][100]
+
+
+def _ll(x: float, y: float) -> tuple[float, float]:
+    from pyproj import Transformer
+
+    lon, lat = Transformer.from_crs(5186, 4326, always_xy=True).transform(x, y)
+    return float(lon), float(lat)
+
+
+def test_named_files_and_coverage_table_need_the_family_set(tmp_path: Path) -> None:
+    # the default used to include the urban maps: a river caller then counted every urban
+    # zip as an unindexed river file and every river point became map_unreadable
+    with pytest.raises(TypeError):
+        fd.named_files(tmp_path)  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        fd.coverage_table(tmp_path)  # type: ignore[call-arg]
+    (tmp_path / URB).mkdir()
+    (tmp_path / URB / "CFM_SBSN_2101_100.zip").write_bytes(b"")
+    assert fd.named_files(tmp_path, fd.FAMILIES) == set()
+    assert fd.named_files(tmp_path, fd.URBAN_FAMILIES) == {("urban", "2101", 100)}
+
+
+@pytest.mark.parametrize(
+    ("folder", "families", "family"),
+    [(LOC, fd.FAMILIES, "local"), (URB, fd.URBAN_FAMILIES, "urban")],
+)
+def test_unindexed_zip_makes_a_point_in_a_readable_bbox_but_outside_its_polygons_unknown(
+    tmp_path: Path, folder: str, families: dict[str, dict[int, str]], family: str
+) -> None:
+    d = tmp_path / folder
+    d.mkdir()
+    prefix = "RFM_SBSN_RGN" if family == "local" else "CFM_SBSN"
+    # a readable file whose bbox spans the point but whose polygons are far from it
+    _zip_map(
+        d,
+        f"{prefix}_9009_100",
+        {"N330": box(190000, 490000, 190010, 490010), "N331": box(290000, 560000, 290010, 560010)},
+    )
+    (d / f"{prefix}_9006_100.zip").write_bytes(b"not a zip")  # the one that may cover it
+    idx = fd.map_index(tmp_path, families=families)
+    named = fd.named_files(tmp_path, families)
+    pts = [_ll(255500, 500500), _ll(190005, 490005)]
+    res = fd.classes_at_points(pts, idx, fd.ClassIndex(), named_files=named)
+    assert res["codes"][0][0] is None  # was "" (0 m) from the bbox hit
+    assert "map_unreadable:100" in res["reason"][0]
+    assert res["codes"][0][1] == "N330" and res["reason"][1] is None  # a polygon hit keeps it
+
+
+def test_missing_folders_names_absent_and_empty_family_folders(tmp_path: Path) -> None:
+    assert sorted(fd.missing_folders(tmp_path, fd.FAMILIES)) == sorted([*NAT.values(), LOC])
+    for folder in [*NAT.values(), LOC]:
+        (tmp_path / folder).mkdir()
+    (tmp_path / LOC / "RFM_SBSN_RGN_1001_100.zip").write_bytes(b"")
+    for folder in NAT.values():
+        (tmp_path / folder / "RFM_SBSN_NTN_1001_100.zip").write_bytes(b"")
+    assert fd.missing_folders(tmp_path, fd.FAMILIES) == []
+    (tmp_path / NAT[500] / "RFM_SBSN_NTN_1001_100.zip").unlink()  # partial sync: empty folder
+    assert fd.missing_folders(tmp_path, fd.FAMILIES) == [NAT[500]]
+    assert fd.missing_folders(tmp_path, fd.URBAN_FAMILIES) == [URB]
+
+
+def test_map_index_never_writes_an_empty_cache(tmp_path: Path) -> None:
+    for folder in NAT.values():
+        (tmp_path / folder).mkdir()
+    cache = tmp_path / "cache" / "rfm.json"
+    assert fd.map_index(tmp_path, cache) == []
+    assert not cache.exists()
+
+
+def test_truncated_shapefile_is_unreadable_not_dry(tmp_path: Path) -> None:
+    d = tmp_path / NAT[100]
+    d.mkdir()
+    zp = _zip_map(d, "RFM_SBSN_NTN_9004_100", {"N333": box(240000, 500000, 241000, 501000)})
+    with zipfile.ZipFile(zp) as z:
+        items = {n: z.read(n) for n in z.namelist()}
+    with zipfile.ZipFile(zp, "w") as z:  # valid header, zero records
+        for n, b in items.items():
+            z.writestr(n, b[:100] if n.endswith(".shp") else b)
+    idx = fd.map_index(tmp_path)
+    assert len(idx) == 1  # the header still gives the bounds
+    res = fd.classes_at_points([_ll(240500, 500500)], idx, fd.ClassIndex())
+    assert res["codes"][0] == [None]
+    assert res["reason"][0].startswith("map_unreadable:100")
+
+
+def test_degenerate_header_bounds_is_an_empty_file_not_an_existing_one(
+    tmp_path: Path,
+) -> None:
+    gpd = pytest.importorskip("geopandas")
+    for rp in (100, 500):
+        (tmp_path / NAT[rp]).mkdir()
+        _zip_map(
+            tmp_path / NAT[rp],
+            f"RFM_SBSN_NTN_1202_{rp}",
+            {"N331": box(200000, 500000, 201000, 501000)},
+        )
+    d200 = tmp_path / NAT[200]
+    d200.mkdir()
+    work = tmp_path / "_empty"
+    work.mkdir()
+    gpd.GeoDataFrame({"SEG_CODE": []}, geometry=[], crs=5186).to_file(
+        work / "RFM_SBSN_NTN_1202_200.shp"
+    )
+    with zipfile.ZipFile(d200 / "RFM_SBSN_NTN_1202_200.zip", "w") as z:
+        for f in work.iterdir():
+            z.write(f, f.name)
+    cache = tmp_path / "cache" / "rfm.json"
+    idx = fd.map_index(tmp_path, cache)
+    empty = [r for r in idx if r.get("empty")]
+    assert [Path(r["path"]).name for r in empty] == ["RFM_SBSN_NTN_1202_200.zip"]
+    assert ("national", "1202", 200) not in fd.available_files(idx)
+    named = fd.named_files(tmp_path, fd.FAMILIES)
+    res = fd.classes_at_points(
+        [_ll(200500, 500500), _ll(300500, 600500)], idx, fd.ClassIndex(), named_files=named
+    )
+    # inside the basin's 100-y polygon: the 200-y file holds nothing, so 200 is unknown
+    assert [res["codes"][k][0] for k in range(3)] == ["N331", None, "N331"]
+    assert res["reason"][0] == "no_file_for_rp:200"
+    # outside every polygon: still 0 m, the empty file is not an unknown-extent file
+    assert [res["codes"][k][1] for k in range(3)] == ["", "", ""]
+    assert res["reason"][1] is None
+
+
+def _write_n100(tmp_path: Path, name: str, poly: object) -> Path:
+    d = tmp_path / NAT[100]
+    d.mkdir(exist_ok=True)
+    work = tmp_path / "_w" / name
+    if work.exists():
+        import shutil
+
+        shutil.rmtree(work)
+    work.mkdir(parents=True)
+    gpd = pytest.importorskip("geopandas")
+    gpd.GeoDataFrame({"SEG_CODE": ["N331"]}, geometry=[poly], crs=5186).to_file(
+        work / f"{name}.shp"
+    )
+    zp = d / f"{name}.zip"
+    with zipfile.ZipFile(zp, "w") as z:
+        for f in work.iterdir():
+            z.write(f, f.name)
+    return zp
+
+
+def test_map_index_cache_records_size_and_mtime_and_rebuilds_a_replaced_zip(
+    tmp_path: Path,
+) -> None:
+    import os
+
+    cache = tmp_path / "cache" / "rfm.json"
+    zp = _write_n100(tmp_path, "RFM_SBSN_NTN_9001_100", box(200000, 500000, 201000, 501000))
+    idx = fd.map_index(tmp_path, cache)
+    st = zp.stat()
+    assert idx[0]["size"] == st.st_size and idx[0]["mtime_ns"] == st.st_mtime_ns
+    import json
+
+    assert json.loads(cache.read_text())[0]["mtime_ns"] == st.st_mtime_ns
+    # replaced under the same name: new extent
+    _write_n100(tmp_path, "RFM_SBSN_NTN_9001_100", box(300000, 500000, 301000, 501000))
+    os.utime(zp, ns=(st.st_atime_ns, st.st_mtime_ns + 10**9))
+    idx2 = fd.map_index(tmp_path, cache)
+    assert idx2[0]["bounds"][0] == pytest.approx(300000.0)
+
+
+def test_old_format_cache_without_stat_fields_is_stale(tmp_path: Path) -> None:
+    import json
+
+    cache = tmp_path / "cache" / "rfm.json"
+    zp = _write_n100(tmp_path, "RFM_SBSN_NTN_9001_100", box(300000, 500000, 301000, 501000))
+    cache.parent.mkdir(parents=True)
+    old = [{"path": str(zp), "family": "national", "rp": 100, "bounds": [0, 0, 1, 1]}]
+    cache.write_text(json.dumps(old))
+    idx = fd.map_index(tmp_path, cache)
+    assert idx[0]["bounds"][0] == pytest.approx(300000.0)  # rebuilt, not trusted
+    assert "mtime_ns" in json.loads(cache.read_text())[0]
+
+
+def test_unchanged_rows_are_reused_and_an_unreadable_one_keeps_its_last_bounds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cache = tmp_path / "cache" / "rfm.json"
+    a = _write_n100(tmp_path, "RFM_SBSN_NTN_9001_100", box(200000, 500000, 201000, 501000))
+    b = _write_n100(tmp_path, "RFM_SBSN_NTN_9002_100", box(210000, 500000, 211000, 501000))
+    first = {r["path"]: r for r in fd.map_index(tmp_path, cache)}
+    # a new file appears (cache no longer matches); offline every header read now fails
+    (tmp_path / NAT[100] / "RFM_SBSN_NTN_9003_100.zip").write_bytes(b"not a zip")
+    import os
+
+    st = b.stat()
+    os.utime(b, ns=(st.st_atime_ns, st.st_mtime_ns + 10**9))  # b changed on disk
+
+    def _fail(zp: Path) -> None:
+        raise OSError("offline dataless")
+
+    monkeypatch.setattr(fd, "_shp_bounds", _fail)
+    idx = {r["path"]: r for r in fd.map_index(tmp_path, cache)}
+    assert idx[str(a)]["bounds"] == first[str(a)]["bounds"]  # unchanged: reused, not opened
+    assert not idx[str(a)].get("last_known_bounds")
+    assert idx[str(b)]["bounds"] == first[str(b)]["bounds"]  # unreadable now: last-known
+    assert idx[str(b)]["last_known_bounds"] is True
+    assert len(idx) == 2  # 9003 has no bounds at all: unindexed
+    import json
+
+    assert set(json.loads(cache.read_text())[0]) >= {"size", "mtime_ns"}
+    assert len(json.loads(cache.read_text())) == 2  # the old complete cache is not overwritten
+
+
+def test_reasons_cover_only_the_requested_return_periods() -> None:
+    rows = [
+        {
+            "path": "/maps/CFM_SBSN_2101_100.zip",
+            "family": "urban",
+            "rp": 100,
+            "bounds": (-1e12, -1e12, 1e12, 1e12),
+        }
+    ]
+    named = {("urban", "2101", 100), ("urban", "2102", 100)}
+    res = fd.classes_at_points(
+        _PT,
+        rows,
+        _FakeCidx({}),
+        named_files=named,
+        return_periods=(100,),  # type: ignore[arg-type]
+    )
+    assert res["rps"] == [100] and len(res["codes"]) == 1
+    assert res["reason"] == ["map_unreadable:100"]
+
+
+def test_check_summary_with_too_few_points_gives_no_verdict() -> None:
+    s = fd.check_summary([("N333", 0.1, "dem")] * 5, min_n=20)
+    assert s["warn"] is None and s["note"] == "not enough points (n=5)"
+    assert fd.check_summary([])["warn"] is None
+    from climaterisk.physical_risk.method_registry import _state_of
+
+    check = {"status": "built", "diagnostics_key": "sub_check"}
+    assert _state_of(check, {"sub_check": fd.check_summary([])}) == (
+        "skipped",
+        "not enough points (n=0)",
+    )
