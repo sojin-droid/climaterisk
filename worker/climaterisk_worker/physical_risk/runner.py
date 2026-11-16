@@ -226,6 +226,7 @@ def _rows_for(
             "levee_protected_cells": defences["levee_cells"],
             "levee_basis": defences["levee_basis"],
         }
+    reasons = (getattr(adapter, "diagnostics", None) or {}).get("per_point_reason")
     rows = [
         engine.calculate(
             f,
@@ -236,9 +237,10 @@ def _rows_for(
             defences=defences,
             hazard_only=desc.status == adapters.HAZARD_ONLY,
             hazard_only_detail=desc.detail,
+            point_reason=reasons[i] if reasons is not None and i < len(reasons) else None,
             **common,
         )
-        for f in facilities
+        for i, f in enumerate(facilities)
     ]
     if curves is not None and event_losses is not None:
         curves.extend(_loss_curves(rows, event_losses, hazard.frequency, tag, common))

@@ -99,6 +99,18 @@ def _hazard_intensity_at(hazard: Any, lat: float, lon: float) -> float | None:
     return None if np.isnan(peak) else peak  # NaN = unknown, never reported as 0
 
 
+def _column_has_nan(hazard: Any, lat: float, lon: float) -> bool:
+    """True when the intensity column at the nearest centroid holds a NaN (unknown depth)."""
+    import numpy as np
+
+    lats = np.asarray(hazard.centroids.lat, dtype=float)
+    lons = np.asarray(hazard.centroids.lon, dtype=float)
+    if lats.size == 0:
+        return False
+    idx = int(np.argmin((lats - lat) ** 2 + (lons - lon) ** 2))
+    return bool(np.isnan(hazard.intensity[:, idx].data).any())
+
+
 def _potential_loss(impact: Any, return_period: float) -> tuple[float | None, str | None]:
     """Loss at ``return_period``, or None with a reason when the set cannot resolve it."""
     import numpy as np
@@ -144,6 +156,7 @@ def calculate(
     defences: dict[str, Any] | None = None,
     hazard_only: bool = False,
     hazard_only_detail: str | None = None,
+    point_reason: str | None = None,
 ) -> ResultRow:
     """Price one facility against one hazard set, or say why it cannot be priced.
 
@@ -182,6 +195,10 @@ def calculate(
             Korea-local coastal flood): the intensity is recorded and the row is
             ``HAZARD_ONLY`` with null money, as for heat.
         hazard_only_detail: The row's ``status_detail`` for such a row.
+        point_reason: Why the hazard is unknown at this asset (e.g. ``no_file_for_rp:200``),
+            from the adapter's per-point diagnostics. A priced hazard whose intensity at
+            the facility's centroid holds NaN becomes ``NO_HAZARD_DATA`` with this reason
+            (``nan_hazard`` when none is given); NaN is never read as 0.
 
     Returns:
         A finalised :class:`ResultRow`; financial fields are null unless the status is
@@ -243,6 +260,8 @@ def calculate(
 
     row.hazard_intensity = _hazard_intensity_at(hazard, lat, lon)
     row.hazard_intensity_unit = str(getattr(hazard, "units", "") or None)
+    if row.hazard_intensity is None and (hazard_only or hazard_type in HAZARD_ONLY_HAZARDS):
+        row.unavailable_reason = point_reason or "nan_hazard"
 
     if hazard_only and hazard_type not in HAZARD_ONLY_HAZARDS:
         row.calculation_status = CalculationStatus.HAZARD_ONLY.value
@@ -262,6 +281,12 @@ def calculate(
     if hazard_type not in PRICEABLE_HAZARDS:
         row.calculation_status = CalculationStatus.NO_IMPACT_FUNCTION.value
         row.status_detail = f"no published CLIMADA impact function registered for {hazard_type}"
+        return row.finalise(cfg)
+
+    if hazard_type in PRICEABLE_HAZARDS and _column_has_nan(hazard, lat, lon):
+        row.calculation_status = CalculationStatus.NO_HAZARD_DATA.value
+        row.status_detail = f"hazard unknown at this asset: {point_reason or 'NaN in hazard'}"
+        row.unavailable_reason = point_reason or "nan_hazard"
         return row.finalise(cfg)
 
     # --- the published impact function, unmodified and model-independent -------------

@@ -396,3 +396,86 @@ def test_the_threshold_never_touches_tropical_cyclone() -> None:
     assert row.eal_usd == pytest.approx(plain.eal_usd)
     assert row.flood_zero_damage_threshold_m is None  # a flood field; TC rows never carry it
     assert row.impact_function_source == plain.impact_function_source
+
+
+# --------------------------------------------------------------------------- #
+# NaN hazard = unknown, per asset (no return-period borrowing)                  #
+# --------------------------------------------------------------------------- #
+def _two_asset_rf() -> Hazard:
+    """3 events (rp100/200/500) at 2 centroids; asset A is NaN at rp200, B is finite."""
+    nan = np.nan
+    dense = np.array([[0.5, 0.5], [nan, 1.0], [2.0, 2.0]])
+    return Hazard(
+        haz_type="RF",
+        centroids=Centroids(lat=np.array([LAT, LAT + 1.0]), lon=np.array([LON, LON])),
+        event_id=np.arange(1, 4),
+        event_name=["rp100", "rp200", "rp500"],
+        date=np.zeros(3, dtype=int),
+        frequency=np.array([0.01, 0.005, 0.002]),
+        frequency_unit="1/year",
+        intensity=sparse.csr_matrix(dense),
+        fraction=sparse.csr_matrix((np.nan_to_num(dense) > 0).astype(float)),
+        units="m",
+    )
+
+
+def test_nan_intensity_is_no_hazard_data_with_reason() -> None:
+    hazard = _two_asset_rf()
+    hazard.check()  # CLIMADA accepts NaN in the sparse intensity
+    a = calculate(
+        FACILITY,
+        hazard,
+        "RF",
+        model_id=ModelId.KOREA_LOCAL.value,
+        point_reason="no_file_for_rp:200",
+    )
+    assert a.calculation_status == CalculationStatus.NO_HAZARD_DATA.value
+    assert a.unavailable_reason == "no_file_for_rp:200"
+    assert a.eal_usd is None
+    assert "no_file_for_rp:200" in (a.status_detail or "")
+    b = calculate(
+        {**FACILITY, "facility_id": "B", "latitude": LAT + 1.0},
+        hazard,
+        "RF",
+        model_id=ModelId.KOREA_LOCAL.value,
+    )
+    assert b.calculation_status == CalculationStatus.FULL.value
+    assert b.eal_usd is not None and np.isfinite(b.eal_usd) and b.unavailable_reason is None
+
+
+def test_nan_intensity_without_a_reason_says_nan_hazard() -> None:
+    row = calculate(FACILITY, _two_asset_rf(), "RF", model_id=ModelId.KOREA_LOCAL.value)
+    assert row.calculation_status == CalculationStatus.NO_HAZARD_DATA.value
+    assert row.unavailable_reason == "nan_hazard"
+
+
+def test_future_factor_keeps_nan() -> None:
+    from climaterisk_worker import flood_delta
+
+    hazard = _two_asset_rf()
+    scaled = flood_delta.scale_frequency(hazard, 2.0)
+    dense = scaled.intensity.toarray()
+    assert np.isnan(dense[1, 0]) and np.isfinite(dense[1, 1])
+    np.testing.assert_allclose(scaled.frequency, hazard.frequency * 2.0)
+
+
+def test_totals_cover_priced_assets_only() -> None:
+    from climaterisk.physical_risk import results_table as rt
+
+    nan_row = calculate(
+        FACILITY,
+        _two_asset_rf(),
+        "RF",
+        model_id=ModelId.KOREA_LOCAL.value,
+        point_reason="no_file_for_rp:200",
+    )
+    ok_row = calculate(
+        {**FACILITY, "facility_id": "B", "latitude": LAT + 1.0},
+        _two_asset_rf(),
+        "RF",
+        model_id=ModelId.KOREA_LOCAL.value,
+    )
+    ok_row.eal_usd = 10.0  # a known EAL so the sum is checkable by hand
+    line = next(r for r in rt.portfolio_totals_frame([nan_row, ok_row]) if r["Hazard"] != "All")
+    assert line["Total EAL"] == pytest.approx(10.0)
+    assert line["Priced"] == 1 and line["Assets Assessed"] == 2

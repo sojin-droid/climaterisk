@@ -844,6 +844,8 @@ class KoreaLocalFloodAdapter:
             "classes": {f"rp{rp}": row for rp, row in zip(res["rps"], res["codes"], strict=True)},
             "depth_lower_m": dep["lower"].tolist(),
             "depth_upper_m": [[None if np.isnan(v) else v for v in r] for r in dep["upper"]],
+            "per_point_reason": list(res["reason"]),  # aligned with ``points``
+            "local_only": list(res["local_only"]),  # 100-y local map only: a lower bound
             "sub_check": self._check(res, fd, paths, offline),
         }
         rps = [int(r) for r in res["rps"]]

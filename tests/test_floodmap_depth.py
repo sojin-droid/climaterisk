@@ -210,6 +210,75 @@ def test_classes_at_points_on_synthetic_maps(tmp_path: Path) -> None:
     )
 
 
+class _FakeCidx:
+    """``code_at(path, x, y)`` driven by a dict ``{path: code}`` (no real maps)."""
+
+    def __init__(self, codes: dict[str, str]) -> None:
+        self.codes = codes
+
+    def code_at(self, path: str, x: float, y: float) -> str:
+        return self.codes.get(path, "")
+
+
+def _fake_row(family: str, basin: str, rp: int) -> dict[str, object]:
+    stem = "RFM_SBSN_NTN" if family == "national" else "RFM_SBSN_RGN"
+    return {
+        "path": f"/maps/{stem}_{basin}_{rp}.zip",
+        "family": family,
+        "rp": rp,
+        "bounds": (-1e12, -1e12, 1e12, 1e12),
+    }
+
+
+_PT = [(127.0, 37.5)]
+
+
+def test_basin_of_and_available_files() -> None:
+    assert fd.basin_of("/x/RFM_SBSN_NTN_2101_200.zip") == "2101"
+    assert fd.basin_of("/x/RFM_SBSN_RGN_1001_100.zip") == "1001"
+    assert fd.basin_of("/x/other.zip") is None
+    rows = [_fake_row("national", "2101", 100), _fake_row("local", "1001", 100)]
+    assert fd.available_files(rows) == {("national", "2101", 100), ("local", "1001", 100)}
+
+
+def test_missing_national_rp_is_nan() -> None:
+    rows = [_fake_row("national", "2101", 100), _fake_row("national", "2101", 500)]
+    cidx = _FakeCidx({rows[0]["path"]: "N331", rows[1]["path"]: "N332"})  # type: ignore[dict-item]
+    res = fd.classes_at_points(_PT, rows, cidx)  # type: ignore[arg-type]
+    assert [res["codes"][k][0] for k in range(3)] == ["N331", None, "N332"]
+    assert res["missing"][1][0] is True and res["missing"][0][0] is False
+    assert res["reason"] == ["no_file_for_rp:200"]
+    assert res["local_only"] == [False]
+    dep = fd.class_depths(res["codes"], "mid", 5.0)
+    assert np.isnan(dep["depth"][1, 0]) and np.isnan(dep["lower"][1, 0])
+    assert np.isnan(dep["upper"][1, 0])
+    assert dep["depth"][0, 0] == pytest.approx(0.75)
+
+
+def test_local_only_is_a_100y_lower_bound() -> None:
+    rows = [_fake_row("local", "1001", 100)]
+    cidx = _FakeCidx({rows[0]["path"]: "N331"})  # type: ignore[dict-item]
+    res = fd.classes_at_points(_PT, rows, cidx)  # type: ignore[arg-type]
+    assert [res["codes"][k][0] for k in range(3)] == ["N331"] * 3
+    assert res["local_only"] == [True] and res["reason"] == [None]
+
+
+def test_existing_file_dry_point_keeps_the_envelope() -> None:
+    rows = [_fake_row("national", "2101", rp) for rp in (100, 200, 500)]
+    cidx = _FakeCidx({rows[0]["path"]: "N331"})  # type: ignore[dict-item]
+    res = fd.classes_at_points(_PT, rows, cidx)  # type: ignore[arg-type]
+    assert [res["codes"][k][0] for k in range(3)] == ["N331"] * 3
+    assert res["reason"] == [None] and res["local_only"] == [False]
+
+
+def test_outside_everything_reads_zero() -> None:
+    rows = [_fake_row("national", "2101", 100), _fake_row("national", "2101", 500)]
+    res = fd.classes_at_points(_PT, rows, _FakeCidx({}))  # type: ignore[arg-type]
+    assert [res["codes"][k][0] for k in range(3)] == ["", "", ""]
+    assert res["reason"] == [None]
+    assert fd.class_depths(res["codes"])["depth"][:, 0].tolist() == [0.0, 0.0, 0.0]
+
+
 # --------------------------------------------------------------------------- #
 # Sub check summary                                                              #
 # --------------------------------------------------------------------------- #

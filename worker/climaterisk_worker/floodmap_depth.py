@@ -33,6 +33,8 @@ Assumptions (also recorded on the Models-tab row):
 from __future__ import annotations
 
 import json
+import logging
+import re
 import struct
 import zipfile
 from collections.abc import Callable, Iterable
@@ -416,8 +418,28 @@ class ClassIndex:
         return best
 
 
+def basin_of(path: str) -> str | None:
+    """The 4-digit basin of a map zip named ``..._<basin>_<rp>.zip``, or None."""
+    m = re.search(r"_(\d{4})_\d+\.zip$", str(path))
+    return m.group(1) if m else None
+
+
+def available_files(index: list[dict[str, Any]]) -> set[tuple[str, str, int]]:
+    """The ``(family, basin, rp)`` of every map file in the index."""
+    out: set[tuple[str, str, int]] = set()
+    for row in index:
+        basin = basin_of(row["path"])
+        if basin is not None:
+            out.add((row["family"], basin, int(row["rp"])))
+    return out
+
+
 def class_for_return_period(rp: int, per_family: dict[str, dict[int, str]]) -> str:
-    """Deepest class at ``rp``; a family without ``rp`` lends its largest mapped RP ≤ ``rp``."""
+    """Deepest class at ``rp``; a family without ``rp`` lends its largest mapped RP ≤ ``rp``.
+
+    This is the envelope over the files that exist. A national file that does *not* exist
+    is handled by :func:`classes_at_points` (NaN), not here.
+    """
     vals: list[str] = []
     for codes in per_family.values():
         usable = [r for r in codes if r <= rp]
@@ -429,18 +451,38 @@ def class_for_return_period(rp: int, per_family: dict[str, dict[int, str]]) -> s
 def classes_at_points(
     points_lonlat: list[tuple[float, float]], index: list[dict[str, Any]], cidx: ClassIndex
 ) -> dict[str, Any]:
-    """Official class per point and return period.
+    """Official class per point and return period; a missing national file is unknown.
+
+    Rule: the class at return period ``r`` is the deepest code over families and over the
+    *existing* files with return period ``r' <= r`` (the envelope, which absorbs map
+    inconsistency). Exception: if the point hit a national file of basin ``b`` and the file
+    ``(national, b, r)`` does not exist, the class at ``r`` is unknown (``None``, NaN depth)
+    with reason ``no_file_for_rp:<r>`` — another return period's value is never borrowed.
+    The 지방하천 family is 100-y by design and is never missing at 200 / 500 y; a point
+    under local maps only is flagged ``local_only`` (its 100-y class is a lower bound).
+    A point outside every polygon keeps ``""`` (0 m).
+
+    Algorithm:
+        $$c_r(p) = \\max_{f}\\ \\max_{r' \\le r,\\ (f,b,r')\\ \\text{exists}}
+        \\text{code}_{f,r'}(p)$$
+        ASCII: c_r(p) = max over families f and existing files (f,b,r'), r' <= r,
+        of code[f,r'](p); None when (national,b,r) is absent for a basin b hit.
+        ``code`` is the ordinal SEG_CODE N330..N334 (dimensionless).
 
     Returns:
-        ``{"codes": [[code per point] per RP], "rps", "file100": [map file of the 100-y
-        hit per point or None], "xy": (xs, ys) in the map CRS}``.
+        ``{"codes": [[code or None per point] per RP], "rps", "file100", "xy",
+        "missing": [[bool per point] per RP], "reason": [str | None per point],
+        "local_only": [bool per point]}``.
     """
     from pyproj import Transformer
 
     to_map = Transformer.from_crs(4326, MAP_CRS, always_xy=True)
     xs, ys = to_map.transform([p[0] for p in points_lonlat], [p[1] for p in points_lonlat])
-    per: list[dict[str, dict[int, str]]] = [{} for _ in points_lonlat]
-    file100: list[str | None] = [None] * len(points_lonlat)
+    n = len(points_lonlat)
+    have = available_files(index)
+    per: list[dict[str, dict[int, str]]] = [{} for _ in range(n)]
+    nat_basins: list[set[str]] = [set() for _ in range(n)]
+    file100: list[str | None] = [None] * n
     for row in index:
         x0, y0, x1, y1 = row["bounds"]
         for i, (x, y) in enumerate(zip(xs, ys, strict=True)):
@@ -451,28 +493,70 @@ def classes_at_points(
                 continue
             fam = per[i].setdefault(row["family"], {})
             fam[row["rp"]] = max(fam.get(row["rp"], ""), code)
+            basin = basin_of(row["path"])
+            if row["family"] == "national" and basin is not None:
+                nat_basins[i].add(basin)
             if row["rp"] == 100 and (file100[i] is None or row["family"] == "national"):
                 file100[i] = row["path"]
-    codes = [
-        [class_for_return_period(rp, per[i]) for i in range(len(per))] for rp in RETURN_PERIODS
-    ]
-    return {"codes": codes, "rps": list(RETURN_PERIODS), "file100": file100, "xy": (xs, ys)}
+    codes: list[list[str | None]] = []
+    missing: list[list[bool]] = []
+    reasons: list[list[str]] = [[] for _ in range(n)]
+    for rp in RETURN_PERIODS:
+        row_codes: list[str | None] = []
+        row_missing: list[bool] = []
+        for i in range(n):
+            gap = any(("national", b, rp) not in have for b in nat_basins[i])
+            row_missing.append(gap)
+            if gap:
+                row_codes.append(None)
+                reasons[i].append(f"no_file_for_rp:{rp}")
+            else:
+                row_codes.append(class_for_return_period(rp, per[i]))
+        codes.append(row_codes)
+        missing.append(row_missing)
+    local_only = [bool(per[i]) and set(per[i]) == {"local"} for i in range(n)]
+    logging.getLogger(__name__).debug(
+        "classes_at_points: points=%d missing_points=%d local_only=%d",
+        n,
+        sum(1 for r in reasons if r),
+        sum(local_only),
+    )
+    return {
+        "codes": codes,
+        "rps": list(RETURN_PERIODS),
+        "file100": file100,
+        "xy": (xs, ys),
+        "missing": missing,
+        "reason": [";".join(r) if r else None for r in reasons],
+        "local_only": local_only,
+    }
 
 
 def class_depths(
-    codes: list[list[str]], mode: str = "mid", open_class_depth_m: float = 5.0
+    codes: list[list[str | None]], mode: str = "mid", open_class_depth_m: float = 5.0
 ) -> dict[str, np.ndarray]:
     """Representative, lower and upper depth arrays ``(n_rp, n_pt)`` for class codes.
 
-    ``upper`` is NaN for the open class (no published upper bound); outside = 0.
+    ``upper`` is NaN for the open class (no published upper bound); outside (``""``) = 0.
+    A ``None`` code (no map file for that return period) is NaN in all three arrays —
+    unknown, never 0.
     """
+    nan = float("nan")
     rep = np.array(
-        [[representative_depth(c, mode, open_class_depth_m) for c in row] for row in codes]
+        [
+            [nan if c is None else representative_depth(c, mode, open_class_depth_m) for c in row]
+            for row in codes
+        ]
     )
-    lo = np.array([[BANDS[c][0] if c else 0.0 for c in row] for row in codes])
+    lo = np.array(
+        [[nan if c is None else (BANDS[c][0] if c else 0.0) for c in row] for row in codes]
+    )
     hi = np.array(
         [
-            [(np.nan if BANDS[c][1] is None else BANDS[c][1]) if c else 0.0 for c in row]
+            [
+                nan if c is None else ((nan if BANDS[c][1] is None else BANDS[c][1]) if c else 0.0)
+                for c in row
+            ]
             for row in codes
         ]
     )
