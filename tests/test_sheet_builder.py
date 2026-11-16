@@ -202,3 +202,10 @@ def test_site_reasons_say_why_a_class_is_unknown() -> None:
         "rp500": "map_unreadable",
     }
     assert sb.reasons_by_rp(None) == {"rp100": None, "rp200": None, "rp500": None}
+
+
+def test_site_reasons_have_one_meaning_in_builder_and_validator() -> None:
+    """The builder writes the reasons the stdlib validator accepts — the two copies agree."""
+    from climaterisk import sheets
+
+    assert sb.SITE_REASONS == sheets.SITE_REASONS
