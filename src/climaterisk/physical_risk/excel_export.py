@@ -125,7 +125,7 @@ _PLAIN_FORMATS: tuple[tuple[str, str], ...] = (  # first match wins: ratios befo
     ("Factor", "0.0000"),
     ("Asset Value", '"$"#,##0'),
     (" EAL", '"$"#,##0'),
-    ("Tmax", '0.0" °C"'),
+    ("UTCI ≥38", "0.0"),  # heat: days per year
 )
 #: Columns whose cells get the risk-level colour scale.
 _RISK_COLUMNS: frozenset[str] = frozenset(

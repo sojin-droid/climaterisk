@@ -90,14 +90,18 @@ def _priced(fid: str, haz: str, model: str, eal: float, pml: float, **kw) -> Res
     )
 
 
-def _output(n_facilities: int = 2) -> dict:  # type: ignore[type-arg]
+def _output(n_facilities: int = 2, local_flood_priced: bool = False) -> dict:  # type: ignore[type-arg]
     rows: list[ResultRow] = []
     for i in range(n_facilities):
         fid = f"F{i + 1}"
         rows += [
             _priced(fid, "RF", G, 75_000.0 * (i + 1), 7_200_000.0),
             _priced(fid, "RF", C, 90_000.0 * (i + 1), 8_600_000.0),
-            _row(fid, "RF", K, calculation_status="NOT_IMPLEMENTED", status_detail="no adapter"),
+            _priced(fid, "RF", K, 110_000.0 * (i + 1), 9_100_000.0)
+            if local_flood_priced
+            else _row(
+                fid, "RF", K, calculation_status="NOT_IMPLEMENTED", status_detail="no adapter"
+            ),
             _priced(fid, "TC", G, 3_576.18, 121_636.62),
             _priced(fid, "TC", C, 3_576.18, 121_636.62),
             _row(fid, "TC", K, calculation_status="NOT_IMPLEMENTED"),
@@ -235,7 +239,9 @@ def test_writer_refuses_frames_without_the_identity_columns() -> None:
 # Aggregate tier — Portfolio Totals                                            #
 # --------------------------------------------------------------------------- #
 def test_portfolio_totals_sums_only_priced_eal_and_never_a_return_period_loss() -> None:
-    out = _output()  # two facilities; the recommended scope for RF and TC is DATA_API_COUNTRY
+    out = _output(
+        local_flood_priced=True
+    )  # two facilities; the rank-1 scope is KOREA_LOCAL for RF and DATA_API_COUNTRY for TC
     wb = _book(out)
     assert wb.sheetnames[0] == "Portfolio Totals"
     totals = {r["Hazard"]: r for r in _sheet_rows(wb["Portfolio Totals"])}
@@ -244,16 +250,18 @@ def test_portfolio_totals_sums_only_priced_eal_and_never_a_return_period_loss() 
     assert "Baseline EAL" not in header  # no baseline scenario was run
     flood = totals["Flood"]
     assert flood["Assets Assessed"] == 2 and flood["Priced"] == 2
-    assert flood["Total EAL"] == pytest.approx(90_000.0 + 180_000.0)  # country rows, not global
+    assert flood["Total EAL"] == pytest.approx(
+        110_000.0 + 220_000.0
+    )  # rank-1 (local) rows, not global or country
     assert flood["Priced Asset Value"] == pytest.approx(200_000_000.0)
-    assert flood["Total EAL / Assets"] == pytest.approx(270_000.0 / 200_000_000.0 * 100.0)
+    assert flood["Total EAL / Assets"] == pytest.approx(330_000.0 / 200_000_000.0 * 100.0)
     heat = totals["Heatwave"]
     assert heat["Priced"] == 0 and heat["Hazard Only"] == 2
     assert heat["Total EAL"] is None and heat["Priced Asset Value"] is None  # empty, never 0
     overall = totals["All priced hazards"]
     assert overall["Assets Assessed"] == 2 and overall["Priced"] == 2  # a point counts once
     assert overall["Hazard Only"] == 0  # both points are priced for another hazard
-    assert overall["Total EAL"] == pytest.approx(270_000.0 + 2 * 3_576.18)
+    assert overall["Total EAL"] == pytest.approx(330_000.0 + 2 * 3_576.18)
     assert overall["Priced Asset Value"] == pytest.approx(200_000_000.0)
     assert list(totals) == ["Flood", "Typhoon", "Heatwave", "All priced hazards"]
 
@@ -419,3 +427,35 @@ def test_cli_reads_facilities_with_aliases_and_refuses_missing_columns(tmp_path:
 def test_export_route_404s_for_an_unknown_run(client) -> None:  # type: ignore[no-untyped-def]
     r = client.get("/api/session/nope/run/nope/physical-risk-export.xlsx")
     assert r.status_code == 404
+
+
+def test_all_hazards_line_never_hides_an_unknown_hazard_behind_hazard_only() -> None:
+    from climaterisk.physical_risk import results_table as rt
+
+    def r(fid: str, haz: str, status: str, eal: float | None = None) -> ResultRow:
+        return ResultRow(
+            facility_id=fid,
+            facility_name=fid,
+            hazard_type=haz,
+            model_id="KOREA_LOCAL",
+            calculation_status=status,
+            eal_usd=eal,
+            asset_value_usd=1_000.0,
+        )
+
+    rows = [
+        r("A", "RF", "NO_HAZARD_DATA"),  # river flood unknown at A (e.g. map_unreadable)
+        r("A", "HW", "HAZARD_ONLY"),
+        r("B", "RF", "FULL", 5.0),
+        r("B", "HW", "HAZARD_ONLY"),
+        r("C", "RF", "FULL", 0.0),  # C: known for every hazard, hazard-only otherwise
+        r("C", "HW", "HAZARD_ONLY"),
+        r("D", "HW", "HAZARD_ONLY"),  # D: hazard-only everywhere it was assessed
+    ]
+    totals = {line["Hazard"]: line for line in rt.portfolio_totals_frame(rows)}
+    flood = totals["Flood"]  # per-hazard line unchanged
+    assert (flood["Priced"], flood["Hazard Only"], flood["Not Available"]) == (2, 0, 1)
+    overall = totals["All priced hazards"]
+    assert overall["Assets Assessed"] == 4 and overall["Priced"] == 2
+    assert overall["Not Available"] == 1  # A: its river flood is unknown, not "hazard only"
+    assert overall["Hazard Only"] == 1  # D only

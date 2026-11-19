@@ -415,6 +415,8 @@ Uncertainty · Adaptation · Validation · Status · Main gap.
 
 ### 5.2 River flood (`river_flood`) — `P:444-538`
 
+> Method registry (2026-11-16): the rows below describe the CLIMADA (ISIMIP / Aqueduct) path, which is now a labelled *reference* model. The Korea headline is the official 홍수위험지도 (`KOREA_LOCAL`, no defence) — see METHODOLOGY "River flood headline for Korea".
+
 | Row | Content | Tag |
 |---|---|---|
 | Hazard source | Catalog first; else Data API `river_flood` (`climate_scenario`, `year_range`; per-country then global). Catalog may hold Aqueduct-ingested layers | `[EXTERNAL]` |
@@ -490,6 +492,8 @@ Uncertainty · Adaptation · Validation · Status · Main gap.
 | Main gap | Indicative MMI curves labelled as such; no Korean seismic curves | Medium |
 
 ### 5.6 Coastal flood (`coastal_flood`) — `P:771-858`
+
+> Method registry (2026-11-16): the Aqueduct path below is a labelled *reference* row, not the headline. The headline is the KHOA 약최고고조면 bathtub (`KOREA_LOCAL`, hazard-only; no coastal money in totals) — see METHODOLOGY "Korea-local coastal flood".
 
 | Row | Content | Tag |
 |---|---|---|

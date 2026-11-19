@@ -11,6 +11,9 @@ export const RAMP_LABELS = ["≤0.5", "0.5–1", "1–2", "2–5", "5 m 이상"]
 export const CERTAIN = "#6baed6";
 export const RANGE = "#c6dbef";
 export const RP_KEYS: RpKey[] = ["rp100", "rp200", "rp500"];
+/** Unknown (null class / null band): grey hatch, never the blank of "dry". */
+export const NODATA_GREY = "#8a9096";
+export const NODATA_LABEL = "값 없음 (지도 없음/읽을 수 없음)";
 
 const CODE_BANDS: Record<string, [number, number | null]> = {
   N330: [0, 0.5],
@@ -30,9 +33,15 @@ export function classIndex(code: string | undefined | null): number {
   return code ? Object.keys(CODE_BANDS).indexOf(code) : -1;
 }
 
-export function classColor(code: string | undefined | null): string {
+/**
+ * Fill of one class cell: the ramp colour of a class; "none" for "" (outside every polygon —
+ * dry, left undrawn); the no-data hatch `url(#hatchId)` for null / undefined (no map file or an
+ * unreadable one) or an unrecognised code — unknown is never drawn like dry.
+ */
+export function classColor(code: string | undefined | null, hatchId = "nodata-hatch"): string {
+  if (code === "") return "none";
   const i = classIndex(code);
-  return i < 0 ? "none" : RAMP[i];
+  return i < 0 ? `url(#${hatchId})` : RAMP[i];
 }
 
 const fmt = (n: number) => String(n);

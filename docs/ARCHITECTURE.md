@@ -43,6 +43,7 @@ server-side in `data/app.db` (SQLite, WAL). Edits are synced back with a debounc
 | `engines/` | The physical-engine request/result JSON contract |
 | `transition/` | Light transition-risk math (Phase 3) |
 | `api/` | FastAPI app + routers (thin) |
+| `physical_risk/method_registry.py` | loads `assets/libraries/method_registry.json`, the method authority: rank-1 model per peril, labelled reference rows, ordered checks |
 
 ## Perils database (local hazard catalog)
 

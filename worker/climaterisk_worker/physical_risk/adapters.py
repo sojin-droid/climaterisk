@@ -785,8 +785,10 @@ class KoreaLocalFloodAdapter:
                 "method tier T2. Depth = official class band (≤0.5 / 0.5–1 / 1–2 / 2–5 / ≥5 m; "
                 "code order inferred, not officially confirmed). Sub check: DEM edge depth vs "
                 f"the band, diagnostic only. {climate}; "
-                "assets outside the mapped reaches read 0 m; "
-                "지방하천 100-y class carried to 200/500 y as a lower bound; no event below 100 y"
+                "assets outside every mapped polygon read 0 m; a missing national "
+                "return-period file gives NaN (reason no_file_for_rp), never another "
+                "return period's value; 지방하천 maps are 100-y only and used as a lower "
+                "bound at 200/500 y; no event below 100 y"
             ),
         )
 
@@ -797,7 +799,17 @@ class KoreaLocalFloodAdapter:
     ) -> Any:
         if not points:
             raise ValueError("the Korea-local flood adapter reads asset points; none were given")
-        key = (tuple((float(a), float(b)) for a, b in points), self.mode, self.open_depth)
+        from climaterisk_worker import floodmap_depth as fd
+        from climaterisk_worker._paths import paths
+
+        root = paths.floodmap_dir()
+        key = (
+            tuple((float(a), float(b)) for a, b in points),
+            self.mode,
+            self.open_depth,
+            str(root),
+            fd.files_fingerprint(root, fd.FAMILIES),  # the files the index is built from
+        )
         memo = KoreaLocalFloodAdapter._map_memo
         if memo is not None and memo[0] == key:
             # the same assets under the same map (e.g. the 2010–2030 baseline run after a
@@ -818,7 +830,8 @@ class KoreaLocalFloodAdapter:
         self.diagnostics["climate_delta"] = delta
         return fdl.scale_frequency(hazard, delta["factor"])
 
-    #: Last map overlay ``(key, hazard, diagnostics)``, reused within one process.
+    #: Last map overlay ``(key, hazard, diagnostics)``, reused within one process. The key
+    #: holds the points, the depth settings, the map root and the stat of every map zip.
     _map_memo: tuple[Any, Any, dict[str, Any]] | None = None
 
     def _map_hazard(self, points: list[tuple[float, float]]) -> Any:
@@ -836,14 +849,27 @@ class KoreaLocalFloodAdapter:
         root = paths.floodmap_dir()
         if not root.is_dir():
             raise HazardUnavailable(f"홍수위험지도 not found under {root}")
+        missing = fd.missing_folders(root, fd.FAMILIES)
+        if missing:  # a partial sync would read every asset as outside the maps (0 m)
+            raise HazardUnavailable(
+                f"홍수위험지도 river-map folder(s) missing or empty under {root}: "
+                + ", ".join(missing)
+            )
         index = fd.map_index(root, paths.cache_dir("floodmap", "rfm_index.json"))
-        res = fd.classes_at_points([(lon, lat) for lat, lon in points], index, fd.ClassIndex())
+        res = fd.classes_at_points(
+            [(lon, lat) for lat, lon in points],
+            index,
+            fd.ClassIndex(),
+            named_files=fd.named_files(root, fd.FAMILIES),
+        )
         dep = fd.class_depths(res["codes"], self.mode, self.open_depth)
         depth = dep["depth"]
         self.diagnostics = {
             "classes": {f"rp{rp}": row for rp, row in zip(res["rps"], res["codes"], strict=True)},
             "depth_lower_m": dep["lower"].tolist(),
             "depth_upper_m": [[None if np.isnan(v) else v for v in r] for r in dep["upper"]],
+            "per_point_reason": list(res["reason"]),  # aligned with ``points``
+            "local_only": list(res["local_only"]),  # 100-y local map only: a lower bound
             "sub_check": self._check(res, fd, paths, offline),
         }
         rps = [int(r) for r in res["rps"]]
@@ -882,7 +908,8 @@ class KoreaLocalFloodAdapter:
                 **record,
                 "factor": 1.0,
                 "by_region": {},
-                "check": None,
+                # the 시도 check has nothing to compare: recorded as skipped with this reason
+                "check": {"warn": None, "note": "factor 1 by definition (present window)"},
                 "note": "the 2010–2030 window is the present of this chain: factor 1 by definition",
             }
         stats = self._isimip_factors()
@@ -991,7 +1018,7 @@ class KoreaLocalCoastalFloodAdapter:
 
         where $Z_{AHHW}$ (m above MSL) is the nearest KHOA station's M2+S2+K1+O1 amplitude
         sum, $s$ (m) the sea-level-rise increment and $z_{ground}$ (m above MSL) the asset
-        ground: bare-earth NGII DEM, else Copernicus GLO-30. Connectivity is
+        ground: Copernicus GLO-30 (one national ground, spec rule 5). Connectivity is
         :func:`climaterisk_worker.coastal_connectivity.tidal_mask` on GLO-30 reduced to 3 arcsec
         by the block minimum (structures narrower than ~90 m are removed).
 
@@ -1036,7 +1063,8 @@ class KoreaLocalCoastalFloodAdapter:
                 "method tier T2, hazard only. Depth = max(0, AHHW - ground) where the asset's "
                 "90 m cell is sea-connected. Assumptions: coastal structures narrower than "
                 "~90 m (seawalls, levees) are removed; nearest-station AHHW; present-day tidal "
-                "datum; no storm surge and no waves; ground = bare-earth NGII DEM else GLO-30; "
+                "datum; no storm surge and no waves; ground = Copernicus GLO-30 (surface "
+                "model, one national ground); "
                 "no loss computed"
             ),
         )
@@ -1139,7 +1167,11 @@ class KoreaLocalCoastalFloodAdapter:
 
     @staticmethod
     def _ground(lat: Any, lon: Any, paths: Any, offline: Any) -> tuple[Any, list[str | None]]:
-        """Asset ground (m above MSL): bare-earth NGII where it covers the point, else GLO-30."""
+        """Asset ground (m above MSL) from Copernicus GLO-30 only — one national ground.
+
+        Spec rule 5 (사용자 결정): the coastal main value uses GLO-30 everywhere, so the
+        ground does not switch source at an NGII tile edge. Unknown ground stays NaN.
+        """
         import numpy as np
         from pyproj import Transformer
 
@@ -1150,24 +1182,14 @@ class KoreaLocalCoastalFloodAdapter:
         xy = np.c_[xs, ys]
         ground = np.full(len(xy), np.nan)
         source: list[str | None] = [None] * len(xy)
-        bare = sorted(paths.external_dir("ngii_dem").glob("**/*.img"))
-        bare_s = fd.RasterSampler(bare) if bare else None
         glo = fd.Glo30Sampler(paths.external_dir("copernicus_dem"), allow_download=not offline())
         try:
             for i in range(len(xy)):
-                one = xy[i : i + 1]
-                if bare_s is not None:
-                    v = fd.StrictSampler(bare_s)(one)[0]
-                    if np.isfinite(v):
-                        ground[i], source[i] = v, "ngii_bare_earth_90m"
-                        continue
-                v = glo(one)[0]
+                v = glo(xy[i : i + 1])[0]
                 if np.isfinite(v):
                     ground[i], source[i] = v, "glo30_surface_model"
         finally:
             glo.close()
-            if bare_s is not None:
-                bare_s.close()
         return ground, source
 
     @staticmethod
@@ -1295,11 +1317,17 @@ class KoreaLocalPluvialAdapter:
     ) -> Any:
         if not points:
             raise ValueError("the Korea-local pluvial adapter reads asset points; none were given")
+        from climaterisk_worker import floodmap_depth as fd
+        from climaterisk_worker._paths import paths
+
+        root = paths.floodmap_dir()
         key = (
             tuple((float(a), float(b)) for a, b in points),
             self.mode,
             self.open_depth,
             self.trace_buffer_m,
+            str(root),
+            fd.files_fingerprint(root, fd.URBAN_FAMILIES),
         )
         memo = KoreaLocalPluvialAdapter._memo
         if memo is not None and memo[0] == key:
@@ -1327,18 +1355,30 @@ class KoreaLocalPluvialAdapter:
         root = paths.floodmap_dir()
         if not root.is_dir():
             raise HazardUnavailable(f"홍수위험지도 not found under {root}")
+        missing = fd.missing_folders(root, fd.URBAN_FAMILIES)
+        if missing:
+            raise HazardUnavailable(
+                f"도시침수지도 (CFM) folder missing or empty under {root}: " + ", ".join(missing)
+            )
         index = fd.map_index(
             root, paths.cache_dir("floodmap", "cfm_index.json"), families=fd.URBAN_FAMILIES
         )
         if not index:
-            raise HazardUnavailable(f"도시침수지도 (CFM) files not found under {root}")
+            raise HazardUnavailable(f"도시침수지도 (CFM) files not readable under {root}")
         lonlat = [(lon, lat) for lat, lon in points]
-        res = fd.classes_at_points(lonlat, index, fd.ClassIndex())
+        res = fd.classes_at_points(
+            lonlat,
+            index,
+            fd.ClassIndex(),
+            named_files=fd.named_files(root, fd.URBAN_FAMILIES),
+            return_periods=(100,),  # the urban maps are 100-y only
+        )
         codes = [res["codes"][0]]  # the 100-y row
         dep = fd.class_depths(codes, self.mode, self.open_depth)
         depth = dep["depth"]
         self.diagnostics = {
             "classes": {"rp100": codes[0]},
+            "per_point_reason": list(res["reason"]),  # aligned with ``points``
             "depth_lower_m": dep["lower"].tolist(),
             "depth_upper_m": [[None if np.isnan(v) else v for v in r] for r in dep["upper"]],
             "sub_check": dem_edge_check(

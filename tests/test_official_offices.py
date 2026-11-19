@@ -33,6 +33,7 @@ if str(REPO / "src") not in sys.path:
     sys.path.insert(0, str(REPO / "src"))
 
 from climaterisk.engines.base import PhysicalRiskModelsRequest  # noqa: E402
+from climaterisk.physical_risk import display_copy as dc  # noqa: E402
 from climaterisk.physical_risk import excel_export as xl  # noqa: E402
 from climaterisk.physical_risk import municipalities as mu  # noqa: E402
 from climaterisk.physical_risk import official_offices as oo  # noqa: E402
@@ -226,7 +227,7 @@ def _two_anchor_rows() -> list[ResultRow]:
                 fid,
                 BUSAN,
                 "RF",
-                C,
+                K,
                 pt,
                 lat,
                 lon,
@@ -268,7 +269,7 @@ def _two_anchor_rows() -> list[ResultRow]:
             SEOUL,
             SEOUL,
             "RF",
-            C,
+            K,
             rp,
             s.latitude,
             s.longitude,
@@ -281,7 +282,7 @@ def _two_anchor_rows() -> list[ResultRow]:
 
 
 def test_comparison_frame_shows_both_anchors_and_not_available() -> None:
-    frame = rt.official_office_comparison_frame(_two_anchor_rows())
+    frame = rt.official_office_comparison_frame(_two_anchor_rows(), dc.recommended_models())
     assert [line["municipality"] for line in frame] == ["부산광역시", "서울특별시"]
     busan, seoul = frame
     o, b = oo.offices_by_id()[BUSAN], mu.by_id([BUSAN])[0]

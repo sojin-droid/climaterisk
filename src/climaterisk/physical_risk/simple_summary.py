@@ -20,6 +20,12 @@ Algorithm:
 
     ``EAL_{i,h}``: expected annual loss of facility i for hazard h (USD/yr); ``m_h``:
     portfolio climate-change multiplier (dimensionless); ``s_k``: concentration share (0-1).
+
+    Unknown is never 0: every sum runs over **priced** rows only (an EAL that is known),
+    and a sum with no priced row is ``None``. ``EAL / value`` and the risk-level value shares
+    divide by the value of the priced assets, and every group reports ``n_priced`` of
+    ``n_assessed``. The multiplier uses the assets priced in both runs. Hazard-only rows
+    (known intensity, no money by design) are counted apart from unknown ones.
 """
 
 from __future__ import annotations
@@ -27,8 +33,9 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
+from climaterisk.physical_risk.display_copy import SCOPE_SHORT
 from climaterisk.physical_risk.metrics import ResultRow, jrc_sector_for, load_config
-from climaterisk.physical_risk.results_table import primary_rows
+from climaterisk.physical_risk.results_table import primary_rows, reference_only_cells
 
 __all__ = ["HAZARD_LABELS_KO", "build_simple_summary"]
 
@@ -44,12 +51,29 @@ HAZARD_LABELS_KO: dict[str, str] = {
 _PRICED = ("FULL", "RETURN_PERIOD_NOT_RESOLVABLE")
 
 
-def _primary(rows: Iterable[dict[str, Any]], preferred: dict[str, str] | None) -> list[ResultRow]:
+def _primary(
+    rows: Iterable[ResultRow | dict[str, Any]], preferred: dict[str, str] | None
+) -> list[ResultRow]:
     return list(primary_rows(rows, preferred).values())
 
 
+def _rows(rows: Iterable[ResultRow | dict[str, Any]]) -> list[ResultRow]:
+    return [r if isinstance(r, ResultRow) else ResultRow.from_dict(r) for r in rows]
+
+
+def _priced(r: ResultRow) -> bool:
+    """A row whose EAL is known (priced status and a number)."""
+    return r.calculation_status in _PRICED and r.eal_usd is not None
+
+
 def _eal(r: ResultRow) -> float:
-    return float(r.eal_usd or 0.0) if r.calculation_status in _PRICED else 0.0
+    """EAL of a priced row (USD/yr). Call only for :func:`_priced` rows."""
+    return float(r.eal_usd) if r.eal_usd is not None else float("nan")
+
+
+def _sum(values: list[float]) -> float | None:
+    """Sum, or ``None`` when there is nothing to sum (unknown, never 0)."""
+    return float(sum(values)) if values else None
 
 
 def _portfolio_curve(
@@ -70,8 +94,13 @@ def _portfolio_curve(
     return {}
 
 
-def _change(future: float, baseline: float | None, cfg: dict[str, Any]) -> dict[str, Any]:
-    """Present-to-future change of a group, with the kind the screen colours by."""
+def _change(future: float | None, baseline: float | None, cfg: dict[str, Any]) -> dict[str, Any]:
+    """Present-to-future change of a group, with the kind the screen colours by.
+
+    ``unknown`` when the group has no priced future row (nothing to compare).
+    """
+    if future is None:
+        return {"kind": "unknown", "pct": None}
     if baseline is None:
         return {"kind": "no_baseline", "pct": None}
     eps = float(cfg["zero_usd"])
@@ -102,8 +131,9 @@ def build_simple_summary(
         output: The worker output of a ``physical_risk_models`` run.
         krw_per_usd: Display exchange rate (KRW per USD) — the screen shows 억 원; amounts in
             the result stay USD, so the conversion is the viewer's only step.
-        preferred_models: Hazard tag → model id to read when several models were run
-            (normally ``display_copy.recommended_models()``).
+        preferred_models: Hazard tag → rank-1 model id whose rows are the result; other
+            models' rows are never read in its place. ``None`` means
+            ``display_copy.recommended_models()``.
         config: The physical-risk configuration (defaults to the library file).
 
     Returns:
@@ -113,14 +143,17 @@ def build_simple_summary(
     """
     cfg_all = config or load_config()
     cfg = cfg_all["simple_summary"]
-    future = _primary(output.get("rows") or [], preferred_models)
+    every = _rows(output.get("rows") or [])
+    future = _primary(every, preferred_models)
+    # cells assessed by reference models only: counted as assessed, never as the result
+    ref_only = reference_only_cells(every, preferred_models)
     baseline = _primary(output.get("baseline_rows") or [], preferred_models)
     base_by = {(r.facility_id, r.hazard_type): r for r in baseline}
     has_baseline = bool(baseline)
 
     values: dict[str, float] = {}
     meta: dict[str, dict[str, Any]] = {}
-    for r in future:
+    for r in every:
         if r.asset_value_usd is not None:
             values.setdefault(r.facility_id, float(r.asset_value_usd))
         meta.setdefault(
@@ -134,7 +167,7 @@ def build_simple_summary(
         )
     portfolio_value = sum(values.values())
     hazards = sorted(
-        {r.hazard_type for r in future},
+        {r.hazard_type for r in every},
         key=lambda h: list(HAZARD_LABELS_KO).index(h) if h in HAZARD_LABELS_KO else 99,
     )
 
@@ -148,10 +181,23 @@ def build_simple_summary(
     per_hazard: dict[str, Any] = {}
     for h in hazards:
         rows_h = [r for r in future if r.hazard_type == h]
-        priced = [r for r in rows_h if r.calculation_status in _PRICED]
-        eal = sum(_eal(r) for r in rows_h)
+        ref_h = [ref_only[k] for k in ref_only if k[1] == h]
+        n_assessed = len(rows_h) + len(ref_h)
+        not_run = not rows_h and bool(ref_h)  # the rank-1 model produced no row at all
+        priced = [r for r in rows_h if _priced(r)]
+        # hazard-only = a known intensity, no money by design; anything else unpriced is
+        # not available (an unknown hazard is NO_HAZARD_DATA, never "hazard only")
+        n_hazard_only = sum(1 for r in rows_h if r.calculation_status == "HAZARD_ONLY")
+        eal = _sum([_eal(r) for r in priced])
+        priced_value = _sum([values.get(r.facility_id, 0.0) for r in priced])
         base_rows_h = [base_by[(r.facility_id, h)] for r in rows_h if (r.facility_id, h) in base_by]
-        base_eal = sum(_eal(r) for r in base_rows_h) if base_rows_h else None
+        base_eal = _sum([_eal(r) for r in base_rows_h if _priced(r)])
+        pairs = [
+            (_eal(r), _eal(base_by[(r.facility_id, h)]))
+            for r in priced
+            if (r.facility_id, h) in base_by and _priced(base_by[(r.facility_id, h)])
+        ]
+        pair_future, pair_base = _sum([f for f, _ in pairs]), _sum([b for _, b in pairs])
         multiplier: float | None = None
         multiplier_note: str | None = None
         if not has_baseline:
@@ -161,22 +207,26 @@ def build_simple_summary(
                 "기준 자료의 모델 체인이 달라 배수를 내지 않음 "
                 "(현재기후 기준 'present'로 다시 실행)"
             )
-        elif not base_eal:
+        elif pair_base is None or pair_future is None:
+            multiplier_note = "두 실행 모두에서 손실을 계산한 자산이 없음 — 배수 정의 안 됨"
+        elif not pair_base:
             multiplier_note = "현재기후 손실이 0 — 배수 정의 안 됨"
         else:
-            multiplier = eal / base_eal
-        model = rows_h[0].model_id if rows_h else None
+            multiplier = pair_future / pair_base
+        model = rows_h[0].model_id if rows_h else (ref_h[0] if ref_h else None)
         fut_rp = _portfolio_curve(output.get("portfolio_loss_curves") or [], h, model)
         base_rp = _portfolio_curve(output.get("baseline_portfolio_loss_curves") or [], h, model)
         risk_counts = {
             lv: sum(1 for r in priced if r.risk_level == lv) for lv in ("High", "Medium", "Low")
         }
+        # share of the *priced* value (same denominator as eal_pct_of_value): an asset whose
+        # level is unknown is neither in the numerator nor in the denominator
         risk_value_share = {
             lv: (
                 sum(values.get(r.facility_id, 0.0) for r in priced if r.risk_level == lv)
-                / portfolio_value
-                if portfolio_value
-                else None
+                / priced_value
+                if priced_value
+                else None  # nothing priced: no level is known, never a 0 share
             )
             for lv in ("High", "Medium", "Low")
         }
@@ -201,16 +251,32 @@ def build_simple_summary(
         per_hazard[h] = {
             "label": HAZARD_LABELS_KO.get(h, h),
             "model_id": model,
-            "n_assets": len(rows_h),
+            "n_assets": n_assessed,
+            "n_assessed": n_assessed,
             "n_priced": len(priced),
+            "n_hazard_only": n_hazard_only,
+            "n_not_available": n_assessed - len(priced) - n_hazard_only,
+            "n_not_run_by_rank1": len(ref_h),
+            "not_run_by_rank1": not_run,
             "n_with_loss": sum(1 for r in priced if _eal(r) > 0),
             "eal_usd": eal,
-            "eal_pct_of_value": (eal / portfolio_value) if portfolio_value else None,
+            "priced_value_usd": priced_value,
+            "eal_pct_of_value": (
+                (eal / priced_value) if eal is not None and priced_value else None
+            ),
             "baseline_eal_usd": base_eal,
             "climate_multiplier": multiplier,
             "climate_multiplier_note": multiplier_note,
             "eal_undefended_usd": (
-                sum(float(r.eal_undefended_usd or 0.0) for r in priced) if protection else None
+                _sum(
+                    [
+                        float(r.eal_undefended_usd)
+                        for r in priced
+                        if r.eal_undefended_usd is not None
+                    ]
+                )
+                if protection
+                else None
             ),
             "flood_protection_return_periods_years": protection or None,
             "levee_protected_assets": sum(1 for r in rows_h if r.levee_protected)
@@ -238,19 +304,38 @@ def build_simple_summary(
         )
         p["n_assets"] += 1
         p["value_usd"] += values.get(fid, 0.0)
+    fut_vals: dict[tuple[str, str], list[float]] = {}
+    base_vals: dict[tuple[str, str], list[float]] = {}
     for r in future:
         key = meta[r.facility_id]["province_name"] or "(시도 미상)"
-        ph = provinces[key]["per_hazard"].setdefault(
-            r.hazard_type, {"future_usd": 0.0, "baseline_usd": 0.0 if has_baseline else None}
-        )
-        ph["future_usd"] += _eal(r)
+        fut_vals.setdefault((key, r.hazard_type), [])
+        base_vals.setdefault((key, r.hazard_type), [])
+        if _priced(r):
+            fut_vals[(key, r.hazard_type)].append(_eal(r))
         b = base_by.get((r.facility_id, r.hazard_type))
-        if has_baseline and b is not None:
-            ph["baseline_usd"] += _eal(b)
+        if has_baseline and b is not None and _priced(b):
+            base_vals[(key, r.hazard_type)].append(_eal(b))
+    for (key, h), vals in fut_vals.items():
+        provinces[key]["per_hazard"][h] = {
+            "future_usd": _sum(vals),
+            "baseline_usd": _sum(base_vals[(key, h)]) if has_baseline else None,
+        }
     prov_list = []
     for p in provinces.values():
-        fut_t = sum(v["future_usd"] for v in p["per_hazard"].values())
-        base_t = sum(v["baseline_usd"] for v in p["per_hazard"].values()) if has_baseline else None
+        fut_t = _sum(
+            [v["future_usd"] for v in p["per_hazard"].values() if v["future_usd"] is not None]
+        )
+        base_t = (
+            _sum(
+                [
+                    v["baseline_usd"]
+                    for v in p["per_hazard"].values()
+                    if v["baseline_usd"] is not None
+                ]
+            )
+            if has_baseline
+            else None
+        )
         for h, v in p["per_hazard"].items():
             v["change"] = (
                 _change(v["future_usd"], v["baseline_usd"], cfg)
@@ -265,19 +350,20 @@ def build_simple_summary(
             else {"kind": "no_baseline", "pct": None},
         }
         prov_list.append(p)
-    prov_list.sort(key=lambda p: -p["total"]["future_usd"])
+    prov_list.sort(key=lambda p: -(p["total"]["future_usd"] or 0.0))  # unknown sorts last-ish
 
-    # largest assets by total EAL across hazards
+    # largest assets by total EAL across their priced hazards
     totals: dict[str, float] = {}
     for r in future:
-        totals[r.facility_id] = totals.get(r.facility_id, 0.0) + _eal(r)
+        if _priced(r):
+            totals[r.facility_id] = totals.get(r.facility_id, 0.0) + _eal(r)
     grand = sum(totals.values())
     top_n = int(cfg["top_assets"])
     top_assets = []
     for fid in sorted(totals, key=lambda f: -totals[f])[:top_n]:
         if totals[fid] <= 0:
             break
-        rows_f = {r.hazard_type: r for r in future if r.facility_id == fid}
+        rows_f = {r.hazard_type: r for r in future if r.facility_id == fid and _priced(r)}
         main_h = max(rows_f, key=lambda h: _eal(rows_f[h]))
         b = base_by.get((fid, main_h))
         top_assets.append(
@@ -289,7 +375,7 @@ def build_simple_summary(
                 "share_of_portfolio_eal": totals[fid] / grand if grand else None,
                 "main_hazard": main_h,
                 "main_hazard_eal_usd": _eal(rows_f[main_h]),
-                "main_hazard_baseline_eal_usd": _eal(b) if b is not None else None,
+                "main_hazard_baseline_eal_usd": _eal(b) if b is not None and _priced(b) else None,
                 "main_hazard_risk_level": rows_f[main_h].risk_level,
             }
         )
@@ -308,17 +394,41 @@ def build_simple_summary(
                 }
             )
     for h, v in per_hazard.items():
-        if v["n_priced"] < v["n_assets"]:
+        if v["not_run_by_rank1"]:
+            scope = SCOPE_SHORT.get(v["model_id"] or "", v["model_id"])
             notes.append(
                 {
-                    "kind": "not_priced",
+                    "kind": "not_run_by_rank1",
                     "hazard": h,
                     "text": (
-                        f"{v['label']}: {v['n_assets'] - v['n_priced']}개 자산은 손실을 계산하지 "
-                        "못함 (계산 상태 참고)"
+                        f"{v['label']}: 1순위 방법({scope})으로 실행하지 않음 — 참고 모델 "
+                        "결과만 있어 결과로 쓰지 않음"
                     ),
                 }
             )
+        else:
+            if v["n_hazard_only"]:
+                notes.append(
+                    {
+                        "kind": "hazard_only",
+                        "hazard": h,
+                        "text": (
+                            f"{v['label']}: {v['n_hazard_only']}개 자산은 하자드만 산출"
+                            "(금액 없음, 설계상)"
+                        ),
+                    }
+                )
+            if v["n_not_available"]:
+                notes.append(
+                    {
+                        "kind": "not_priced",
+                        "hazard": h,
+                        "text": (
+                            f"{v['label']}: {v['n_not_available']}개 자산은 손실을 계산하지 "
+                            "못함 (계산 상태 참고)"
+                        ),
+                    }
+                )
         if v["flood_protection_return_periods_years"]:
             rps = " · ".join(f"{x:g}년" for x in v["flood_protection_return_periods_years"])
             notes.append(
@@ -339,7 +449,9 @@ def build_simple_summary(
         }
     )
 
-    total_eal = sum(v["eal_usd"] for v in per_hazard.values())
+    total_eal = _sum([v["eal_usd"] for v in per_hazard.values() if v["eal_usd"] is not None])
+    priced_ids = {r.facility_id for r in future if _priced(r)}
+    priced_value_all = _sum([values.get(fid, 0.0) for fid in priced_ids])
     return {
         "scope": {
             "n_assets": len(meta),
@@ -361,7 +473,14 @@ def build_simple_summary(
         "portfolio_value_usd": portfolio_value,
         "total": {
             "eal_usd": total_eal,
-            "eal_pct_of_value": (total_eal / portfolio_value) if portfolio_value else None,
+            "n_priced": len(priced_ids),
+            "n_assessed": len(meta),  # every point with any row, rank 1 or reference
+            "priced_value_usd": priced_value_all,
+            "eal_pct_of_value": (
+                (total_eal / priced_value_all)
+                if total_eal is not None and priced_value_all
+                else None
+            ),
         },
         "hazards": per_hazard,
         "provinces": prov_list,

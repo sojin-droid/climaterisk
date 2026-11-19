@@ -1,5 +1,6 @@
 import type { GlobalPeriod, Sheet } from "./types";
-import { CERTAIN, DEEP, INK, MUTED, RANGE, RP_KEYS, linear, ticks } from "./scales";
+import { CERTAIN, DEEP, INK, MUTED, NODATA_GREY, RANGE, RP_KEYS, linear, ticks } from "./scales";
+import { NoDataHatch } from "./NoData";
 
 const W = 360;
 const H = 320;
@@ -49,6 +50,7 @@ export function FrequencyChart({ sheet }: { sheet: Sheet }) {
         <marker id="freq-arrow" viewBox="0 0 8 8" refX="4" refY="4" markerWidth="6" markerHeight="6" orient="auto">
           <path d="M0 8L4 0L8 8Z" fill={DEEP} />
         </marker>
+        <NoDataHatch id="freq-nodata" />
       </defs>
       <rect x={1} y={1} width={W - 2} height={H - 2} fill="none" stroke={INK} />
       <line x1={44} x2={44} y1={TOP} y2={BOT} stroke={INK} />
@@ -82,6 +84,9 @@ export function FrequencyChart({ sheet }: { sheet: Sheet }) {
         const x = sx(lnRp(rp));
         const w = 20;
         const check = site.check_depth_m?.[key] ?? null;
+        // unknown at this return period (no map file / unreadable): an empty marker, never 0 m
+        const unknown = b == null && site.classes[key] !== "";
+        const reason = site.reasons?.[key] ?? null;
         return (
           <g key={rp}>
             <line x1={x} x2={x} y1={TOP} y2={BOT} stroke={INK} strokeWidth={0.5} strokeOpacity={0.35} />
@@ -101,6 +106,24 @@ export function FrequencyChart({ sheet }: { sheet: Sheet }) {
                   <rect x={x - w / 2} y={sy(b[0] + 2)} width={w} height={sy(b[0]) - sy(b[0] + 2)} fill="url(#freq-hatch)" />
                 )}
               </>
+            )}
+            {unknown && (
+              <g aria-label={`${rp}년 값 없음`}>
+                <title>{reason ? `값 없음 (${reason})` : "값 없음"}</title>
+                <rect
+                  x={x - w / 2}
+                  y={sy(1.2)}
+                  width={w}
+                  height={sy(0) - sy(1.2)}
+                  fill="url(#freq-nodata)"
+                  stroke={NODATA_GREY}
+                  strokeWidth={1}
+                  strokeDasharray="3 2"
+                />
+                <text x={x} y={sy(1.2) - 5} fontSize={10} textAnchor="middle" fill={NODATA_GREY} className="sheet-halo">
+                  값 없음
+                </text>
+              </g>
             )}
             {check != null && (
               <circle cx={x + w / 2 + 12} cy={sy(Math.min(check, axisMax))} r={5} fill="none" stroke={DEEP} strokeWidth={1.3} strokeDasharray="2 2" />

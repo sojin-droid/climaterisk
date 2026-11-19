@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { getSheet, listSheets } from "../lib/api";
-import type { Sheet, SheetSummary } from "../sheet/types";
+import type { RpKey, Sheet, SheetSummary } from "../sheet/types";
 import { PlanChart } from "../sheet/PlanChart";
 import { SectionChart } from "../sheet/SectionChart";
 import { FrequencyChart } from "../sheet/FrequencyChart";
@@ -13,19 +13,36 @@ import "../sheet/sheet.css";
 
 const HAZARD_KO: Record<string, string> = { river_flood: "하천 범람" };
 
+/** Text for an unknown (null) class: the file is missing, or present but unreadable. */
+function unknownText(sheet: Sheet, k: RpKey): string {
+  return sheet.site.reasons?.[k] === "map_unreadable"
+    ? "지도 파일을 읽을 수 없음 (값 없음)"
+    : "그 빈도 지도 없음 (값 없음)";
+}
+
 function Headline({ sheet }: { sheet: Sheet }) {
   const b = sheet.site.bands_m.rp100;
-  const outside = !sheet.site.classes.rp100 || !b;
+  const unknown100 = sheet.site.classes.rp100 === null;
+  const outside = !unknown100 && (!sheet.site.classes.rp100 || !b);
   const sub = (["rp200", "rp500"] as const)
     .map((k, i) => {
       const t = formatBand(sheet.site.bands_m[k]);
-      return `${i === 0 ? "200" : "500"}년 빈도${i === 0 ? "도" : "는"} ${t ?? "범위 밖"}`;
+      const none = sheet.site.classes[k] === null; // unknown: no file, or an unreadable one
+      return `${i === 0 ? "200" : "500"}년 빈도${i === 0 ? "도" : "는"} ${
+        none ? unknownText(sheet, k) : (t ?? "범위 밖")
+      }`;
     })
     .join(", ");
   return (
     <>
       <h1>
-        {outside ? (
+        {unknown100 ? (
+          sheet.site.reasons?.rp100 === "map_unreadable" ? (
+            "이 자리의 100년 빈도 지도 파일을 읽을 수 없어 값을 알 수 없습니다 (값 없음)."
+          ) : (
+            "이 자리의 100년 빈도 지도가 없어 값을 알 수 없습니다 (값 없음)."
+          )
+        ) : outside ? (
           "이 자리는 100년 빈도 침수 범위 밖입니다."
         ) : (
           <>

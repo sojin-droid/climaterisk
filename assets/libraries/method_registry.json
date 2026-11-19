@@ -1,0 +1,227 @@
+{
+  "_meta": {
+    "spec": "docs/superpowers/specs/2026-11-16-method-registry-design.md",
+    "date": "2026-11-16",
+    "rule": "rank 1 only; no filling from other models or ranks; checks never change the main value"
+  },
+  "tags": {
+    "RF": {
+      "main": [
+        {
+          "rank": 1,
+          "method_id": "rf.floodmap_class",
+          "model_id": "KOREA_LOCAL",
+          "dataset": "floodmap_rfm_depth_class",
+          "label": "Official river flood hazard map, depth class band (no defences applied)",
+          "source": "Korea flood hazard map (river)",
+          "when_unavailable": "hazard reported as not run by its rank-1 model; no filling from another model or rank",
+          "defences": false
+        }
+      ],
+      "checks": [
+        {
+          "check_id": "rf.fwdet_edge",
+          "order": 1,
+          "status": "exists",
+          "diagnostics_key": "sub_check",
+          "label": "FwDET edge-depth check against the map class band",
+          "threshold": null
+        },
+        {
+          "check_id": "rf.isimip_sido_factor",
+          "order": 2,
+          "status": "exists",
+          "diagnostics_key": "climate_delta.check",
+          "label": "ISIMIP sido-level climate change factor",
+          "threshold": null
+        },
+        {
+          "check_id": "rf.isimip_grid_depth",
+          "order": 3,
+          "status": "to_build",
+          "diagnostics_key": null,
+          "label": "ISIMIP grid depth comparison",
+          "threshold": null
+        }
+      ],
+      "supplementary": [
+        {
+          "id": "rf.disaster_yearbook",
+          "label": "Disaster yearbook building damage (supplementary)",
+          "use": "discussion only; not a check"
+        }
+      ]
+    },
+    "PF": {
+      "main": [
+        {
+          "rank": 1,
+          "method_id": "pf.floodmap_urban_class",
+          "model_id": "KOREA_LOCAL",
+          "dataset": "floodmap_cfm_depth_class",
+          "label": "Official urban (pluvial) flood hazard map, depth class band",
+          "source": "Korea flood hazard map (urban)",
+          "when_unavailable": "hazard reported as not run by its rank-1 model; no filling from another model or rank",
+          "defences": false
+        }
+      ],
+      "checks": [
+        {
+          "check_id": "pf.fwdet_edge",
+          "order": 1,
+          "status": "exists",
+          "diagnostics_key": "sub_check",
+          "label": "FwDET edge-depth check",
+          "threshold": null
+        },
+        {
+          "check_id": "pf.seoul_traces",
+          "order": 2,
+          "status": "exists",
+          "diagnostics_key": "validation",
+          "label": "Seoul flood traces comparison",
+          "threshold": null
+        }
+      ],
+      "supplementary": []
+    },
+    "CF": {
+      "main": [
+        {
+          "rank": 1,
+          "method_id": "cf.khoa_ahhw_bathtub",
+          "model_id": "KOREA_LOCAL",
+          "dataset": "khoa_ahhw_connected_bathtub",
+          "label": "KHOA highest-high-water connected bathtub (hazard only)",
+          "source": "KHOA",
+          "when_unavailable": "hazard reported as not run by its rank-1 model; no filling from another model or rank",
+          "defences": false
+        }
+      ],
+      "checks": [
+        {
+          "check_id": "cf.structures_kept",
+          "order": 1,
+          "status": "exists",
+          "diagnostics_key": "sub_check",
+          "label": "Coastal structures kept in the DEM",
+          "threshold": null
+        },
+        {
+          "check_id": "cf.aqueduct",
+          "order": 2,
+          "status": "to_build",
+          "diagnostics_key": null,
+          "label": "Aqueduct comparison",
+          "threshold": null
+        }
+      ],
+      "supplementary": []
+    },
+    "TC": {
+      "main": [
+        {
+          "rank": 1,
+          "method_id": "tc.dataapi_country",
+          "model_id": "DATA_API_COUNTRY",
+          "dataset": null,
+          "label": "CLIMADA Data API country tropical cyclone hazard",
+          "source": "CLIMADA Data API",
+          "when_unavailable": "hazard reported as not run by its rank-1 model; no filling from another model or rank",
+          "defences": true
+        }
+      ],
+      "checks": [
+        {
+          "check_id": "tc.dataapi_global",
+          "order": 1,
+          "status": "to_build",
+          "diagnostics_key": null,
+          "label": "Data API global tropical cyclone comparison",
+          "threshold": null
+        }
+      ],
+      "supplementary": []
+    },
+    "HW": {
+      "main": [
+        {
+          "rank": 1,
+          "method_id": "hw.open_field_utci",
+          "model_id": "KOREA_LOCAL",
+          "dataset": "kma_asos_open_field_utci",
+          "label": "Open-field UTCI days at or above threshold (KMA ASOS)",
+          "source": "KMA ASOS; MK-PRISM",
+          "when_unavailable": "hazard reported as not run by its rank-1 model; no filling from another model or rank",
+          "defences": false
+        }
+      ],
+      "checks": [
+        {
+          "check_id": "hw.utci_vs_heat_days",
+          "order": 1,
+          "status": "exists",
+          "diagnostics_key": "sub_check",
+          "label": "UTCI vs heat-day ranking (C1, C3 and asset rank in this one dict)",
+          "threshold": null
+        }
+      ],
+      "supplementary": [
+        {
+          "id": "hw.kdca_heat_illness",
+          "label": "KDCA heat-illness counts (supplementary)",
+          "use": "discussion only; not a check"
+        }
+      ]
+    },
+    "HM": {
+      "main": [
+        {
+          "rank": 1,
+          "method_id": "hm.degree_days",
+          "model_id": "KOREA_LOCAL",
+          "dataset": null,
+          "label": "Degree-days above comfort zone (hazard only)",
+          "source": "KMA",
+          "when_unavailable": "hazard reported as not run by its rank-1 model; no filling from another model or rank",
+          "defences": false
+        }
+      ],
+      "checks": [
+        {
+          "check_id": "hm.excess_mortality_2018",
+          "order": 1,
+          "status": "to_build",
+          "diagnostics_key": null,
+          "label": "2018 national excess mortality comparison (exists on the board only)",
+          "threshold": null
+        }
+      ],
+      "supplementary": []
+    }
+  },
+  "studio": {
+    "tropical_cyclone": "other method (reference)",
+    "river_flood": "other method (reference)",
+    "wildfire": "out of scope",
+    "european_windstorm": "out of scope",
+    "earthquake": "out of scope",
+    "coastal_flood": "other method (reference)",
+    "heatwave": "other method (reference)",
+    "heat_mortality": "other method (reference)",
+    "drought": "out of scope",
+    "crop_yield": "out of scope",
+    "low_flow": "out of scope",
+    "hail": "out of scope",
+    "tc_surge": "out of scope",
+    "landslide": "out of scope",
+    "tc_rain": "out of scope"
+  },
+  "out_of_scope": [
+    "wildfire board layer",
+    "drought board layer",
+    "LitPop board layer",
+    "digital twin",
+    "case studies"
+  ]
+}

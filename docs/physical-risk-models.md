@@ -281,7 +281,7 @@ API (HTTP 400) and by the worker (`ValueError`) — exposure is not grown backwa
   get no curve — no money crosses municipalities),
   **Portfolio Summary** (non-expert:
   one line per facility — Asset Value, per-hazard Status / Risk / EAL / EAL ÷ Assets / Data
-  Source, Heatwave Tmax p95, Overall EAL as a plain sum), **Asset Risk Matrix** (facility ×
+  Source, Heatwave UTCI ≥38 °C days/yr (open field), Overall EAL as a plain sum), **Asset Risk Matrix** (facility ×
   hazard risk level or status label; "Overall" counts calculated hazards — no score),
   **Hazard Results** (canonical 13 columns + full provenance), **Global vs Country**,
   **Global vs Korea Local**, **Climate Change** (only when a baseline scenario was run),
@@ -339,7 +339,7 @@ the same runner and rows as everything else — nothing is recomputed in the bro
 | 2 | Flood · Tropical Cyclone · Heatwave with one-line copy | `hazards` |
 | 3 | **Recommended** (default) or Custom: Global reference / Korea country dataset / Korea local, each with per-hazard availability | `recommended_models()` reads the readiness registry: RF → KOREA_LOCAL (official map, 2026-11-15), TC → DATA_API_COUNTRY, HEAT → KOREA_LOCAL (hazard only). An unrunnable cell is never chosen |
 | 4 | one Run Assessment; "n / N calculations complete" | one batch job; the worker rewrites `progress.json` per hazard × model, served at `GET …/run/{id}/progress` |
-| 5 | Physical Risk Summary counts (per asset × risk, **no overall score**), asset risk matrix, asset detail with EAL / EAL ÷ assets / Potential Loss / Data, **Why?** (band copy + method chain + impact function + dataset), Compare data (Global vs Country when both were run, with the "same family, near-zero difference expected" note), collapsed technical table | `results_table.primary_rows` picks one row per facility × hazard (recommended model first, then most local, informative only); `summary_counts`, `asset_risk_matrix_frame`, `portfolio_summary_frame` |
+| 5 | Physical Risk Summary counts (per asset × risk, **no overall score**), asset risk matrix, asset detail with EAL / EAL ÷ assets / Potential Loss / Data, **Why?** (band copy + method chain + impact function + dataset), Compare data (Global vs Country when both were run, with the "same family, near-zero difference expected" note), collapsed technical table | `results_table.primary_rows` picks the rank-1 model's row per facility × hazard (method registry, 2026-11-16) and nothing else — no fallback to another model; a cell with reference rows only reads "Not run by the rank-1 model (<scope>) — reference rows only"; `summary_counts`, `asset_risk_matrix_frame`, `portfolio_summary_frame` |
 | 6 | Download Excel (top of results) — `Physical_Risk_Report_<N>_Assets_<YYYYMMDD>.xlsx` | the Phase 5 route; the filename is derived from the run |
 | — | Recent assessments: reopen or re-download earlier runs | `GET /api/session/{id}/runs?kind=physical_risk_models` (`RunStore.list_by_kind`) |
 
@@ -347,7 +347,8 @@ Final phase additions: Custom mode disables scopes that cannot run for the selec
 and states the reason per hazard; the matrix shows asset value; the detail shows Return
 period and Impact function, "Why High?" quotes the row's own `risk_level_criteria`, the
 Global vs Country table carries the "pipeline-consistency check" note, Korea Local is stated
-as not implemented (flood/TC) or hazard-available/financial-comparison-unavailable (heat),
+as the official 홍수위험지도 headline (flood), KHOA connected bathtub, hazard only (coastal),
+not implemented (TC) or hazard-available/financial-comparison-unavailable (heat, UTCI days),
 and a climate-change block appears only when the present-climate baseline was run. Non-expert
 guide: [`PHYSICAL_RISK_USER_GUIDE.md`](PHYSICAL_RISK_USER_GUIDE.md).
 
@@ -520,7 +521,9 @@ percentile sea-level rise (`0_perc_50`; Aqueduct's bare `0` is the 95th), with s
 Priced with the same JRC sector curve as river flood, tagged `CF`. Aqueduct moved from the
 wri-projects S3 bucket (emptied) to `aqueduct.wridata.org/AqueductFloods20`.
 
-**Flood defences** (`flood_protection` in the configuration) apply to RF and CF: at each grid
+**Flood defences** (`flood_protection` in the configuration) apply to the reference RF and CF
+models only (ISIMIP, Aqueduct) — the rank-1 official map assumes levee failure and is never
+defended, and the rank-1 coastal bathtub is hazard only [사용자 결정 2026-11-16]: at each grid
 cell, events at or below the design-return-period depth (`Hazard.local_exceedance_intensity`,
 stepfunction) are removed; rarer events overtop with their full depth. One national value
 per hazard — 50 years for both, the lowest documented standard — not the defence in place
@@ -534,4 +537,6 @@ defences off); a separate test checks the defended run keeps the recorded EAL as
 
 **Recommended mode** now sends `hazard_models` (one model per hazard). Before, the union of
 the picks was applied to every hazard — harmless while every pick was the country dataset,
-wrong once coastal flood recommends Global (it added a Global run of flood and typhoon).
+wrong once coastal flood recommended Global (it added a Global run of flood and typhoon).
+Since 2026-11-16 the recommended model is the method registry's rank 1 per hazard (coastal:
+Korea local KHOA bathtub, hazard only; Aqueduct is a reference row).

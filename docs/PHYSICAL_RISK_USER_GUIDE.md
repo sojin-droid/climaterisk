@@ -12,9 +12,13 @@ Everything below explains what you will see; nothing here changes how the number
    hand, or imported there from a template (coordinates / 시군구 / 시도; *Import assets*).
 2. **Select hazards** — Flood, Tropical Cyclone, Heatwave. One line under each says what is
    modeled. Heatwave is *hazard only*: it reports how hot, not how much money.
-3. **Analysis** — leave **Recommended**. The tool picks, for each hazard, the most local data
-   that can actually run (today: the Korea country dataset for flood and typhoon; KMA data
-   for heat). Nothing large is downloaded. **Custom** lets you add the Global reference (for
+3. **Analysis** — leave **Recommended**. The tool runs, for each hazard, its rank-1 method
+   from the method registry and shows only that as the result (today: the official
+   홍수위험지도 for river flood, the official 도시침수지도 for urban flood, the KHOA
+   약최고고조면 connected bathtub for coastal flood (hazard only), the Korea country dataset for
+   typhoon, open-field UTCI days ≥38 °C from KMA data for heat). If the rank-1 method did not
+   run, the hazard reads "Not run by the rank-1 model" — another model's number never fills
+   the gap. Nothing large is downloaded. **Custom** lets you add the Global reference (for
    a data comparison) or the present-climate baseline (for a climate-change multiplier: the same
    models' present — flood 2010–2030 of the same scenario, typhoon 1980–2020 tracks); anything
    that cannot run is greyed out with the reason.

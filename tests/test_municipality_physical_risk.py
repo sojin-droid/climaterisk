@@ -230,7 +230,7 @@ def test_core_readiness_table_is_untouched_by_v02() -> None:
         "TC": {G: "READY", C: "READY", K: "NOT_IMPLEMENTED"},
         "HEAT": {G: "NO_HAZARD_DATA", C: "NO_HAZARD_DATA", K: "HAZARD_ONLY"},
     }
-    assert dc.recommended_models() == {"RF": K, "PF": K, "CF": G, "TC": C, "HEAT": K}
+    assert dc.recommended_models() == {"RF": K, "PF": K, "CF": K, "TC": C, "HEAT": K}
 
 
 def test_display_bundle_exposes_coverage_resolution_and_why() -> None:
@@ -423,7 +423,7 @@ def test_municipality_summary_and_matrix_frames() -> None:
     assert by[GWANGJU]["Representative Point"] == "Boundary interior point"
     assert (
         by[GWANGJU]["Heatwave Status"] == "Hazard only"
-        and by[GWANGJU]["Heatwave Tmax p95 (°C)"] == 37.8
+        and by[GWANGJU]["Heatwave UTCI ≥38 °C days/yr (open field)"] == 37.8
     )
     assert by[BUSAN]["Flood EAL"] == 0 and by[BUSAN]["Flood Risk"] == "Low"
     assert by[SEOUL]["Flood Status"] == "No asset value" and by[SEOUL]["Flood EAL"] is None
@@ -516,33 +516,53 @@ def test_two_anchors_count_a_municipality_once_in_the_aggregates() -> None:
         "impact_function_id": 22,
         "calculation_status": "FULL",
     }
-    rep = _muni_row(BUSAN, "RF", C, eal_usd=1.0e6, potential_loss_usd=1e7, **common)
+    rep = _muni_row(BUSAN, "RF", K, eal_usd=1.0e6, potential_loss_usd=1e7, **common)
     office = _muni_row(
         BUSAN,
         "RF",
-        C,
+        K,
         facility_id=f"{BUSAN}#OFFICIAL_OFFICE",
         point_type="OFFICIAL_OFFICE_POINT",
         eal_usd=1.2e6,
         potential_loss_usd=1.2e7,
         **common,
     )
-    flood = next(r for r in rt.portfolio_totals_frame([rep, office], target="MUNICIPALITY"))
+    flood = next(
+        r
+        for r in rt.portfolio_totals_frame(
+            [rep, office], preferred=dc.recommended_models(), target="MUNICIPALITY"
+        )
+    )
     assert flood["Municipalities Assessed"] == 1 and flood["Priced"] == 1
     assert flood["Priced Asset Value"] == pytest.approx(100e6)  # not 200e6
     assert flood["Total EAL"] == pytest.approx(1.0e6)  # the representative point, not 2.2e6
-    prov = rt.province_summary_frame([rep, office])[0]
+    prov = rt.province_summary_frame([rep, office], dc.recommended_models())[0]
     assert prov["Municipalities Assessed"] == 1
     assert prov["Flood High"] + prov["Flood Medium"] + prov["Flood Low"] == 1
     # an office-only run still counts the municipality, at its only anchor
-    only = next(r for r in rt.portfolio_totals_frame([office], target="MUNICIPALITY"))
+    only = next(
+        r
+        for r in rt.portfolio_totals_frame(
+            [office], preferred=dc.recommended_models(), target="MUNICIPALITY"
+        )
+    )
     assert only["Priced"] == 1 and only["Total EAL"] == pytest.approx(1.2e6)
     # facility runs (no municipality id) are untouched
     assert rt.one_anchor_per_municipality([rep, office])[0].facility_id == BUSAN
 
 
+def _rank1_rows() -> list[ResultRow]:
+    """``_run_rows`` with flood under its rank-1 model (KOREA_LOCAL): rank 1 is the result."""
+    import dataclasses
+
+    # drop the original KOREA_LOCAL RF rows (Seoul's NOT_IMPLEMENTED one) so each point has one
+    # rank-1 flood row: the relabelled country row (Seoul: NO_EXPOSURE_DATA, no asset value)
+    rows = [r for r in _run_rows() if not (r.hazard_type == "RF" and r.model_id == K)]
+    return [dataclasses.replace(r, model_id=K) if r.hazard_type == "RF" else r for r in rows]
+
+
 def test_province_summary_counts_bands_and_adds_no_money() -> None:
-    frames = xl.frames_from_output(_output(_run_rows()))
+    frames = xl.frames_from_output(_output(_rank1_rows()))
     prov = {r["Province"]: r for r in frames["province_summary"]}
     header = set(next(iter(prov.values())))
     assert not any("EAL" in c or "Asset" in c or "Loss" in c for c in header)  # counts only
@@ -552,7 +572,7 @@ def test_province_summary_counts_bands_and_adds_no_money() -> None:
     assert gwangju["Flood High"] == 1 and gwangju["Flood Highest Risk"] == "High"
     assert gwangju["Tropical Cyclone Highest Risk"] == "Low"
     assert gwangju["Heatwave Assessed"] == 1
-    assert gwangju["Heatwave Tmax p95 max (°C)"] == pytest.approx(37.8)
+    assert gwangju["Heatwave UTCI ≥38 °C days/yr max (open field)"] == pytest.approx(37.8)
     seoul = prov[mu.by_id([SEOUL])[0].province_name]
     assert seoul["Flood Not Priced"] == 1 and seoul["Flood Highest Risk"] is None  # no value
     assert seoul["Flood High"] == 0 and seoul["Flood Low"] == 0

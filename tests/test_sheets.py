@@ -79,3 +79,14 @@ def test_list_and_get_routes(client) -> None:  # type: ignore[no-untyped-def]
 @pytest.mark.parametrize("bad", ["DM-99", "..%2Fetc", "dm-12", "DM-12.json"])
 def test_unknown_or_unsafe_ids_are_404(client, bad: str) -> None:  # type: ignore[no-untyped-def]
     assert client.get(f"/api/sheets/{bad}").status_code == 404
+
+
+def test_site_reasons_are_optional_and_checked_when_present() -> None:
+    d = copy.deepcopy(DM12)
+    assert "reasons" not in d["site"] and validate_sheet(d) == []  # older sheets stay valid
+    d["site"]["reasons"] = {"rp100": None, "rp200": "no_file_for_rp", "rp500": "map_unreadable"}
+    assert validate_sheet(d) == []
+    d["site"]["reasons"]["rp200"] = "dry"
+    assert any("site.reasons" in e for e in validate_sheet(d))
+    d["site"]["reasons"] = {"rp100": None}
+    assert any("site.reasons.rp200" in e for e in validate_sheet(d))

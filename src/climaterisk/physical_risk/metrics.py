@@ -311,6 +311,12 @@ class ResultRow:
     hazard_type: str
     model_id: str
 
+    # method identity (method registry): which ranked main method, or reference, made this row
+    method_id: str | None = None
+    method_rank: int | None = None
+    method_role: str | None = None  # "main" | "reference"
+    unavailable_reason: str | None = None  # why a row carries no value (e.g. map_unreadable)
+
     # hazard provenance
     hazard_source: str | None = None
     hazard_dataset: str | None = None

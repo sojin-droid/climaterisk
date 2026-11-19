@@ -1,4 +1,5 @@
-import { DEEP, INK, RAMP, RAMP_LABELS } from "./scales";
+import { DEEP, INK, NODATA_LABEL, RAMP, RAMP_LABELS } from "./scales";
+import { NoDataHatch } from "./NoData";
 
 function Line({ dash, color = INK, width = 1.6 }: { dash?: string; color?: string; width?: number }) {
   return (
@@ -17,6 +18,15 @@ export function Legend() {
           {RAMP_LABELS[i]}
         </li>
       ))}
+      <li>
+        <svg width="22" height="12" viewBox="0 0 22 12" aria-hidden="true" className="swatch">
+          <defs>
+            <NoDataHatch id="legend-nodata" />
+          </defs>
+          <rect x="0.5" y="0.5" width="21" height="11" fill="url(#legend-nodata)" stroke="#9aa0a6" />
+        </svg>
+        {NODATA_LABEL}
+      </li>
       <li>
         <Line color="#08519c" />
         공식 등급 (한국 자료)

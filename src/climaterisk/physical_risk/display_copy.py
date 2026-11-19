@@ -6,9 +6,9 @@ choice per hazard. None of it changes a number. The thresholds quoted in the ban
 read from the same configuration the calculation uses, so the words cannot drift from the
 code (``test_display_copy_quotes_the_configured_thresholds``).
 
-The one piece of logic is :func:`recommended_models`: pick, per hazard, the most local
-model that the readiness registry says can actually run. It never selects a
-``NOT_IMPLEMENTED`` or ``NO_HAZARD_DATA`` cell.
+The one piece of logic is :func:`recommended_models`: per hazard, the method registry's
+rank-1 model, when the readiness registry says its cell can run. It never selects a
+``NOT_IMPLEMENTED`` or ``NO_HAZARD_DATA`` cell and never substitutes another model.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from climaterisk.physical_risk.coverage import (
     coverage_table,
     resolution_registry,
 )
+from climaterisk.physical_risk.method_registry import rank1_model
 from climaterisk.physical_risk.metrics import CalculationStatus, ModelId, load_config
 from climaterisk.physical_risk.models import HAZARD_KEYS, READINESS
 from climaterisk.physical_risk.municipalities import (
@@ -51,8 +52,10 @@ HAZARD_COPY: dict[str, str] = {
         "local data only. Depth is reported; no loss is computed."
     ),
     "CF": (
-        "Modeled coastal inundation from storm tides with sea-level rise and land "
-        "subsidence (WRI Aqueduct). Coastal defences are not represented."
+        "Modeled coastal inundation, Korea local data: land below the KHOA 약최고고조면 "
+        "(approximate highest high water) that is connected to the sea (connected bathtub). "
+        "Depth is reported; no loss is computed and no coastal money enters any total. "
+        "WRI Aqueduct is shown as a labelled reference row only."
     ),
     "TC": "Modeled wind-related physical damage from tropical cyclones.",
     "HEAT": (
@@ -127,17 +130,19 @@ STATUS_SHORT: dict[str, str] = {
 
 #: What the tool does and does not cover today (shown on the results screen and in Excel).
 LIMITATIONS: tuple[str, ...] = (
-    "Flood: Korea-local domestic source not yet implemented; financial loss is available "
-    "where the status is FULL (Data API hazard).",
+    "Flood: the Korea-local official 홍수위험지도 (river flood hazard map, depth class band, "
+    "no defences applied) is the headline; global and Data API results are reference rows. "
+    "Where a map file is missing or unreadable the asset is not available (never 0 m).",
     "Urban pluvial flood: official 100-year 도시침수지도 depth class only (one event, "
     "present day, no loss computed); checked against the 서울시 침수흔적도 as a diagnostic, "
     "which is not like-for-like with a 100-year map.",
-    "Coastal flood: global WRI Aqueduct data only (no Korean coastal-inundation source "
-    "connected, no coastal defences represented); river-flood data does not cover the coast.",
+    "Coastal flood: KHOA 약최고고조면 connected bathtub (hazard only — no storm surge, no "
+    "waves, structures narrower than ~90 m removed); no coastal money enters any total. "
+    "WRI Aqueduct is a labelled reference row, not the result.",
     "Tropical cyclone: Korea-local domestic source not yet implemented; financial loss is "
     "available where the status is FULL (Data API hazard).",
-    "Heatwave: hazard available from KMA TAMAX; financial impact unavailable because no "
-    "applicable CLIMADA Impact Function exists.",
+    "Heatwave: UTCI ≥38 °C days/yr (open field, KMA ASOS) is reported; financial impact "
+    "unavailable because no applicable CLIMADA Impact Function exists.",
     "Korea-specific Impact Functions: not used — published CLIMADA functions only.",
     "Korea asset-value exposure: not yet implemented unless supplied through the user portfolio.",
     "All values are modeled — expected annual loss under the selected CLIMADA hazard and "
@@ -219,7 +224,10 @@ def risk_level_copy(config: dict[str, Any] | None = None) -> dict[str, str]:
 def method_copy(hazard_tag: str) -> str:
     """The one-line "why" chain for a hazard, for the detail panel's Method section."""
     if hazard_tag == "RF":
-        return "Flood risk is based on: Hazard → CLIMADA JRC Impact Function → Asset Value → EAL."
+        return (
+            "Flood risk is based on: official 홍수위험지도 depth class band (no defences "
+            "applied) → CLIMADA JRC Impact Function → Asset Value → EAL."
+        )
     if hazard_tag == "PF":
         return (
             "Urban pluvial flood: official 100-year 도시침수지도 depth class → representative "
@@ -227,8 +235,9 @@ def method_copy(hazard_tag: str) -> str:
         )
     if hazard_tag == "CF":
         return (
-            "Coastal flood risk is based on: Aqueduct coastal inundation depth → CLIMADA JRC "
-            "Impact Function → Asset Value → EAL."
+            "Coastal flood: KHOA 약최고고조면 (M2+S2+K1+O1) → sea-connected land on the "
+            "~90 m terrain (connected bathtub) → depth above the asset ground is reported "
+            "(hazard only; no loss computed). WRI Aqueduct is a reference row."
         )
     if hazard_tag == "TC":
         return (
@@ -236,47 +245,31 @@ def method_copy(hazard_tag: str) -> str:
             "(Eberenz et al. 2021) → Asset Value → EAL."
         )
     return (
-        "Heatwave: Hazard intensity (season p95 daily maximum temperature, KMA) is reported; "
-        "no CLIMADA Impact Function exists, so no financial loss is derived."
+        "Heatwave: UTCI ≥38 °C days/yr (open field) from KMA ASOS hourly weather is "
+        "reported; no CLIMADA Impact Function exists, so no financial loss is derived."
     )
-
-
-#: Preference order when choosing a model per hazard: most local first.
-_LOCAL_FIRST: tuple[str, ...] = (
-    ModelId.KOREA_LOCAL.value,
-    ModelId.DATA_API_COUNTRY.value,
-    ModelId.GLOBAL_BASELINE.value,
-)
 
 
 def recommended_models(
     hazards: list[str] | None = None, readiness: dict[str, dict[str, dict[str, str]]] | None = None
 ) -> dict[str, str]:
-    """Per hazard key, the most local model whose readiness cell can run.
+    """Per hazard key, the registry's rank-1 model, when its readiness cell can run.
 
-    ``READY`` beats ``HAZARD_ONLY``; ``NOT_IMPLEMENTED`` and ``NO_HAZARD_DATA`` are never
-    chosen, and neither is a cell marked ``"trial": "yes"`` (runnable and shown, but not the
-    headline until it has been compared with the incumbent — docs/TIERS.md §4). For Korea
-    today: RF → KOREA_LOCAL (official map; 2026-11-15), TC → DATA_API_COUNTRY, HEAT → KOREA_LOCAL.
-    A hazard with no runnable cell is omitted.
+    Rank 1 is the result (``method_registry``); no other model or rank ever fills a gap.
+    The key is omitted when the rank-1 cell is not ``READY`` / ``HAZARD_ONLY`` or is marked
+    ``"trial": "yes"`` (runnable and shown, but not the headline — docs/TIERS.md §4).
+    For Korea today: RF/PF/CF/HEAT → KOREA_LOCAL, TC → DATA_API_COUNTRY.
     """
     table = readiness or READINESS
     out: dict[str, str] = {}
     for key in hazards or list(HAZARD_KEYS):
-        cells = table.get(key, {})
-        for wanted in ("READY", "HAZARD_ONLY"):
-            pick = next(
-                (
-                    m
-                    for m in _LOCAL_FIRST
-                    if cells.get(m, {}).get("status") == wanted
-                    and cells.get(m, {}).get("trial") != "yes"
-                ),
-                None,
-            )
-            if pick:
-                out[key] = pick
-                break
+        if key not in HAZARD_KEYS:
+            continue  # unknown key: omitted, not an error
+        tag = "HW" if key == "HEAT" else key
+        model = rank1_model(tag)
+        cell = table.get(key, {}).get(model or "", {})
+        if cell.get("status") in ("READY", "HAZARD_ONLY") and cell.get("trial") != "yes":
+            out[key] = str(model)
     return out
 
 
@@ -346,7 +339,7 @@ def display_bundle() -> dict[str, Any]:
         "status_copy": dict(STATUS_COPY),
         "status_short": dict(STATUS_SHORT),
         "risk_level_copy": risk_level_copy(),
-        "method_copy": {k: method_copy(k) for k in ("RF", "TC", "HW")},
+        "method_copy": {k: method_copy(k) for k in ("RF", "PF", "CF", "TC", "HW")},
         "limitations": list(LIMITATIONS),
         "summary_note": SUMMARY_NOTE,
         "comparison_purpose": COMPARISON_PURPOSE,

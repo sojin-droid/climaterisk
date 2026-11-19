@@ -42,7 +42,6 @@ import type {
 const MODELS = ["GLOBAL_BASELINE", "DATA_API_COUNTRY", "KOREA_LOCAL"] as const;
 const HAZARD_KEYS = ["RF", "PF", "CF", "TC", "HEAT"] as const;
 const TAG_OF: Record<string, string> = { RF: "RF", PF: "PF", CF: "CF", TC: "TC", HEAT: "HW" };
-const LOCAL_FIRST = ["KOREA_LOCAL", "DATA_API_COUNTRY", "GLOBAL_BASELINE"];
 const PAGE = 25;
 type Target = "MUNICIPALITY" | "FACILITY";
 
@@ -55,6 +54,37 @@ const fmtPct = (v: number | null | undefined) => (v == null ? "—" : `${v.toFix
 const fmtDelta = (v: number | null | undefined, unit: "%" | "pp") =>
   v == null ? "n/a" : `${v >= 0 ? "+" : ""}${v.toFixed(unit === "pp" ? 4 : 1)} ${unit}`;
 const fmtDate = (iso: string | undefined) => (iso ? iso.slice(0, 10) : "");
+/** Readable Korean label for an unavailable_reason key (the raw key stays in the tooltip). */
+function reasonLabel(key: string): string {
+  return key
+    .split(";")
+    .map((part) => {
+      const [kind, rp] = part.trim().split(":");
+      switch (kind) {
+        case "no_file_for_rp":
+          return `${rp}년 빈도 지도 없음`;
+        case "map_unreadable":
+          return rp ? `${rp}년 빈도 지도를 읽을 수 없음` : "지도를 읽을 수 없음";
+        case "hazard_unavailable":
+          return "자료를 불러올 수 없음";
+        case "nan_hazard":
+          return "값 없음";
+        case "no_centroids":
+          return "격자 없음";
+        case "error":
+          return "계산 오류";
+        case "not_implemented":
+          return "미구현";
+        case "no_hazard_data":
+          return "이 범위의 자료 없음";
+        case "no_single_country":
+          return "단일 국가로 정할 수 없음";
+        default:
+          return part.trim();
+      }
+    })
+    .join(" · ");
+}
 const fmtIntensity = (r: PhysicalRiskRow) =>
   r.hazard_intensity == null ? "—" : `${r.hazard_intensity.toFixed(2)} ${r.hazard_intensity_unit ?? ""}`.trim();
 const fmtResolution = (r: PhysicalRiskRow) =>
@@ -107,20 +137,14 @@ function scopeStatus(readiness: PhysicalRiskReadiness | null, model: string, haz
 const canRun = (readiness: PhysicalRiskReadiness | null, model: string, hazardKey: string) =>
   ["READY", "HAZARD_ONLY"].includes(readiness?.hazards?.[hazardKey]?.[model]?.status ?? "");
 
-/** The row that represents a point × hazard: recommended model first, then most local, informative only. */
+/**
+ * The row that represents a point × hazard: the rank-1 (recommended) model's row, whatever its
+ * status. No fallback: when that model produced no row the hazard has no result (undefined);
+ * another model's numbers are references and never fill the gap (same rule as results_table.primary_row).
+ */
 function primaryRow(rows: PhysicalRiskRow[], fid: string, tag: string, recommended: string | undefined) {
-  const cands = rows.filter((r) => r.facility_id === fid && r.hazard_type === tag);
-  const informative = (r: PhysicalRiskRow) => r.eal_usd != null || r.calculation_status === "HAZARD_ONLY";
-  const order = [...(recommended ? [recommended] : []), ...LOCAL_FIRST];
-  for (const m of order) {
-    const r = cands.find((c) => c.model_id === m);
-    if (r && informative(r)) return r;
-  }
-  for (const m of order) {
-    const r = cands.find((c) => c.model_id === m);
-    if (r) return r;
-  }
-  return cands[0];
+  if (!recommended) return undefined;
+  return rows.find((r) => r.facility_id === fid && r.hazard_type === tag && r.model_id === recommended);
 }
 
 function reportFilename(out: PhysicalRiskModelsOutput | null, created: string | undefined) {
@@ -1400,13 +1424,21 @@ function PointDetail({
           const tag = TAG_OF[h];
           const r = primaryRow(rows, pointId, tag, recommended[h]);
           const label = display?.hazard_label[h] ?? h;
-          if (!r)
+          if (!r) {
+            // reference rows without a rank-1 row: assessed, but never shown as the result
+            const hasReference = rows.some((x) => x.facility_id === pointId && x.hazard_type === tag);
+            const scope = recommended[h] ? (display?.scope_short[recommended[h]] ?? recommended[h]) : "unknown";
             return (
               <div key={h} className="card nested" style={{ margin: 0 }}>
                 <b>{label}</b>
-                <div className="hint">Not assessed in this run.</div>
+                <div className="hint">
+                  {hasReference
+                    ? `Not run by the rank-1 model (${scope}) — reference rows only.`
+                    : "Not assessed in this run."}
+                </div>
               </div>
             );
+          }
           const priced = r.eal_usd != null;
           const ccy = r.asset_value_currency ?? "USD";
           const g = rows.find((x) => x.facility_id === pointId && x.hazard_type === tag && x.model_id === "GLOBAL_BASELINE");
@@ -1430,7 +1462,7 @@ function PointDetail({
                 </span>
               </div>
               <Line
-                k={h === "HEAT" ? "Tmax indicator (season p95 daily max)" : "Modeled hazard intensity"}
+                k={h === "HEAT" && r.model_id === "KOREA_LOCAL" ? "UTCI ≥38 °C days/yr (open field)" : "Modeled hazard intensity"}
                 v={fmtIntensity(r)}
               />
               <Line k="Status" v={statusShort} />
@@ -1488,6 +1520,11 @@ function PointDetail({
                     muted
                   />
                   <div className="hint">Why? {statusCopy}</div>
+                  {r.unavailable_reason && (
+                    <div className="hint" title={r.unavailable_reason}>
+                      Reason: {reasonLabel(r.unavailable_reason)}
+                    </div>
+                  )}
                   {r.status_detail && statusCopy !== r.status_detail && <div className="hint">Detail: {r.status_detail}</div>}
                 </>
               )}
@@ -1590,10 +1627,14 @@ function PointDetail({
               {/* Korea Local */}
               <div className="hint" style={{ marginTop: 6 }}>
                 {h === "HEAT"
-                  ? "Korea Local: hazard available (KMA TAMAX) · financial comparison unavailable — no applicable CLIMADA Impact Function."
+                  ? "Korea Local: UTCI ≥38 °C days/yr (open field, KMA ASOS) · financial comparison unavailable — no applicable CLIMADA Impact Function."
                   : h === "PF"
                     ? "Korea Local: official 100-year 도시침수지도 depth class · hazard only, no loss computed."
-                    : `Korea Local: not implemented for ${label}.`}
+                    : h === "RF"
+                      ? "Korea Local: official 홍수위험지도 depth class band (no defences applied) — the river-flood headline."
+                      : h === "CF"
+                        ? "Korea Local: KHOA 약최고고조면 connected bathtub · hazard only, no loss computed; Aqueduct is a reference row."
+                        : `Korea Local: not implemented for ${label}.`}
               </div>
 
               {/* Climate change multiplier */}

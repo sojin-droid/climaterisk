@@ -1,5 +1,6 @@
 import type { Sheet } from "./types";
 import { INK, MUTED, cellEdges, classColor, linear, ticks } from "./scales";
+import { NoDataHatch } from "./NoData";
 
 const W = 1100;
 const H = 250;
@@ -32,6 +33,7 @@ export function PlanChart({ sheet }: { sheet: Sheet }) {
         <marker id="plan-arrow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="8" markerHeight="8" orient="auto">
           <path d="M0 10L5 0L10 10Z" fill={INK} />
         </marker>
+        <NoDataHatch id="plan-nodata" />
       </defs>
       <rect x={X0} y={TOP} width={X1 - X0} height={BOT - TOP} fill="#eef3f8" stroke={INK} strokeWidth={1.2} />
 
@@ -52,8 +54,8 @@ export function PlanChart({ sheet }: { sheet: Sheet }) {
 
       {/* class strip along the cut (100-year class) */}
       {section.classes.rp100.map((code, i) => {
-        const c = classColor(code);
-        if (c === "none") return null;
+        const c = classColor(code, "plan-nodata");
+        if (c === "none") return null; // outside every polygon: dry, undrawn
         return (
           <rect
             key={i}
@@ -62,7 +64,9 @@ export function PlanChart({ sheet }: { sheet: Sheet }) {
             width={Math.max(0.5, sxKm(edges[i][1]) - sxKm(edges[i][0]) + 0.4)}
             height={12}
             fill={c}
-          />
+          >
+            {code == null && <title>값 없음</title>}
+          </rect>
         );
       })}
 

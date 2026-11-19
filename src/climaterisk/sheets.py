@@ -22,6 +22,8 @@ HAZARDS = ("river_flood",)
 SHEET_ID_RE = re.compile(r"[A-Z]{2}-[0-9A-Za-z_-]{1,40}")
 CLASS_CODES = frozenset({"N330", "N331", "N332", "N333", "N334", ""})
 RP_KEYS = ("rp100", "rp200", "rp500")
+#: Why a site class is ``null``: no map file for that period, or a file that cannot be read.
+SITE_REASONS = ("no_file_for_rp", "map_unreadable")
 RETURN_PERIODS = [100, 200, 500]
 STAMP_STATES = {
     "author": ("T1", "T2", "T3"),
@@ -51,7 +53,8 @@ def _check_rp_map(errs: list[str], where: str, m: Any, check: Any, what: str) ->
 
 
 def _is_class(v: Any) -> bool:
-    return isinstance(v, str) and v in CLASS_CODES
+    """A class code, ``""`` (outside every polygon) or ``None`` (no map file: unknown)."""
+    return v is None or (isinstance(v, str) and v in CLASS_CODES)
 
 
 def validate_sheet(d: dict[str, Any]) -> list[str]:
@@ -145,10 +148,22 @@ def validate_sheet(d: dict[str, Any]) -> list[str]:
         _check_rp_map(errs, "site.classes", site.get("classes"), _is_class, "class code")
 
         def _band(v: Any) -> bool:
+            if v is None:  # unknown: no map file for this return period
+                return True
             return isinstance(v, list) and len(v) == 2 and _num(v[0]) and _num_or_none(v[1])
 
-        _check_rp_map(errs, "site.bands_m", site.get("bands_m"), _band, "band [lo, hi|null]")
-        _check_rp_map(errs, "site.depth_m", site.get("depth_m"), _num, "depth")
+        _check_rp_map(
+            errs, "site.bands_m", site.get("bands_m"), _band, "band [lo, hi|null] or null"
+        )
+        _check_rp_map(errs, "site.depth_m", site.get("depth_m"), _num_or_none, "depth")
+        if "reasons" in site:  # optional: sheets built before 2026-11-16 do not carry it
+            _check_rp_map(
+                errs,
+                "site.reasons",
+                site.get("reasons"),
+                lambda v: v is None or v in SITE_REASONS,
+                f"reason (null or one of {SITE_REASONS})",
+            )
         _check_rp_map(errs, "site.check_depth_m", site.get("check_depth_m"), _num_or_none, "depth")
         if not isinstance(site.get("check_dem"), str):
             errs.append("site.check_dem: must be a string")

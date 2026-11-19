@@ -118,3 +118,42 @@ def test_real_points_when_data_present() -> None:
     assert rows[1]["connected"] is False and rows[1]["depth_m"]["slr0"] == 0.0
     assert float(h.intensity.toarray()[0, 0]) == pytest.approx(rows[0]["depth_m"]["slr0"])
     assert "narrow_only" in a.diagnostics["sub_check"]
+
+
+def test_coastal_ground_is_glo30_only_never_ngii(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Spec rule 5: one national ground (GLO-30) for the coastal main value, even with NGII."""
+    pytest.importorskip("climada")
+    from climaterisk_worker import floodmap_depth as fd
+    from climaterisk_worker.physical_risk import adapters
+
+    ngii = tmp_path / "ngii_dem"
+    ngii.mkdir()
+    (ngii / "tile.img").write_bytes(b"")  # an NGII tile is on disk
+
+    class Paths:
+        @staticmethod
+        def external_dir(*parts: str) -> Path:
+            return tmp_path.joinpath(*parts)
+
+    def no_ngii(*a: object, **k: object) -> None:
+        raise AssertionError("NGII must not be read for the coastal main value")
+
+    class FakeGlo:
+        def __init__(self, tile_dir: Path, allow_download: bool) -> None:
+            assert allow_download is False  # offline: never a download
+
+        def __call__(self, xy: np.ndarray) -> np.ndarray:
+            return np.full(len(xy), 1.25)
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(fd, "RasterSampler", no_ngii)
+    monkeypatch.setattr(fd, "Glo30Sampler", FakeGlo)
+    ground, source = adapters.KoreaLocalCoastalFloodAdapter._ground(
+        np.array([34.6, 35.0]), np.array([126.4, 129.0]), Paths, lambda: True
+    )
+    np.testing.assert_allclose(ground, [1.25, 1.25])
+    assert source == ["glo30_surface_model", "glo30_surface_model"]

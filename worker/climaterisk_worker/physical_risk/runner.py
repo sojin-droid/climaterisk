@@ -40,6 +40,11 @@ _SRC = Path(__file__).resolve().parents[3] / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
+from climaterisk.physical_risk.method_registry import (  # noqa: E402
+    defences_allowed,
+    method_for,
+    run_checks,
+)
 from climaterisk.physical_risk.metrics import (  # noqa: E402
     CalculationStatus,
     ModelId,
@@ -114,6 +119,16 @@ def _iso3_for(facilities: list[dict[str, Any]], explicit: str | None) -> str | N
     return None
 
 
+def _stamp(rows: list[ResultRow], tag: str, model_id: str) -> list[ResultRow]:
+    """Label every row with its registry method (id, rank, main/reference role)."""
+    method = method_for(tag, model_id)
+    for row in rows:
+        row.method_id = method["method_id"]
+        row.method_rank = method["method_rank"]
+        row.method_role = method["method_role"]
+    return rows
+
+
 def _rows_for(
     adapter: Any,
     tag: str,
@@ -151,7 +166,14 @@ def _rows_for(
             )
             for f in facilities
         ]
-        return rows, {**desc.to_dict(), "spatial_resolution": None}
+        if status == CalculationStatus.NO_HAZARD_DATA.value:
+            for row in rows:  # the text stays in status_detail; the reason is a short key
+                row.unavailable_reason = "no_hazard_data"
+        return _stamp(rows, tag, desc.model_id), {
+            **desc.to_dict(),
+            "spatial_resolution": None,
+            "checks": [],
+        }
 
     try:
         hazard = adapter.load(bbox, points=[(f["latitude"], f["longitude"]) for f in facilities])
@@ -167,7 +189,14 @@ def _rows_for(
             )
             for f in facilities
         ]
-        return rows, {**desc.to_dict(), "spatial_resolution": None, "load_error": str(exc)}
+        for row in rows:  # the text stays in status_detail; the reason is a short key
+            row.unavailable_reason = "hazard_unavailable"
+        return _stamp(rows, tag, desc.model_id), {
+            **desc.to_dict(),
+            "spatial_resolution": None,
+            "checks": [],
+            "load_error": str(exc),
+        }
     except Exception as exc:
         detail = f"{type(exc).__name__}: {exc}"
         rows = [
@@ -181,7 +210,12 @@ def _rows_for(
             )
             for f in facilities
         ]
-        return rows, {**desc.to_dict(), "spatial_resolution": None, "load_error": detail}
+        return _stamp(rows, tag, desc.model_id), {
+            **desc.to_dict(),
+            "spatial_resolution": None,
+            "checks": [],
+            "load_error": detail,
+        }
 
     desc = adapter.describe()  # the version is known only after the load
     common["hazard_data_version"] = desc.hazard_data_version
@@ -196,6 +230,8 @@ def _rows_for(
         defences = (
             None  # hazard-only sets are not priced; the design-return-period rule is not applied
         )
+    elif not defences_allowed(tag, desc.model_id):
+        defences = None  # the official map assumes levee failure; never defended a second time
     else:
         hazard, defences = _with_defences(hazard, tag)
     if defences is not None:
@@ -205,6 +241,7 @@ def _rows_for(
             "levee_protected_cells": defences["levee_cells"],
             "levee_basis": defences["levee_basis"],
         }
+    reasons = (getattr(adapter, "diagnostics", None) or {}).get("per_point_reason")
     rows = [
         engine.calculate(
             f,
@@ -215,13 +252,18 @@ def _rows_for(
             defences=defences,
             hazard_only=desc.status == adapters.HAZARD_ONLY,
             hazard_only_detail=desc.detail,
+            point_reason=reasons[i] if reasons is not None and i < len(reasons) else None,
             **common,
         )
-        for f in facilities
+        for i, f in enumerate(facilities)
     ]
+    local_only = (getattr(adapter, "diagnostics", None) or {}).get("local_only")
+    if local_only is not None:
+        _flag_lower_bound(rows, local_only)
     if curves is not None and event_losses is not None:
         curves.extend(_loss_curves(rows, event_losses, hazard.frequency, tag, common))
     record = {**desc.to_dict(), "spatial_resolution": resolution}
+    record["checks"] = run_checks(tag, desc.model_id, getattr(adapter, "diagnostics", None))
     sub_check = (getattr(adapter, "diagnostics", None) or {}).get("sub_check")
     if sub_check is not None:
         record["sub_check"] = sub_check  # diagnostic only; never changes the rows
@@ -232,7 +274,28 @@ def _rows_for(
         record["flood_protection"] = record_defences
     if resolution_error:
         record["spatial_resolution_error"] = resolution_error
-    return rows, record
+    return _stamp(rows, tag, desc.model_id), record
+
+
+#: Row note for an asset under a 지방하천 (local, 100-y only) map and no national map.
+LOWER_BOUND_NOTE = "lower bound: local 100-y map only (its class is used at 200 / 500 y)"
+
+
+def _flag_lower_bound(rows: list[ResultRow], local_only: list[bool]) -> None:
+    """Mark rows whose depth comes from a 100-y local map only (aligned with ``rows``).
+
+    The note is appended to ``confidence`` and ``status_detail`` so it reaches the table,
+    the Excel hazard sheet and the UI. A row without a known hazard is left unchanged.
+    """
+    for row, flag in zip(rows, local_only, strict=False):
+        if not flag or row.unavailable_reason is not None:
+            continue
+        row.confidence = (
+            f"{row.confidence}; {LOWER_BOUND_NOTE}" if row.confidence else LOWER_BOUND_NOTE
+        )
+        row.status_detail = (
+            f"{row.status_detail}; {LOWER_BOUND_NOTE}" if row.status_detail else LOWER_BOUND_NOTE
+        )
 
 
 def compute_physical_risk_models(request: dict[str, Any]) -> dict[str, Any]:
@@ -399,18 +462,21 @@ def _all_model_rows(
             if progress is not None:
                 progress.step(f"{key} / {model}", len(facilities))
             if iso3 is None and model != ModelId.GLOBAL_BASELINE.value:
-                for f in facilities:
-                    rows.append(
-                        engine.calculate(
-                            f,
-                            None,
-                            tag,
-                            model_id=model,
-                            requested_scenario=scenario,
-                            status_override=CalculationStatus.NO_HAZARD_DATA.value,
-                            status_detail="no single country for the portfolio",
-                        )
+                none = [
+                    engine.calculate(
+                        f,
+                        None,
+                        tag,
+                        model_id=model,
+                        requested_scenario=scenario,
+                        status_override=CalculationStatus.NO_HAZARD_DATA.value,
+                        status_detail="no single country for the portfolio",
                     )
+                    for f in facilities
+                ]
+                for row in none:  # the text stays in status_detail; the reason is a short key
+                    row.unavailable_reason = "no_single_country"
+                rows.extend(_stamp(none, tag, model))
                 continue
             adapter = adapters.adapter_for(tag, model, scenario, year, iso3 or "")
             model_rows, desc = _rows_for(adapter, tag, facilities, iso3, bbox, curves)

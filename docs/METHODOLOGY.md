@@ -213,6 +213,17 @@ Consequence for use: read per-100k rates and the ranking of locations; do not re
 death counts as estimates of reality until the B-stage parameter work
 (`HEAT_MORTALITY_PROVENANCE.md` §6) is done.
 
+## Method registry — rank 1 is the result (2026-11-16)
+
+`assets/libraries/method_registry.json` (loader `src/climaterisk/physical_risk/method_registry.py`) is
+the method authority per peril. Rules: (1) only the rank-1 model's row is the result; (2) every
+other model is a labelled `reference` row (`method_role`), never fills a gap left by rank 1 and is
+never in a total; (3) checks run in registry order and are recorded as `ran / warn / skipped /
+error` in `record["checks"]`; (4) supplementary results (재해연보 시도 피해, 질병청 온열질환) are
+for discussion only and are never checks. Rows carry `method_id`, `method_rank`, `method_role` and
+`unavailable_reason` through the table rows and the Excel hazard sheet. A hazard that rank 1 did
+not run shows as not run, never as another model's number. Missing is NaN/None, never 0.
+
 ## River flood headline for Korea — official map x ISIMIP change factor (method tier T2)
 
 `KOREA_LOCAL` x RF is the river-flood headline since 2026-11-15 (comparison:
@@ -221,12 +232,32 @@ depth classes as they are. A future scenario keeps that depth and multiplies eve
 by one national ISIMIP factor $f = \sum_c EAL_c^{\text{window}} / \sum_c EAL_c^{2010\text{–}2030}$
 (unit exposure per KOR centroid, JRC Asia residential curve, same RCP; ASCII: `f = EAL_window /
 EAL_2010_2030`, dimensionless). Climate change enters as frequency only; per-시도 factors are a
-diagnostic sub check (`flood_delta.regional_check`). See `KOREA_FLOODMAP_INVESTIGATION.md` §10.
+diagnostic sub check (`flood_delta.regional_check`). See `KOREA_FLOODMAP_INVESTIGATION.md` §10. The official map assumes levee failure and is never defended; the national 50-y defence applies only to the reference models (ISIMIP, Aqueduct) [사용자 결정 2026-11-16].
+
+Unknown stays unknown: a missing national return-period file gives NaN for that return period
+(`no_file_for_rp`; no borrowing from another return period or basin). Local (지방하천) maps are
+100-y designs, so at 200/500 y a point under one reads the 100-y depth as a **lower bound** (a
+confidence note on the row). An unreadable, unindexed or truncated zip gives NaN (`map_unreadable`);
+missing or empty map folders make the whole run `NO_HAZARD_DATA` (`hazard_unavailable`); a point
+outside every polygon is 0 m — dry where a map covers its basin, but see limitation (a): without
+basin boundaries a point in a basin that has no map also reads 0 m. The bounds index is cached by file names + size + mtime; an older
+cache is migrated by stat (no zip is opened, so no mass iCloud download).
+
+Known limitations: (a) basin boundaries are not on disk, so a point outside every polygon in a
+basin that has no map reads 0 m (Part 2; source and licence of basin boundaries still open);
+(b) basin 1202 has only an empty 200-y national file (`empty`); (c) when the index cannot be built
+and a zip header is unreadable, every point without a polygon hit in that family/return period
+becomes unknown (safe-direction bluntness); (d) a zip replaced with identical size and mtime keeps
+stale bounds. 단면 sheets draw an unknown class (null) with a grey diagonal hatch and an empty
+"값 없음" marker on the frequency curve; "" (outside every polygon) stays blank. Tests:
+`tests/test_korea_local_flood_maps.py` (synthetic end to end, climada env); real-map tests are
+opt-in with `CLIMATERISK_REAL_MAPS=1`.
 
 ## Korea-local coastal flood — connected bathtub (method tier T2, hazard-only)
 
-Models tab, `KOREA_LOCAL` x CF (`worker/climaterisk_worker/coastal_connectivity.py`). The
-headline coastal flood stays Aqueduct (`GLOBAL_BASELINE`); this cell reports a hazard, never a loss.
+Models tab, `KOREA_LOCAL` x CF (`worker/climaterisk_worker/coastal_connectivity.py`). Since 2026-11-16
+this is the coastal headline (rank 1 in the method registry; 사용자 결정): it reports a hazard, never a loss, so
+no coastal money enters any total. Aqueduct (`GLOBAL_BASELINE`) is a labelled reference row.
 
 $$ Z_{AHHW} = \frac{A_{M2}+A_{S2}+A_{K1}+A_{O1}}{100},\qquad
 d = \max\left(0,\ Z_{AHHW}+s-z_{ground}\right)\ \text{if the 90 m cell is tidal, else } 0 $$
@@ -242,8 +273,10 @@ the asset's 90 m cell is sea-connected, else 0. $A_c$ = KHOA 조화상수 amplit
 3. Tidal = cell below the station's AHHW (+ increment) whose 8-connected component of
    low-or-sea cells contains sea (`scipy.ndimage.label`). The threshold is the nearest station's
    AHHW evaluated per ~1.8 km block.
-4. Ground at the asset: bare-earth NGII DEM where it covers the point, else GLO-30 (a surface model).
-   Unknown ground gives unknown connectivity and depth (null), never 0.
+4. Ground at the asset: Copernicus GLO-30 only (a surface model) — one national ground for the
+   main value (spec rule 5, 사용자 결정 2026-11-16); the NGII bare-earth DEM is not used here, so
+   the ground never switches source at an NGII tile edge. Unknown ground gives unknown
+   connectivity and depth (null), never 0.
 
 Assumptions (stated on the row): structures narrower than ~90 m (seawalls, levees) are removed;
 nearest-station AHHW; present-day tidal datum; no storm surge, no waves; no loss computed.
@@ -266,7 +299,8 @@ $\bar h$ = representative depth (m; `flood_map` config), $n_{obs}$ = covered ass
 $n_{map}$ = covered assets the map floods, $n_{hit}$ = both.
 
 One 100-y event (frequency 0.01), present day only, no loss computed. Sub check: DEM edge depth vs
-the band (shared with river flood). Validation (diagnostic, no verdict): 서울시 침수흔적도
+the band (shared with river flood; its DEM is mixed — bare-earth NGII where it covers, else
+GLO-30 — acceptable for a diagnostic check, never used for a main value). Validation (diagnostic, no verdict): 서울시 침수흔적도
 2010–2025, `F_SHIM` = depth (m, meaning inferred from the name and values), polygons within
 `pluvial_local.trace_buffer_m` of the asset, only assets inside 서울특별시. A 100-y map against
 observed 2010–2025 events is not like-for-like, so `pod` and `share_mapped_observed` are reported

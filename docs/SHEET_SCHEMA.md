@@ -23,9 +23,10 @@
 | `lat`, `lon` | WGS84 |
 | `km` | 단면 시작점부터 자산까지의 거리 (0 ≤ km ≤ `section.cut.length_km`) |
 | `z_ground_m`, `z_surface_m` | 지면 높이와 표면 높이. 모르면 `null` (0이 아님) |
-| `classes` | `{rp100, rp200, rp500}` → 공식 수심 등급 코드 또는 `""` (범위 밖) |
-| `bands_m` | 등급별 `[하한, 상한]`, 상한이 없으면 `null` |
-| `depth_m` | 계산에 쓴 대표 깊이 |
+| `classes` | `{rp100, rp200, rp500}` → 공식 수심 등급 코드, `""` (그 지도의 모든 폴리곤 밖 = 0 m), 또는 `null` (그 빈도의 국가하천 지도 파일이 없거나 읽을 수 없음 = 값을 알 수 없음; 까닭은 `reasons`) |
+| `reasons` | (선택) `{rp100, rp200, rp500}` → 등급이 `null`인 까닭: `"no_file_for_rp"` (그 빈도 지도 파일 없음), `"map_unreadable"` (파일은 있으나 읽을 수 없음), 등급을 알면 `null`. 2026-11-16 이전 도면에는 없다 |
+| `bands_m` | 등급별 `[하한, 상한]`, 상한이 없으면 `null`. 등급이 `null`이면 띠 전체가 `null` (알 수 없음, 0 m 아님) |
+| `depth_m` | 계산에 쓴 대표 깊이. 등급이 `null`이면 `null` (알 수 없음, 0 m 아님) |
 | `check_depth_m` | 보조 점검(지형) 깊이. 없으면 `null` |
 | `check_dem` | 보조 점검에 쓴 지형 자료 이름 |
 
@@ -37,7 +38,7 @@
 | `km` | 표본 거리, 엄격히 증가 |
 | `z_ground_m`, `z_surface_m` | 표본 높이, 같은 길이, `null` 허용 |
 | `ground_source`, `surface_source` | 자료 이름 |
-| `classes` | `{rp100, rp200, rp500}` → 표본마다 등급 코드 또는 `""` |
+| `classes` | `{rp100, rp200, rp500}` → 표본마다 등급 코드, `""` (밖), 또는 `null` (그 빈도 지도 파일 없음 = 알 수 없음) |
 | `vertical_exaggeration` | 화면 단면의 수직 과장 배율 |
 
 ### `frequency`

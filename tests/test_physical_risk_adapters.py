@@ -130,11 +130,11 @@ def test_korea_local_flood_is_the_official_class_band_with_a_diagnostic_check() 
         a.load((30.0, 120.0, 40.0, 130.0))  # needs asset points
 
 
-def test_korea_local_flood_on_the_real_maps_when_present() -> None:
-    from climaterisk_worker._paths import paths
-
-    if not paths.floodmap_dir().is_dir():
-        pytest.skip("홍수위험지도 not on this machine")
+def test_korea_local_flood_on_the_real_maps_when_present(
+    real_floodmaps: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # opt-in: CLIMATERISK_REAL_MAPS=1 (conftest ``real_floodmaps``); skipped otherwise
+    monkeypatch.setattr(adapters.KoreaLocalFloodAdapter, "_map_memo", None)
     a = adapters.KoreaLocalFloodAdapter("historical", 2020, "KOR")
     h = a.load(None, points=[(37.547, 127.047), (37.5665, 126.978)])  # 성수동1가, 서울시청
     assert [a.diagnostics["classes"][k][0] for k in ("rp100", "rp200", "rp500")] == [
