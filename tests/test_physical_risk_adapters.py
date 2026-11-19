@@ -262,9 +262,17 @@ def test_f_runner_heat_cells_follow_the_readiness_table() -> None:
     k = by_model[K]
     if k["hazard_dataset"] is None:
         pytest.skip("local catalog has no KOR heatwave layer on this machine")
+    if (
+        k["hazard_dataset"] == "kma_asos_open_field_utci"
+        and k["calculation_status"] == CalculationStatus.NO_HAZARD_DATA.value
+    ):
+        # HW Korea-local = open-field UTCI since 2026-11-16; its KMA inputs are not under
+        # the test data root (real-data runs: tests/test_heat_utci.py)
+        assert k["hazard_intensity"] is None and k["eal_usd"] is None  # missing, never 0
+        pytest.skip("no KMA ASOS / grid cache under the test data root")
     assert k["calculation_status"] == CalculationStatus.HAZARD_ONLY.value
     assert k["eal_usd"] is None and k["hazard_intensity"] is not None
-    assert "KMA" in k["hazard_source"]
+    assert "KMA" in k["hazard_source"] or "기상청" in k["hazard_source"]
 
 
 # --------------------------------------------------------------------------- #

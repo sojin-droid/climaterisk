@@ -31,12 +31,14 @@ from __future__ import annotations
 import calendar
 import logging
 import math
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
+
+from climaterisk_worker.heat_days import monthly_mean
 
 log = logging.getLogger(__name__)
 
@@ -54,6 +56,7 @@ ASSUMPTIONS = (
     "A6 ground albedo 0.20 (range 0.15-0.25 reported)",
     "A8 humidity, wind and radiation taken unchanged from the nearest station",
     "A9 anemometer height 10 m where the station table has none",
+    "A7 (future) humidity, wind, radiation and the ground fit held at present values",
 )
 
 
@@ -658,6 +661,119 @@ def heat_days_from_hourly(
 
 
 # =========================================================================== #
+# 2b. Future by monthly delta (phase 2)                                        #
+# =========================================================================== #
+def monthly_delta(
+    base_tmax: Any,
+    base_months: Any,
+    fut_tmax: Any,
+    fut_months: Any,
+    months: Sequence[int],
+) -> np.ndarray:
+    """Monthly change of the model daily maximum temperature between two windows.
+
+    Algorithm:
+        $$\\delta_{m,c} = \\overline{G}^{fut}_{m,c} - \\overline{G}^{base}_{m,c}$$
+        ASCII: delta[m, c] = mean_fut(month m, cell c) - mean_base(month m, cell c)
+
+        $G$ is the model daily maximum air temperature (degC), $m$ the calendar month, $c$ a
+        grid cell; each mean is over all days of that month in the window (NaN-aware). A cell
+        with no finite day in either window gives NaN (no data), never 0.
+
+    Args:
+        base_tmax: Base-window daily maximum ``(n_base, ny, nx)`` in degC.
+        base_months: Calendar month (1-12) of each base day, ``(n_base,)``.
+        fut_tmax: Future-window daily maximum ``(n_fut, ny, nx)`` in degC.
+        fut_months: Calendar month of each future day, ``(n_fut,)``.
+        months: Months to return.
+
+    Returns:
+        Array ``(len(months), ny, nx)`` in degC.
+
+    Raises:
+        ValueError: If the grids differ in shape or a month array does not match its days.
+    """
+    b = np.asarray(base_tmax, dtype=float)
+    f = np.asarray(fut_tmax, dtype=float)
+    if b.shape[1:] != f.shape[1:]:
+        raise ValueError(f"base grid {b.shape[1:]} and future grid {f.shape[1:]} differ")
+    if (
+        b.shape[0] != np.asarray(base_months).shape[0]
+        or f.shape[0] != np.asarray(fut_months).shape[0]
+    ):
+        raise ValueError("month arrays do not match the number of days")
+    out = np.stack(
+        [monthly_mean(f, fut_months, int(m)) - monthly_mean(b, base_months, int(m)) for m in months]
+    )
+    log.debug("monthly_delta: shape %s dtype %s", out.shape, out.dtype)
+    return out
+
+
+def apply_future(ta_c: Any, time_kst: Any, delta_by_month: Mapping[int, float]) -> np.ndarray:
+    """Add the monthly delta to an hourly air-temperature series.
+
+    Algorithm:
+        $$T^{fut}(h) = T(h) + \\delta_{m(h)}$$
+        ASCII: Ta_fut(h) = Ta(h) + delta[month of h]
+
+        $T$ air temperature (degC), $\\delta_m$ the monthly change at the cell (degC),
+        $m(h)$ the calendar month of hour $h$. An hour whose month has no (or a NaN) delta is
+        NaN, so that the year falls under the completeness rule; it never keeps the present
+        temperature.
+
+    Args:
+        ta_c: Hourly air temperature (degC), NaN = missing.
+        time_kst: ``datetime64`` hourly times (KST).
+        delta_by_month: ``{month: delta (degC)}``.
+
+    Returns:
+        Future hourly air temperature (degC), same shape as ``ta_c``.
+    """
+    ta = np.asarray(ta_c, dtype=float)
+    month = np.asarray(time_kst).astype("datetime64[M]").astype(np.int64) % 12 + 1
+    table = np.full(13, np.nan)
+    for m, d in delta_by_month.items():
+        table[int(m)] = float(d)
+    return ta + table[month]
+
+
+def scenario_window(scenario: str, year: int, future_cfg: Mapping[str, Any]) -> dict[str, Any]:
+    """Which scenario and window is served for a requested scenario and target year.
+
+    Args:
+        scenario: Requested scenario key (``historical``, ``rcp26`` ...).
+        year: Target year.
+        future_cfg: The ``heat_utci.future`` config section.
+
+    Returns:
+        ``served_scenario`` (SSP key or ``"historical"``), ``window`` ([first, last] year or
+        None) and ``reason`` (why the present was served; None when the request was
+        ``historical`` or the future is served).
+    """
+    if scenario == "historical":
+        return {"served_scenario": "historical", "window": None, "reason": None}
+    keys = future_cfg["scenario_keys"]
+    if scenario not in keys:
+        return {
+            "served_scenario": "historical",
+            "window": None,
+            "reason": f"no future grid for scenario {scenario}; present period served",
+        }
+    min_year = int(future_cfg["min_target_year"])
+    if int(year) < min_year:
+        return {
+            "served_scenario": "historical",
+            "window": None,
+            "reason": f"target year {int(year)} is before {min_year}; present period served",
+        }
+    return {
+        "served_scenario": str(keys[scenario]),
+        "window": [int(v) for v in future_cfg["future_years"]],
+        "reason": None,
+    }
+
+
+# =========================================================================== #
 # 3. Sub check (diagnostic only)                                               #
 # =========================================================================== #
 def _spearman(a: Sequence[float], b: Sequence[float]) -> float | None:
@@ -1115,6 +1231,33 @@ class _Run:
         self._rad: dict[int, dict[str, Any]] = {}
         self._fits: dict[tuple[int, int], dict[str, float] | None] = {}
         self._met_ok: dict[int, bool] = {}
+        self._future: dict[str, np.ndarray] = {}
+
+    def future_delta(self, key: str) -> np.ndarray:
+        """Monthly delta grid ``(len(months), ny, nx)`` of an SSP, cached per run.
+
+        Raises:
+            ValueError: If a future cache is not on the observation grid.
+        """
+        if key not in self._future:
+            fcfg = self.cfg["future"]
+            base_rel, fut_rel = fcfg["caches"][key]
+            by = (int(fcfg["base_years"][0]), int(fcfg["base_years"][1]))
+            fy = (int(fcfg["future_years"][0]), int(fcfg["future_years"][1]))
+            base = _Grid(_grid_path(str(base_rel)), by, self.months)
+            fut = _Grid(_grid_path(str(fut_rel)), fy, self.months)
+            for g in (base, fut):
+                if (
+                    g.lat.shape != self.grid.lat.shape
+                    or g.lon.shape != self.grid.lon.shape
+                    or not np.allclose(g.lat, self.grid.lat)
+                    or not np.allclose(g.lon, self.grid.lon)
+                ):
+                    raise ValueError("future grid cache is not on the observation grid")
+            bm = base.days.astype("datetime64[M]").astype(int) % 12 + 1
+            fm = fut.days.astype("datetime64[M]").astype(int) % 12 + 1
+            self._future[key] = monthly_delta(base.tmax, bm, fut.tmax, fm, self.months)
+        return self._future[key]
 
     def frame(self, stn: int) -> pd.DataFrame:
         """Station series reindexed to the full season hours (missing = NaN)."""
@@ -1193,13 +1336,25 @@ class _Run:
         return {"name": name, "heat_days_hourly": hourly, "heat_days_grid": grid}
 
 
+FUTURE_KEYS = (
+    "future_scenario",
+    "future_years",
+    "utci_days_ge38_future",
+    "utci_days_ge38_future_low",
+    "utci_days_ge38_future_high",
+    "utci_hours_ge38_future",
+    "utci_days_ge32_future",
+    "future_delta_t_mean_c",
+)
+
+
 def _grid_path(rel: str) -> Path:
     from climaterisk_worker._paths import paths
 
     return paths.cache_dir(*Path(rel).parts)
 
 
-def _nan_row(lat: float, lon: float, reason: str) -> dict[str, Any]:
+def _nan_row(lat: float, lon: float, reason: str, future: bool = False) -> dict[str, Any]:
     keys = (
         "utci_days_ge38",
         "utci_days_ge38_low",
@@ -1230,6 +1385,8 @@ def _nan_row(lat: float, lon: float, reason: str) -> dict[str, Any]:
         "check_warn",
     )
     row: dict[str, Any] = dict.fromkeys(keys)
+    if future:
+        row.update(dict.fromkeys(FUTURE_KEYS))
     row.update(lat=lat, lon=lon, status="NO_HAZARD_DATA", reason=reason)
     return row
 
@@ -1246,31 +1403,42 @@ def _clean(x: Any) -> Any:
     return x
 
 
-def _asset_row(run: _Run, lat: float, lon: float) -> dict[str, Any]:
-    cfg = run.cfg
-    cell = run.grid.cell(lat, lon)
-    if cell is None:
-        return _nan_row(lat, lon, "point outside the 0.05 deg land grid")
-    ranked = _rank_stations(lat, lon, run.stations)
-    s_row = next((r for r in ranked.itertuples() if run.meteo_ok(int(r.stnId))), None)
-    if s_row is None:
-        return _nan_row(lat, lon, "no station with enough valid years")
-    stn = int(s_row.stnId)
-    rad_row = next((r for r in ranked.itertuples() if run.radiation(int(r.stnId))["ok"]), None)
-    if rad_row is None:
-        return _nan_row(lat, lon, "no station with enough radiation years")
-    rad_stn = int(rad_row.stnId)
-    s_cell = run.grid.cell(float(s_row.lat), float(s_row.lon))
-    if s_cell is None:
-        return _nan_row(lat, lon, f"station {stn} is outside the land grid")
-    fit = run.ground_fit(stn, rad_stn)
-    if fit is None:
-        return _nan_row(lat, lon, f"ground fit of station {stn} unusable")
-    height, assumed = anemometer_height(
-        run.table, stn, f"{run.years[1]}-09-30", float(cfg["anemometer_height_default_m"])
-    )
+def _hourly_inputs(
+    run: _Run,
+    lat: float,
+    lon: float,
+    cell: tuple[int, int],
+    stn: int,
+    s_cell: tuple[int, int],
+    rad_stn: int,
+    height: float,
+) -> dict[str, Any]:
+    """Hourly drivers at a point: shifted air temperature, humidity, wind and irradiance.
 
-    # --- air temperature and humidity at the asset (design 4.2)
+    Algorithm:
+        $$T_a(h) = T_s(h) + G(c_a,d) - G(c_s,d),\\quad e = RH\\,e_s(T_a)/100$$
+        ASCII: Ta = Ts + (Grid[point cell, day] - Grid[station cell, day]); e = RH*es(Ta)/100
+
+        $T_s$ station air temperature (degC), $G$ the 0.05 deg daily-maximum grid (degC),
+        $c_a$ the point cell, $c_s$ the station cell, $d$ the day, $RH$ relative humidity (%),
+        $e_s$ saturation vapour pressure (hPa). At the station itself ($c_a = c_s$) the shift
+        is zero. Wind goes to 10 m and is clipped; irradiance is split into diffuse and direct.
+
+    Args:
+        run: Per-call caches.
+        lat: Point latitude (deg).
+        lon: Point longitude (deg east).
+        cell: Grid cell of the point.
+        stn: Station of the meteorology.
+        s_cell: Grid cell of that station.
+        rad_stn: Station of the global radiation.
+        height: Anemometer height of ``stn`` (m).
+
+    Returns:
+        Arrays over the season hours (``ta``, ``rh``, ``e``, ``v10``, ``v``, ``ghi``,
+        ``sinb``, ``s_dif``, ``i_dn``, ``cloud``) and ``delta_day`` (degC per day).
+    """
+    cfg = run.cfg
     g = run.grid
     didx = np.searchsorted(g.days, run.days)
     delta_day = g.tmax[:, cell[0], cell[1]] - g.tmax[:, s_cell[0], s_cell[1]]
@@ -1279,20 +1447,100 @@ def _asset_row(run: _Run, lat: float, lon: float) -> dict[str, Any]:
         f["ta"].to_numpy(float), f["hm"].to_numpy(float), delta_day[didx]
     )
     e = rh / 100.0 * saturation_vapour_pressure(ta)
-
-    # --- wind
     v10 = wind_to_10m(f["ws"].to_numpy(float), height, float(cfg["roughness_length_m"]))
     lo_w, hi_w = (float(v) for v in cfg["wind_clip_ms"])
     v, _ = clip_wind(v10, lo_w, hi_w)
-    finite_w = np.isfinite(v10)
-    calm = float(((v10 < lo_w) & finite_w).sum() / max(1, finite_w.sum()))
-
-    # --- radiation
     sinb = solar_sin_elevation(lat, lon, run.t_mid)
     ghi = run.radiation(rad_stn)["ghi"].copy()
     ghi[sinb <= 0.0] = 0.0
     s_dif, i_dn = split_irradiance(ghi, sinb, run.i0, run.min_sin)
     cloud = cloud_fraction(ghi, clear_sky_ghi(sinb), sinb, run.day_index)
+    log.debug("hourly inputs: %d hours, ta dtype %s", ta.size, ta.dtype)
+    return {
+        "ta": ta,
+        "rh": rh,
+        "e": e,
+        "v10": v10,
+        "v": v,
+        "ghi": ghi,
+        "sinb": sinb,
+        "s_dif": s_dif,
+        "i_dn": i_dn,
+        "cloud": cloud,
+        "delta_day": delta_day,
+    }
+
+
+def _utci_from_inputs(
+    run: _Run,
+    inp: dict[str, Any],
+    fit: dict[str, float],
+    alpha: float,
+    ta: np.ndarray | None = None,
+    e: np.ndarray | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """MRT and UTCI (degC) from :func:`_hourly_inputs`; ``ta``/``e`` override the air state.
+
+    Algorithm:
+        $$U = \\mathrm{UTCI}\\big(T_a,\\ T_{mrt}(T_a, e, G_h, \\alpha),\\ v_{10},\\ RH\\big)$$
+        ASCII: U = UTCI(Ta, Tmrt(Ta, e, GHI, alpha), v, RH)
+
+        Symbols as in :func:`open_field_utci`. A future run passes the warmed ``ta`` and its
+        vapour pressure ``e``; humidity RH, wind, irradiance and the ground fit stay at the
+        present values (assumption A7).
+    """
+    cfg = run.cfg
+    ta_use = inp["ta"] if ta is None else ta
+    e_use = inp["e"] if e is None else e
+    tmrt = mean_radiant_temperature_open(
+        ta_use,
+        e_use,
+        inp["ghi"],
+        inp["sinb"],
+        inp["s_dif"],
+        inp["i_dn"],
+        inp["cloud"],
+        fit,
+        alpha,
+        float(cfg["emissivity_ground"]),
+        float(cfg["absorptivity_shortwave"]),
+        float(cfg["emissivity_person"]),
+        float(cfg["angle_factor"]),
+    )
+    return tmrt, utci_hourly(ta_use, tmrt, inp["v"], inp["rh"])
+
+
+def _asset_row(run: _Run, lat: float, lon: float, future: str | None = None) -> dict[str, Any]:
+    cfg = run.cfg
+    cell = run.grid.cell(lat, lon)
+    if cell is None:
+        return _nan_row(lat, lon, "point outside the 0.05 deg land grid", future is not None)
+    ranked = _rank_stations(lat, lon, run.stations)
+    s_row = next((r for r in ranked.itertuples() if run.meteo_ok(int(r.stnId))), None)
+    if s_row is None:
+        return _nan_row(lat, lon, "no station with enough valid years", future is not None)
+    stn = int(s_row.stnId)
+    rad_row = next((r for r in ranked.itertuples() if run.radiation(int(r.stnId))["ok"]), None)
+    if rad_row is None:
+        return _nan_row(lat, lon, "no station with enough radiation years", future is not None)
+    rad_stn = int(rad_row.stnId)
+    s_cell = run.grid.cell(float(s_row.lat), float(s_row.lon))
+    if s_cell is None:
+        return _nan_row(lat, lon, f"station {stn} is outside the land grid", future is not None)
+    fit = run.ground_fit(stn, rad_stn)
+    if fit is None:
+        return _nan_row(lat, lon, f"ground fit of station {stn} unusable", future is not None)
+    height, assumed = anemometer_height(
+        run.table, stn, f"{run.years[1]}-09-30", float(cfg["anemometer_height_default_m"])
+    )
+
+    # --- hourly drivers at the asset (design 4.2)
+    inp = _hourly_inputs(run, lat, lon, cell, stn, s_cell, rad_stn, height)
+    ta, v10, delta_day = inp["ta"], inp["v10"], inp["delta_day"]
+    lo_w, hi_w = (float(v) for v in cfg["wind_clip_ms"])
+    finite_w = np.isfinite(v10)
+    calm = float(((v10 < lo_w) & finite_w).sum() / max(1, finite_w.sum()))
+    g = run.grid
 
     thresholds = [float(x) for x in cfg["thresholds_c"]]
     head = float(cfg["headline_threshold_c"])
@@ -1306,22 +1554,7 @@ def _asset_row(run: _Run, lat: float, lon: float) -> dict[str, Any]:
     }
 
     def run_utci(alpha: float) -> tuple[np.ndarray, np.ndarray]:
-        tmrt = mean_radiant_temperature_open(
-            ta,
-            e,
-            ghi,
-            sinb,
-            s_dif,
-            i_dn,
-            cloud,
-            fit,
-            alpha,
-            float(cfg["emissivity_ground"]),
-            float(cfg["absorptivity_shortwave"]),
-            float(cfg["emissivity_person"]),
-            float(cfg["angle_factor"]),
-        )
-        return tmrt, utci_hourly(ta, tmrt, v, rh)
+        return _utci_from_inputs(run, inp, fit, alpha)
 
     tmrt, u = run_utci(float(cfg["albedo"]))
     m = annual_metrics(u, run.t, **kw)
@@ -1384,6 +1617,8 @@ def _asset_row(run: _Run, lat: float, lon: float) -> dict[str, Any]:
         "hottest_day": hottest,
         "hottest_day_hourly": hourly,
     }
+    if future is not None:
+        row.update(_future_metrics(run, inp, fit, cell, future, kw))
     if headline is not None:
         chk = asset_check(row, cfg["check"])
         row.update(
@@ -1402,8 +1637,62 @@ def _asset_row(run: _Run, lat: float, lon: float) -> dict[str, Any]:
     return _clean(row)
 
 
+def _future_metrics(
+    run: _Run,
+    inp: dict[str, Any],
+    fit: dict[str, float],
+    cell: tuple[int, int],
+    future: str,
+    kw: dict[str, Any],
+) -> dict[str, Any]:
+    """Future-period UTCI metrics of one asset by the monthly delta (design 4.1).
+
+    Algorithm:
+        $$T^{fut}_a(h) = T_a(h) + \\delta_{m(h),c_a},\\quad e^{fut} = RH\\,e_s(T^{fut}_a)/100$$
+        ASCII: Ta_fut = Ta + delta[month, asset cell]; e_fut = RH*es(Ta_fut)/100; UTCI by
+        :func:`_utci_from_inputs`
+
+        $\\delta$ monthly change of the model daily maximum (degC), $c_a$ the asset cell,
+        $RH$ relative humidity (%), $e_s$ saturation vapour pressure (hPa). RH, wind,
+        irradiance and the ground fit stay at present values (A7). A month with no delta
+        gives NaN hours, so the year falls under the completeness rule.
+
+    Returns:
+        The :data:`FUTURE_KEYS` entries; metrics are None when too few years are valid.
+    """
+    cfg = run.cfg
+    head = float(cfg["headline_threshold_c"])
+    delta = run.future_delta(future)[:, cell[0], cell[1]]
+    by_month = {m: float(delta[k]) for k, m in enumerate(run.months)}
+    ta_f = apply_future(inp["ta"], run.t, by_month)
+    e_f = inp["rh"] / 100.0 * saturation_vapour_pressure(ta_f)
+    m = annual_metrics(
+        _utci_from_inputs(run, inp, fit, float(cfg["albedo"]), ta_f, e_f)[1], run.t, **kw
+    )
+    head_only = {**kw, "thresholds_c": [head]}
+    ranges = [
+        annual_metrics(_utci_from_inputs(run, inp, fit, a, ta_f, e_f)[1], run.t, **head_only)[
+            f"utci_days_ge{head:g}"
+        ]
+        for a in cfg["albedo_range"]
+    ]
+    return {
+        "future_scenario": future,
+        "future_years": [int(v) for v in cfg["future"]["future_years"]],
+        "utci_days_ge38_future": m[f"utci_days_ge{head:g}"],
+        "utci_days_ge38_future_low": ranges[0],
+        "utci_days_ge38_future_high": ranges[1],
+        "utci_hours_ge38_future": m[f"utci_hours_ge{head:g}"],
+        "utci_days_ge32_future": m["utci_days_ge32"],
+        "future_delta_t_mean_c": float(np.nanmean(delta)) if np.isfinite(delta).any() else None,
+    }
+
+
 def open_field_utci(
-    points: Sequence[tuple[float, float]], cfg: dict[str, Any], root: Path | None = None
+    points: Sequence[tuple[float, float]],
+    cfg: dict[str, Any],
+    root: Path | None = None,
+    future: str | None = None,
 ) -> dict[str, Any]:
     """Open-field UTCI hazard metrics for asset points (design §4.1).
 
@@ -1421,14 +1710,23 @@ def open_field_utci(
         points: ``(lat, lon)`` per asset.
         cfg: The ``heat_utci`` section of ``physical_risk_config.json``.
         root: KMA folder (default ``paths.kma_dir()``); tests may point it elsewhere.
+        future: SSP key of ``cfg["future"]["caches"]`` (``"ssp245"``, ``"ssp585"``) to add the
+            future-period metrics of :func:`_future_metrics` to every row; None keeps the
+            present-only output unchanged. Future air temperature = present + monthly delta
+            (humidity, wind, radiation held, assumption A7).
 
     Returns:
         ``{"per_asset": [row, ...], "sub_check": {...}, "record": {...}}``. A point outside
         the land grid, or without a station with enough years, gets ``status`` NO_HAZARD_DATA
         and None metrics (never 0).
+
+    Raises:
+        ValueError: If ``future`` is not a configured SSP key.
     """
+    if future is not None and future not in cfg.get("future", {}).get("caches", {}):
+        raise ValueError(f"unknown future scenario {future!r}")
     run = _Run(cfg, root)
-    rows = [_asset_row(run, float(la), float(lo)) for la, lo in points]
+    rows = [_asset_row(run, float(la), float(lo), future) for la, lo in points]
     used: dict[int, int] = {}
     for r in rows:
         if r["station_id"] is not None:
@@ -1449,6 +1747,13 @@ def open_field_utci(
         "assumptions": list(ASSUMPTIONS),
         "n_assets": len(rows),
     }
+    if future is not None:
+        record["future"] = {
+            "scenario": future,
+            "caches": list(cfg["future"]["caches"][future]),
+            "base_years": list(cfg["future"]["base_years"]),
+            "future_years": list(cfg["future"]["future_years"]),
+        }
     log.info("open-field UTCI: %d assets, %d stations", len(rows), len(used))
     station_days = {
         stn: {**run.station_heat_days(stn), "n_assets": n} for stn, n in sorted(used.items())
@@ -1458,3 +1763,64 @@ def open_field_utci(
         "sub_check": sub_check(rows, cfg["check"], station_days),
         "record": record,
     }
+
+
+def station_daily_series(
+    cfg: dict[str, Any],
+    stations: Sequence[int] | None = None,
+    root: Path | None = None,
+) -> dict[int, pd.DataFrame]:
+    """Daily maximum UTCI and grid air temperature at each ASOS station point (for the KDCA check).
+
+    Algorithm:
+        $$U^{max}_d = \\max_{h\\in d} U_h\\ \\ (\\ge 20\\text{ finite hours}),\\quad
+        T^{max}_d = G(c_s, d)$$
+        ASCII: utci_max(d) = max over the hours of day d of UTCI (NaN if < min_hours_per_day
+        finite hours); tmax_grid(d) = grid daily max at the station cell
+
+        $U_h$ hourly UTCI (degC) at the station point, where the grid shift is zero
+        ($c_a = c_s$), computed exactly as in :func:`open_field_utci`; $G$ the 0.05 deg
+        MK-PRISM daily-maximum grid (degC), $c_s$ the station cell, $d$ the day. A station
+        that fails the meteorology or radiation rules of :func:`_asset_row` is left out.
+
+    Args:
+        cfg: The ``heat_utci`` section of ``physical_risk_config.json``.
+        stations: Station ids to use; None means every station on disk that passes the rules.
+        root: KMA folder (default ``paths.kma_dir()``).
+
+    Returns:
+        ``{station id: frame}`` with the index = every season day of ``obs_years`` and the
+        columns ``utci_max`` and ``tmax_grid`` (degC, NaN = missing).
+    """
+    run = _Run(cfg, root)
+    min_hours = int(cfg["validation"]["min_hours_per_day"])
+    wanted = [int(s) for s in (stations if stations is not None else run.stations["stnId"])]
+    days = np.unique(run.days)
+    out: dict[int, pd.DataFrame] = {}
+    for stn in wanted:
+        if stn not in set(run.stations["stnId"].astype(int)) or not run.meteo_ok(stn):
+            continue
+        lat, lon = run._loc(stn)
+        ranked = _rank_stations(lat, lon, run.stations)
+        rad_row = next((r for r in ranked.itertuples() if run.radiation(int(r.stnId))["ok"]), None)
+        s_cell = run.grid.cell(lat, lon)
+        if rad_row is None or s_cell is None:
+            continue
+        fit = run.ground_fit(stn, int(rad_row.stnId))
+        if fit is None:
+            continue
+        height, _ = anemometer_height(
+            run.table, stn, f"{run.years[1]}-09-30", float(cfg["anemometer_height_default_m"])
+        )
+        inp = _hourly_inputs(run, lat, lon, s_cell, stn, s_cell, int(rad_row.stnId), height)
+        u = _utci_from_inputs(run, inp, fit, float(cfg["albedo"]))[1]
+        s = pd.Series(u).groupby(run.days)
+        dmax = s.max().reindex(days).to_numpy()
+        n_fin = s.count().reindex(days).to_numpy()
+        dmax = np.where(n_fin >= min_hours, dmax, np.nan)
+        out[stn] = pd.DataFrame(
+            {"utci_max": dmax, "tmax_grid": run.grid.tmax[:, s_cell[0], s_cell[1]]},
+            index=pd.DatetimeIndex(days),
+        )
+    log.info("station daily series: %d of %d stations", len(out), len(wanted))
+    return out

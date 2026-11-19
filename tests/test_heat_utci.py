@@ -632,9 +632,13 @@ def _config() -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def test_config_section_present_and_off_by_default() -> None:
+def test_config_section_present_and_switch_is_the_user_decision() -> None:
     c = _config()["heat_utci"]
-    assert c["enabled"] is False  # trial first: the 95th-percentile layer stays the default
+    # on since 2026-11-16 by user decision (UTCI = felt-heat index); the KDCA comparison is a
+    # supplementary result, not the switch rule (user 2026-11-16)
+    assert c["enabled"] is True
+    assert "사용자 결정 2026-11-16" in c["basis"]
+    assert "보조 결과" in c["validation"]["result"]["label"]
     for key in (
         "obs_years",
         "months",
@@ -666,10 +670,11 @@ def test_config_section_present_and_off_by_default() -> None:
 
 
 def test_utci_adapter_describes_present_only() -> None:
-    d = adapters.KoreaLocalUtciAdapter("rcp45", 2050).describe()
+    # rcp26 has no future grid (phase 2: rcp45/rcp85 from 2040 are served as ssp245/ssp585)
+    d = adapters.KoreaLocalUtciAdapter("rcp26", 2050).describe()
     assert d.hazard_type == "HW" and d.status == "HAZARD_ONLY"
     assert d.hazard_dataset == "kma_asos_open_field_utci"
-    assert d.requested_scenario == "rcp45" and d.served_scenario == "historical"
+    assert d.requested_scenario == "rcp26" and d.served_scenario == "historical"
     assert d.time_horizon == "2000-2019 May-Sep"
     assert "historical" in (d.detail or "").lower()
 
@@ -678,11 +683,14 @@ def test_adapter_for_switches_on_config(monkeypatch: pytest.MonkeyPatch) -> None
     from climaterisk.physical_risk import metrics
 
     base = metrics.load_config()
+    cfgs = {}
+    for flag in (False, True):
+        cfgs[flag] = json.loads(json.dumps(base))
+        cfgs[flag]["heat_utci"]["enabled"] = flag
+    monkeypatch.setattr(metrics, "load_config", lambda *a, **k: cfgs[False])
     off = adapters.adapter_for("HW", "KOREA_LOCAL", "historical", 2050, "KOR")
     assert isinstance(off, adapters.KoreaLocalHeatAdapter)
-    on_cfg = json.loads(json.dumps(base))
-    on_cfg["heat_utci"]["enabled"] = True
-    monkeypatch.setattr(metrics, "load_config", lambda *a, **k: on_cfg)
+    monkeypatch.setattr(metrics, "load_config", lambda *a, **k: cfgs[True])
     on = adapters.adapter_for("HW", "KOREA_LOCAL", "historical", 2050, "KOR")
     assert isinstance(on, adapters.KoreaLocalUtciAdapter)
     hm = adapters.adapter_for("HM", "KOREA_LOCAL", "historical", 2050, "KOR")
