@@ -504,7 +504,8 @@ def aqueduct_hazard(lat: Any, lon: Any, rps: list[int], depth: Any) -> Any:
         lat: Cell-centre latitudes, shape ``(n_cells,)``.
         lon: Cell-centre longitudes.
         rps: Return periods in years of the maps (ascending).
-        depth: Depth in metres, ``(len(rps), n_cells)``; NaN is taken as 0 here.
+        depth: Depth in metres, ``(len(rps), n_cells)``; NaN is stored as 0 here, so callers
+            must restore it with ``null_outside_box`` on every reading.
 
     Returns:
         A checked ``Hazard`` with units ``m``.
@@ -532,6 +533,27 @@ def aqueduct_hazard(lat: Any, lon: Any, rps: list[int], depth: Any) -> Any:
     haz.check()
     log.debug("aqueduct_hazard events=%d centroids=%d", n_ev, inten.shape[1])
     return haz
+
+
+def null_outside_box(intensity: Any, depth: Any) -> Any:
+    """Put NaN back on cells where a one-map-per-period layer has no data.
+
+    ``aqueduct_hazard`` must store NaN as 0 to build a CLIMADA ``Hazard``, so every reading of
+    that hazard (``rp_intensity``, its check) reads 0 there. A cell whose raw depth is NaN for
+    every period lies outside the layer's own box: it is no data, never 0 m.
+
+    Args:
+        intensity: ``(n_periods, n_cells)`` values read from the hazard.
+        depth: ``(n_rp, n_cells)`` raw maps passed to ``aqueduct_hazard`` (NaN = no data).
+
+    Returns:
+        A float copy of ``intensity`` with NaN in every column where ``depth`` is all NaN.
+    """
+    out = np.array(intensity, dtype=float, copy=True)
+    null = np.isnan(np.asarray(depth, dtype=float)).all(axis=0)
+    out[:, null] = np.nan
+    log.debug("null_outside_box cells=%d null=%d", null.size, int(null.sum()))
+    return out
 
 
 def rp_monotone_check(rps: list[float], depth: Any, tol_m: float = 1e-6) -> dict[str, Any]:

@@ -80,9 +80,7 @@ def _dataapi(hazard: str, model: str) -> dict[str, Any]:
         "description": f"150 arcsec grid ({km_class(150.0, 'arcsec')} class in Korea)",
         "metadata_field": "CLIMADA Data API dataset property res_arcsec (verified on load)",
         "dataset_family": (
-            "river_flood_150arcsec (ISIMIP)"
-            if hazard == "RF"
-            else "tropical_cyclone_10synth_tracks_150arcsec"
+            "climada_rf_isimip_150arcsec" if hazard == "RF" else "climada_tc_10synth_150arcsec"
         ),
     }
 
@@ -130,7 +128,7 @@ SPATIAL_RESOLUTION: dict[str, dict[str, dict[str, Any]]] = {
             "unit_type": "grid cell",
             "description": f"30 arcsec grid ({km_class(30.0, 'arcsec')} class in Korea)",
             "metadata_field": "Aqueduct GeoTIFF pixel size (measured on load)",
-            "dataset_family": "WRI Aqueduct Floods v2 inuncoast",
+            "dataset_family": "aqueduct_inuncoast",
         },
         _K: {
             "hazard": "CF",
@@ -163,7 +161,7 @@ SPATIAL_RESOLUTION: dict[str, dict[str, dict[str, Any]]] = {
                 "catalog layer centroid spacing (measured on load); source grid from "
                 "kma_scenario.GRID_RES_DEG"
             ),
-            "dataset_family": "KOR heatwave layer (season p95 TAMAX)",
+            "dataset_family": "kma_tamax_heatwave_layer",
         }
     },
     "DROUGHT": {},  # no dataset connected — see EXTENDED_HAZARDS

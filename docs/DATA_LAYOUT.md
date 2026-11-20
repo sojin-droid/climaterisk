@@ -59,6 +59,23 @@ The Data API ledger (`.downloads.db`) stores **absolute** file paths; a copied c
 rewritten ledger is re-downloaded. The migration tool rewrites the copy's ledger (the legacy one
 is untouched).
 
+## Dataset catalog
+
+Every dataset the platform and its CLIMADA runs use has one entry in
+[`assets/libraries/dataset_catalog.json`](../assets/libraries/dataset_catalog.json): a stable
+`id` (a snake_case Python identifier, the same string code uses as `dataset` / `hazard_dataset` /
+`dataset_family`), Korean and English labels, perils, role (main / check / reference hazard,
+exposure, boundary, ...), the methods/modules that read it (`used_by`), its location (`path`, relative to the data
+root, or `repo:` / `climada:` prefixed), coverage, source, licence and storage rule. A value that
+could not be verified from code, docs or disk is the string `unknown`. It complements
+`data_sources.json`, which is only the fetch registry (`data_sources_id` links the two).
+
+* Loader: `climaterisk.data.catalog` - `dataset(id)`, `dataset_path(id)`, `on_disk(id)`, `ids()`.
+  `on_disk` uses `exists()` and directory listings only; it never opens or hashes a file.
+* Status table: `python scripts/dataset_catalog_status.py [--role hazard_main] [--missing]`.
+* Guard: `tests/test_dataset_catalog.py` fails if a dataset string in `worker/` or `src/` is not a
+  catalog id. Add the entry when you add a dataset (see `ADDING_A_PERIL.md`).
+
 ## Resolution rules
 
 * Every path variable resolves **process environment → the repo's `.env` → default**, in every

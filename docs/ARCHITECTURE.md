@@ -39,6 +39,7 @@ server-side in `data/app.db` (SQLite, WAL). Edits are synced back with a debounc
 |---|---|
 | `core/` | Domain entities + enums (pure data, no I/O) |
 | `data/` | SQLite session store, bundled-library loaders |
+| `data/catalog.py` | loads `assets/libraries/dataset_catalog.json`: one stable id, role, path, coverage and licence per dataset (`dataset`, `dataset_path`, `on_disk`); see `DATA_LAYOUT.md` |
 | `paths.py` | the single path authority: repo root, `CLIMATERISK_DATA_ROOT` layout, CLIMADA data dir — see [DATA_LAYOUT.md](DATA_LAYOUT.md) |
 | `engines/` | The physical-engine request/result JSON contract |
 | `transition/` | Light transition-risk math (Phase 3) |

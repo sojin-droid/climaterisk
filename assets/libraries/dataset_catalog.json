@@ -1,0 +1,1878 @@
+{
+  "_meta": {
+    "description": "Catalog of every dataset the platform and its CLIMADA runs use or hold. One entry per dataset; the id is a snake_case Python identifier and is the variable name used to load it (climaterisk.data.catalog.dataset(id), dataset_path(id)).",
+    "date": "2026-11-20",
+    "rule": "Every value comes from repo code, docs, manifests or on-disk listings; anything not verifiable is the string 'unknown'. Dataset strings used in code (method_registry.json dataset, hazard_dataset, dataset_family) must be ids here (tests/test_dataset_catalog.py). Never open or hash data files to check presence (on_disk uses exists/listing only).",
+    "path_roots": "path is relative to the data root (paths.data_root()), or prefixed repo: (repo root) or climada: (paths.climada_data_dir()). A glob in path is allowed; dataset_path returns the directory before the first glob component.",
+    "roles": [
+      "hazard_main",
+      "hazard_check",
+      "hazard_reference",
+      "supplementary",
+      "exposure",
+      "boundary",
+      "vulnerability",
+      "validation",
+      "other"
+    ],
+    "peril_tags": "registry tags RF PF CF TC HW HM, or peril names (drought, wildfire, earthquake, heatwave); [] for exposure/boundary/terrain",
+    "data_sources_registry": "assets/libraries/data_sources.json is the fetch registry; data_sources_id links to it"
+  },
+  "datasets": [
+    {
+      "id": "floodmap_rfm_depth_class",
+      "label_ko": "환경부 하천범람지도 (침수심 등급)",
+      "label_en": "MoE river flood hazard map (depth class)",
+      "perils": [
+        "RF"
+      ],
+      "role": "hazard_main",
+      "used_by": [
+        "rf.floodmap_class",
+        "rf.fwdet_edge",
+        "worker:physical_risk/adapters.py (KoreaLocalRiverAdapter)",
+        "worker:sheet_builder.py",
+        "worker:floodmap_depth.py",
+        "script:floodmap_coverage.py",
+        "script:fetch_floodmap_kor.py"
+      ],
+      "path": "external/other/floodmap/유역별_*년_빈도_*_하천범람지도",
+      "path_fn": "floodmap_dir",
+      "format": "zipped shapefiles, one (Multi)Polygon per depth class (SEG_CODE N330-N334), no depth value",
+      "spatial_resolution": "vector polygons (no grid); classes read as bands <=0.5, 0.5-1, 1-2, 2-5, >=5 m",
+      "temporal": "present day, design flood (levee failure or overtopping); national rivers 100/200/500 y, local rivers 100 y",
+      "coverage": "partial: mapped national-river reaches (100/200/500 y) and local-river reaches (100 y) only; small streams unmapped",
+      "source": "환경부 홍수위험지도 (data.floodmap.go.kr), downloaded externally 2026-09-02 (docs/DATA_LAYOUT.md)",
+      "licence": "공공누리 제4유형 (출처표시, 상업적 이용금지, 변경금지)",
+      "storage_rule": "KOGL type 4: overlay only. Read in memory at asset points; never rasterise, never store or commit geometry or anything derived except the per-asset class of a run; never open the zips outside the adapter/coverage scripts",
+      "data_sources_id": null,
+      "notes": "Code-to-band order N330 shallowest ... N334 deepest is inferred, not officially confirmed (floodmap_depth.py). 174 of 477 zips were iCloud placeholders on 2026-11-16 (docs/DATA_LAYOUT.md); never open to test. Folder names per paths in floodmap_depth.FAMILIES."
+    },
+    {
+      "id": "floodmap_cfm_depth_class",
+      "label_ko": "환경부 도시침수지도 (침수심 등급)",
+      "label_en": "MoE urban (pluvial) flood hazard map (depth class)",
+      "perils": [
+        "PF"
+      ],
+      "role": "hazard_main",
+      "used_by": [
+        "pf.floodmap_urban_class",
+        "pf.fwdet_edge",
+        "worker:physical_risk/adapters.py (KoreaLocalPluvialAdapter)",
+        "worker:floodmap_depth.py (URBAN_FAMILIES)",
+        "script:floodmap_coverage.py"
+      ],
+      "path": "external/other/floodmap/유역별_*년_빈도_도시침수지도",
+      "path_fn": "floodmap_dir",
+      "format": "zipped shapefiles, depth-class polygons (read by the urban-pluvial adapter)",
+      "spatial_resolution": "vector polygons (no grid); depth class band",
+      "temporal": "100-year only (on disk: only 유역별_100년_빈도_도시침수지도)",
+      "coverage": "partial: mapped cities only (which: scripts/floodmap_coverage.py, 110 urban zips counted 2026-11-16)",
+      "source": "환경부 홍수위험지도 (data.floodmap.go.kr)",
+      "licence": "공공누리 제4유형 (출처표시, 상업적 이용금지, 변경금지)",
+      "storage_rule": "KOGL type 4: overlay only. Read in memory at asset points; never rasterise, never store or commit geometry or anything derived except the per-asset class of a run; never open the zips outside the adapter/coverage scripts",
+      "data_sources_id": null,
+      "notes": "Adapter text: polygons overlaid in memory and never rasterised or written (adapters.py). Depth class meaning follows the river map convention; not separately verified [unknown]."
+    },
+    {
+      "id": "khoa_ahhw_connected_bathtub",
+      "label_ko": "KHOA 약최고고조면 연결성 침수",
+      "label_en": "KHOA highest-high-water connected bathtub",
+      "perils": [
+        "CF"
+      ],
+      "role": "hazard_main",
+      "used_by": [
+        "cf.khoa_ahhw_bathtub",
+        "cf.structures_kept",
+        "worker:physical_risk/adapters.py (KoreaLocalCoastalAdapter)",
+        "worker:coastal_connectivity.py"
+      ],
+      "path": "external/khoa/tidebed_harmonics_20250812.csv",
+      "path_fn": null,
+      "format": "CSV (station harmonic constants M2, S2, K1, O1)",
+      "spatial_resolution": "point stations; ground from GLO-30 reduced to 3 arcsec (~90 m) block minimum at run time",
+      "temporal": "present sea level; +0.5 / +1.0 m increments reported in diagnostics only; no scenarios",
+      "coverage": "national coast (nearest station within pad_km 20 of the asset points)",
+      "source": "해양수산부 국립해양조사원 예측조위(타이드베드) 기준항 조화상수_20250812 (data.go.kr 15145395)",
+      "licence": "이용허락범위 제한 없음 (data.go.kr page, external/khoa/page_15145395.html)",
+      "storage_rule": "none recorded",
+      "data_sources_id": null,
+      "notes": "Computed at run time, nothing stored: AHHW from the harmonics + sea connectivity on copernicus_dem_glo30, clipped by sgis_boundaries. The id names the hazard; the file listed is its only dedicated input on disk. No surge, no waves."
+    },
+    {
+      "id": "aqueduct_inuncoast",
+      "label_ko": "WRI Aqueduct 해안침수 (30 arcsec)",
+      "label_en": "WRI Aqueduct coastal flood (inuncoast, 30 arcsec)",
+      "perils": [
+        "CF"
+      ],
+      "role": "hazard_check",
+      "used_by": [
+        "cf.aqueduct (registry status to_build)",
+        "script:board_layer.py (coastal_flood_* board layers)",
+        "worker:physical_risk/adapters.py (Aqueduct reference adapter)"
+      ],
+      "path": "cache/aqueduct/aqueduct_inuncoast_*.npz",
+      "path_fn": "cache_dir",
+      "format": "npz depth stacks cut to a bbox (<dataset>__<bbox>.npz); source GeoTIFF",
+      "spatial_resolution": "30 arcsec (adapters.py SPATIAL_RESOLUTION CF)",
+      "temporal": "historical (wtsub) and RCP8.5 2030, sea-level-rise 50th percentile (visual_board.json)",
+      "coverage": "partial: bbox files cut around Korea (e.g. 125.5-129.5E, 33-38.5N)",
+      "source": "WRI Aqueduct Floods hazard maps (https://www.wri.org/data/aqueduct-floods-hazard-maps)",
+      "licence": "CC-BY 4.0 (data_sources.json)",
+      "storage_rule": "regenerable cache under DATA_ROOT/cache; do not modify by hand",
+      "data_sources_id": "aqueduct_coastal",
+      "notes": "The registry check cf.aqueduct is still to_build; today the files feed the coastal board layers and the reference model. Aqueduct river (data_sources id aqueduct) is not on disk and not read by code."
+    },
+    {
+      "id": "climada_rf_isimip_150arcsec",
+      "label_ko": "CLIMADA Data API 하천홍수 (ISIMIP, 150 arcsec)",
+      "label_en": "CLIMADA Data API river flood (ISIMIP, 150 arcsec)",
+      "perils": [
+        "RF"
+      ],
+      "role": "hazard_check",
+      "used_by": [
+        "rf.isimip_sido_factor",
+        "rf.isimip_grid_depth (to_build)",
+        "worker:flood_delta.py",
+        "worker:physical_risk/adapters.py (Data API RF)",
+        "script:board_layer.py (river_flood_* board layers)",
+        "worker:sheet_builder.py"
+      ],
+      "path": "climada:hazard/river_flood/river_flood_150arcsec_*",
+      "path_fn": null,
+      "format": "CLIMADA Data API HDF5 hazards (one folder per dataset)",
+      "spatial_resolution": "150 arcsec (adapters.py _dataapi; Data API property res_arcsec)",
+      "temporal": "hist 1980-2000; rcp26/rcp60/rcp85 windows 2010-2030 and 2030-2050 (folders on disk)",
+      "coverage": "partial: 7 KOR-named datasets on disk plus one rcp60 2030-2050 dataset whose name carries no country",
+      "source": "CLIMADA Data API (https://climada.ethz.ch/data-types/), ISIMIP flood",
+      "licence": "per CLIMADA Data API (data_sources.json)",
+      "storage_rule": "none recorded",
+      "data_sources_id": "dataapi_rf",
+      "notes": "Registry role: sido-level climate-change factor and grid depth comparison (checks) for rf.floodmap_class. Board river-flood layers use these files as the hazard. Dataset names at run time are built by dataapi_dataset_name and are not literal ids."
+    },
+    {
+      "id": "climada_tc_10synth_150arcsec",
+      "label_ko": "CLIMADA Data API 태풍 (합성 10 tracks, 한국)",
+      "label_en": "CLIMADA Data API tropical cyclone (10 synthetic tracks, KOR)",
+      "perils": [
+        "TC"
+      ],
+      "role": "hazard_main",
+      "used_by": [
+        "tc.dataapi_country",
+        "worker:physical_risk/adapters.py (Data API TC, coverage=country)",
+        "script:board_layer.py (tropical_cyclone_* board layers)"
+      ],
+      "path": "climada:hazard/tropical_cyclone/tropical_cyclone_10synth_tracks_150arcsec_*KOR*",
+      "path_fn": null,
+      "format": "CLIMADA Data API HDF5 hazards",
+      "spatial_resolution": "150 arcsec (adapters.py _dataapi)",
+      "temporal": "historical 1980-2020; rcp45/rcp60/rcp85 for 2040",
+      "coverage": "country: KOR",
+      "source": "CLIMADA Data API (https://climada.ethz.ch/data-types/), synthetic random-walk tracks",
+      "licence": "per CLIMADA Data API (data_sources.json)",
+      "storage_rule": "none recorded",
+      "data_sources_id": "dataapi_tc",
+      "notes": "Registry TC main has dataset null; this id is the Data API family named by coverage.py. The 0-synth historical KOR set is a separate entry (climada_tc_0synth_kor_historical)."
+    },
+    {
+      "id": "climada_tc_10synth_global_150arcsec",
+      "label_ko": "CLIMADA Data API 태풍 (합성 10 tracks, 전지구)",
+      "label_en": "CLIMADA Data API tropical cyclone (10 synthetic tracks, global)",
+      "perils": [
+        "TC"
+      ],
+      "role": "hazard_check",
+      "used_by": [
+        "tc.dataapi_global (registry status to_build)",
+        "worker:physical_risk/adapters.py (Data API TC, coverage=global)"
+      ],
+      "path": "climada:hazard/tropical_cyclone/tropical_cyclone_10synth_tracks_150arcsec_*global*",
+      "path_fn": null,
+      "format": "CLIMADA Data API HDF5 hazards",
+      "spatial_resolution": "150 arcsec",
+      "temporal": "historical 1980-2020; rcp45 2040 (folders on disk)",
+      "coverage": "global (masked to one country before caching, hazard_mask.py)",
+      "source": "CLIMADA Data API (https://climada.ethz.ch/data-types/)",
+      "licence": "per CLIMADA Data API (data_sources.json)",
+      "storage_rule": "none recorded",
+      "data_sources_id": "dataapi_tc",
+      "notes": "On disk: global 1980-2020 and global rcp45 2040."
+    },
+    {
+      "id": "climada_tc_0synth_kor_historical",
+      "label_ko": "CLIMADA Data API 태풍 (관측 트랙, 한국 1980-2020)",
+      "label_en": "CLIMADA Data API tropical cyclone (historical tracks only, KOR)",
+      "perils": [
+        "TC"
+      ],
+      "role": "hazard_reference",
+      "used_by": [],
+      "path": "climada:hazard/tropical_cyclone/tropical_cyclone_0synth_tracks_150arcsec_historical_KOR_1980_2020",
+      "path_fn": null,
+      "format": "CLIMADA Data API HDF5 hazard",
+      "spatial_resolution": "150 arcsec",
+      "temporal": "historical 1980-2020",
+      "coverage": "country: KOR",
+      "source": "CLIMADA Data API (https://climada.ethz.ch/data-types/)",
+      "licence": "per CLIMADA Data API (data_sources.json)",
+      "storage_rule": "none recorded",
+      "data_sources_id": "dataapi_tc",
+      "notes": "No reader found by grep in src/worker/scripts for the 0synth name; sits in the Data API cache."
+    },
+    {
+      "id": "climada_wildfire_kor_historical",
+      "label_ko": "CLIMADA Data API 산불 (한국 2001-2020)",
+      "label_en": "CLIMADA Data API wildfire (KOR, historical)",
+      "perils": [
+        "wildfire"
+      ],
+      "role": "hazard_reference",
+      "used_by": [
+        "script:board_layer.py (wildfire_hist_kor board layer)",
+        "hazard_db catalog (wildfire)"
+      ],
+      "path": "climada:hazard/wildfire/wildfire_KOR_150arcsec_historical_2001_2020",
+      "path_fn": null,
+      "format": "CLIMADA Data API HDF5 hazard",
+      "spatial_resolution": "150 arcsec (folder name)",
+      "temporal": "historical 2001-2020",
+      "coverage": "country: KOR",
+      "source": "CLIMADA Data API (https://climada.ethz.ch/data-types/)",
+      "licence": "per CLIMADA Data API (data_sources.json)",
+      "storage_rule": "none recorded",
+      "data_sources_id": "dataapi_wf",
+      "notes": "Wildfire is out of scope in the method registry (studio: out of scope)."
+    },
+    {
+      "id": "climada_eq_kor_observed",
+      "label_ko": "CLIMADA Data API 지진 (관측 M4 이상)",
+      "label_en": "CLIMADA Data API earthquake (observed, M>=4)",
+      "perils": [
+        "earthquake"
+      ],
+      "role": "hazard_reference",
+      "used_by": [
+        "hazard_db catalog (earthquake EQ_observed_KOR_2020)"
+      ],
+      "path": "climada:hazard/earthquake/earthquake_hist_above4_410",
+      "path_fn": null,
+      "format": "CLIMADA Data API HDF5 hazard",
+      "spatial_resolution": "5,708 KOR centroids (derived/hazard_db/catalog.json), the same count as the 150-arcsec (~4.6 km) KOR sets",
+      "temporal": "observed events, magnitude above 4 (folder name)",
+      "coverage": "global Data API set (earthquake_hist_above4_410, v1.1); KOR subset EQ_observed_KOR_2020 in hazard_db, 41,710 events",
+      "source": "CLIMADA Data API (https://climada.ethz.ch/data-types/)",
+      "licence": "per CLIMADA Data API (data_sources.json)",
+      "storage_rule": "none recorded",
+      "data_sources_id": "dataapi_eq",
+      "notes": "Earthquake is out of scope in the method registry. Not climate-linked."
+    },
+    {
+      "id": "copernicus_dem_glo30",
+      "label_ko": "Copernicus DEM GLO-30 (30 m 지표모델)",
+      "label_en": "Copernicus DEM GLO-30 (30 m surface model)",
+      "perils": [],
+      "role": "other",
+      "used_by": [
+        "cf.khoa_ahhw_bathtub (ground, connectivity)",
+        "rf.fwdet_edge and pf.fwdet_edge (fallback ground)",
+        "worker:coastal_connectivity.py",
+        "worker:physical_risk/adapters.py",
+        "worker:sheet_builder.py",
+        "worker:twin/site.py",
+        "worker:twin/runon.py",
+        "worker:twin/case_pohang.py"
+      ],
+      "path": "external/copernicus_dem/Copernicus_DSM_COG_10_*_DEM.tif",
+      "path_fn": null,
+      "format": "Cloud Optimized GeoTIFF, 1 degree tiles (Copernicus_DSM_COG_10_N..E.._DEM.tif)",
+      "spatial_resolution": "30 m (about 1 arcsec; twin spec calls it about 30 m)",
+      "temporal": "static; acquisition period not stated in this repo",
+      "coverage": "partial: 17 one-degree tiles between N34-N38 and E125-E129 (not a full rectangle; listed 2026-11-20)",
+      "source": "Copernicus DEM GLO-30 (AWS open data, https://registry.opendata.aws/copernicus-dem/)",
+      "licence": "Copernicus DEM free worldwide (data_sources.json)",
+      "storage_rule": "none recorded",
+      "data_sources_id": "copdem",
+      "notes": "Surface model: includes buildings and trees; fails in high-rise areas (floodmap_depth.py: 28 % in band in Seoul vs 45 % rural). Terrain input, not a hazard."
+    },
+    {
+      "id": "glo30_blockmin_cache",
+      "label_ko": "GLO-30 블록 최소/최대 캐시",
+      "label_en": "GLO-30 block min/max cache",
+      "perils": [
+        "CF"
+      ],
+      "role": "other",
+      "used_by": [
+        "worker:coastal_connectivity.py (_CACHE_NAME)"
+      ],
+      "path": "cache/glo30_blockmin/*.npy",
+      "path_fn": "cache_dir",
+      "format": "npy arrays (N..._E..._min3 / max3)",
+      "spatial_resolution": "3 arcsec blocks (about 90 m)",
+      "temporal": "static",
+      "coverage": "partial: tiles built on demand",
+      "source": "derived from copernicus_dem_glo30",
+      "licence": "inherits copernicus_dem_glo30",
+      "storage_rule": "regenerable cache; never modify by hand",
+      "data_sources_id": null,
+      "notes": "min3 removes narrow structures, max3 keeps them (cf.structures_kept check)."
+    },
+    {
+      "id": "ngii_dem_public_90m",
+      "label_ko": "국토지리정보원 공개 DEM (90 m)",
+      "label_en": "NGII public DEM (90 m bare earth)",
+      "perils": [],
+      "role": "hazard_check",
+      "used_by": [
+        "rf.fwdet_edge (bare-earth where it covers the point)",
+        "worker:physical_risk/adapters.py",
+        "worker:sheet_builder.py",
+        "script:twin_interim_checks.py"
+      ],
+      "path": "external/ngii_dem/2024/*.img",
+      "path_fn": null,
+      "format": "ERDAS .img (HFA), float32, nodata -9999, extracted from sheet zips in external/ngii_dem/raw",
+      "spatial_resolution": "90 m",
+      "temporal": "2024 production",
+      "coverage": "partial: 2 sheets only (37705 성동, 37709 수원)",
+      "source": "국토지리정보원 국토정보플랫폼 (map.ngii.go.kr) 공개DEM; manifest external/ngii_dem/manifest.json",
+      "licence": "이용허락범위 제한 없음 — data.go.kr 15059920 (국토지리정보원_DEM), 확인 2026-11-20",
+      "storage_rule": "none recorded",
+      "data_sources_id": null,
+      "notes": "Licence not recorded in manifest.json. topo5000 folder also exists under external/ngii_dem (read only by scripts/twin_interim_checks.py)."
+    },
+    {
+      "id": "deltadtm_v1_1",
+      "label_ko": "DeltaDTM v1.1 (연안 지형)",
+      "label_en": "DeltaDTM v1.1 coastal terrain model",
+      "perils": [
+        "CF"
+      ],
+      "role": "other",
+      "used_by": [],
+      "path": "external/deltadtm/tiles/*.tif",
+      "path_fn": null,
+      "format": "COG tiles (EPSG:9518), plus deltadtm_tiles.gpkg bounding boxes",
+      "spatial_resolution": "Copernicus GLO-30 grid: 1 arcsec in latitude, longitude spacing varies by latitude band (external/deltadtm/README.md: tiles have different resolutions)",
+      "temporal": "static",
+      "coverage": "global tile set; 18 tiles on disk in external/deltadtm/tiles (Korean coast; listing 2026-11-20)",
+      "source": "Pronk et al., DeltaDTM (https://www.nature.com/articles/s41597-024-03091-9); README in external/deltadtm",
+      "licence": "CC-BY 4.0 (external/deltadtm/README.md)",
+      "storage_rule": "none recorded",
+      "data_sources_id": null,
+      "notes": "On disk, no reader found by grep in src/worker/scripts (second coastal DEM held for a possible coastal check). Produced from Copernicus WorldDEM-30; attribution text is in the README."
+    },
+    {
+      "id": "seoul_flood_traces",
+      "label_ko": "서울시 침수흔적도",
+      "label_en": "Seoul flood-trace maps (observed inundation)",
+      "perils": [
+        "PF"
+      ],
+      "role": "validation",
+      "used_by": [
+        "pf.seoul_traces",
+        "worker:flood_traces.py",
+        "worker:twin/validate.py",
+        "worker:physical_risk/adapters.py (urban adapter validation)",
+        "script:synthetic_city.py"
+      ],
+      "path": "external/seoul_flood_traces/*/*",
+      "path_fn": "external_dir",
+      "format": "yearly zips of polygons (EPSG:5179), one polygon per building or block",
+      "spatial_resolution": "vector polygons",
+      "temporal": "2010-2014, 2016-2020, 2022-2025 (2015 and 2021 not published)",
+      "coverage": "partial: Seoul only",
+      "source": "서울 열린데이터광장 OA-15636 (https://data.seoul.go.kr/dataList/OA-15636/F/1/datasetView.do), also data.go.kr 15133406",
+      "licence": "공공누리 제1유형 (출처표시)",
+      "storage_rule": "read in memory, never written; keep attribution 서울특별시, 서울시 침수흔적도",
+      "data_sources_id": null,
+      "notes": "F_SHIM is the depth in m; F_AVR_HGT is not depth; columns vary by year (flood_traces.py). Manifest: external/seoul_flood_traces/manifest.json."
+    },
+    {
+      "id": "seoul_rain_gauges",
+      "label_ko": "서울시 강우량 정보 (10분)",
+      "label_en": "Seoul rain gauges (10-min rainfall)",
+      "perils": [
+        "PF"
+      ],
+      "role": "validation",
+      "used_by": [
+        "worker:twin/validate.py",
+        "worker:twin/case_pohang.py"
+      ],
+      "path": "external/seoul_rain_gauges/raw/*",
+      "path_fn": "external_dir",
+      "format": "yearly zips of 10-minute rainfall CSV (47 gauges) plus gauge location files",
+      "spatial_resolution": "47 gauges (point)",
+      "temporal": "2020 to 2025-09 (files rain_2020… to rain_2025_09.csv in raw/; listing 2026-11-20)",
+      "coverage": "partial: Seoul only",
+      "source": "서울 열린데이터광장 OA-1168 (https://data.seoul.go.kr/dataList/OA-1168/F/1/datasetView.do)",
+      "licence": "공공누리 제2유형 (출처표시 + 상업적 이용금지)",
+      "storage_rule": "internal calibration/validation only; do not ship the rain data in products or deliverables; not stored by the model",
+      "data_sources_id": null,
+      "notes": "Manifest: external/seoul_rain_gauges/manifest.json."
+    },
+    {
+      "id": "seoul_sdot",
+      "label_ko": "서울시 S-DoT 도시데이터 센서",
+      "label_en": "Seoul S-DoT urban sensors (hourly air temperature, humidity)",
+      "perils": [
+        "HW"
+      ],
+      "role": "validation",
+      "used_by": [
+        "worker:twin/case_heat.py (UTCI sub check against S-DoT air temperature)"
+      ],
+      "path": "external/seoul_sdot/raw/*",
+      "path_fn": "external_dir",
+      "format": "weekly cp949 CSVs (one row per sensor per hour) plus a sensor location xlsx",
+      "spatial_resolution": "1,170 sensors (point)",
+      "temporal": "weekly files 2026-05-25 to 2026-09-06 (manifest)",
+      "coverage": "partial: Seoul only",
+      "source": "서울 열린데이터광장 OA-22833 (https://data.seoul.go.kr/dataList/OA-22833/F/1/datasetView.do)",
+      "licence": "공공누리 제1유형 (출처표시)",
+      "storage_rule": "none recorded",
+      "data_sources_id": null,
+      "notes": "Manifest: external/seoul_sdot/manifest.json (post endpoint not recorded)."
+    },
+    {
+      "id": "disaster_yearbook_losses",
+      "label_ko": "재해연보 피해 통계 (시도)",
+      "label_en": "Disaster yearbook loss statistics (sido)",
+      "perils": [
+        "RF",
+        "TC"
+      ],
+      "role": "supplementary",
+      "used_by": [
+        "rf.disaster_yearbook (discussion only)",
+        "src:engines/base.py",
+        "worker:calibration.py"
+      ],
+      "path": "external/disaster_yearbook",
+      "path_fn": null,
+      "format": "xlsx (compiled 시도 x year sheet, KOSIS building stock) plus kosis/ API tables (json/csv)",
+      "spatial_resolution": "시도 aggregates",
+      "temporal": "2017-2024 compiled sheet (usable 2017 (not 대구), 2021, 2023, 2024); KOSIS tables 2020-2024",
+      "coverage": "national, 시도 level; aggregate only, never asset level",
+      "source": "행정안전부 재해연보 via KOSIS orgId 110 (DT_156003_001..015) and a compiled sheet; 국토교통부 용도별 건축물 현황 (KOSIS DT_MLTM_522) for stock",
+      "licence": "KOSIS 이용지침: 상업적 이용 포함 자유 이용·재배포, 출처표시 필수(작성기관·조사명·작성시점), 수치 임의 변경 금지 (https://kosis.kr/serviceInfo/useGuide.do, 확인 2026-11-20); 재해연보 원 간행물은 행정안전부 저작물",
+      "storage_rule": "aggregates only; compare shares and ranks, not levels (README caveats)",
+      "data_sources_id": null,
+      "notes": "Licence not stated in external/disaster_yearbook/README.md. 피해액 price basis unconfirmed [unknown per README]. The kosis/ subfolder was fetched with a key in .env; never print it."
+    },
+    {
+      "id": "kdca_heat_illness_cases",
+      "label_ko": "질병관리청 온열질환 감시자료",
+      "label_en": "KDCA heat-illness surveillance cases",
+      "perils": [
+        "HW"
+      ],
+      "role": "supplementary",
+      "used_by": [
+        "hw.kdca_heat_illness (discussion only)",
+        "script:heat_utci_validate_kdca.py"
+      ],
+      "path": "external/kdca_heat_illness/raw_20261116/kdca_heat_illness_15149889.csv",
+      "path_fn": null,
+      "format": "CSV, one row per case",
+      "spatial_resolution": "시도 region field (basis changes in 2019)",
+      "temporal": "2011-2025 cases (data.go.kr 15149889); the check uses May-Sep 2011-2019",
+      "coverage": "national",
+      "source": "질병관리청 via 공공데이터포털 15149889 (collected 2026-11-16)",
+      "licence": "이용허락범위 제한 없음 — data.go.kr 15149889, 확인 2026-11-20 (개인 건강 행은 집계만 사용)",
+      "storage_rule": "personal health rows: aggregates only, never print, log or write case rows",
+      "data_sources_id": null,
+      "notes": "Region field means the reporting hospital location up to 2018 and place of occurrence after (heat_utci_validate_kdca.py). Licence not recorded in the repo."
+    },
+    {
+      "id": "kosis_population_sido",
+      "label_ko": "KOSIS 시도 주민등록인구",
+      "label_en": "KOSIS sido resident population",
+      "perils": [
+        "HW"
+      ],
+      "role": "exposure",
+      "used_by": [
+        "script:heat_utci_validate_kdca.py (rate denominator)"
+      ],
+      "path": "external/kosis_population/sido_2011_2019.json",
+      "path_fn": null,
+      "format": "JSON (public aggregates)",
+      "spatial_resolution": "시도",
+      "temporal": "2011-2019 (file name)",
+      "coverage": "national",
+      "source": "통계청 KOSIS DT_1B040A3, orgId 101, fetched once with CLIMATERISK_KOSIS_KEY",
+      "licence": "KOSIS 이용지침: 상업적 이용 포함 자유 이용·재배포, 출처표시 필수(작성기관·조사명·작성시점), 수치 임의 변경 금지 (https://kosis.kr/serviceInfo/useGuide.do, 확인 2026-11-20)",
+      "storage_rule": "public aggregates only; never print the key",
+      "data_sources_id": null,
+      "notes": "Licence not recorded in the repo."
+    },
+    {
+      "id": "kma_mkprism_ta_daily",
+      "label_ko": "기상청 MK-PRISM v3.1 일평균기온 TA (관측 격자)",
+      "label_en": "KMA MK-PRISM v3.1 daily mean temperature, observed grid (TA)",
+      "perils": [
+        "HM"
+      ],
+      "role": "hazard_main",
+      "used_by": [
+        "hm.degree_days (hazard grid via kma_scenario)",
+        "script:heat_korea.py",
+        "worker:kma_scenario.py",
+        "script:heat_health_board.py (via hazard_db heat_mortality)"
+      ],
+      "path": "external/kma/MKPRISM_MKPRISMv31_TA_gridraw_daily_*.nc",
+      "path_fn": "kma_dir",
+      "format": "NetCDF, one file per year (also a 2000-2019 .nc.tar.gz archive)",
+      "spatial_resolution": "0.005 deg (1201 x 1501); block-averaged to 0.05 deg when layers are built (docs/KOREA_1KM_PHYSICAL_RISK_COVERAGE.md)",
+      "temporal": "daily, 2000-2019 (20 yearly files)",
+      "coverage": "national: South Korea (남한상세)",
+      "source": "기상청 기후변화 상황지도 남한상세 (https://climate.go.kr/atlas/ana/cdd), login required",
+      "licence": "기상청 기후변화 시나리오 - 출처 표시, 재배포 전 확인 (data_sources.json kma_skorea_1km); cite KMA",
+      "storage_rule": "none recorded",
+      "data_sources_id": "kma_skorea_1km",
+      "notes": "Missing value is -9990 (coverage doc). Feeds heat mortality (hm.degree_days registry main has dataset null)."
+    },
+    {
+      "id": "kma_ar6_ssp_ta_daily",
+      "label_ko": "기상청 AR6 SSP245/585 일평균기온 TA (시나리오 격자)",
+      "label_en": "KMA AR6 SSP245/SSP585 5-ensemble-mean daily mean temperature (TA)",
+      "perils": [
+        "HM"
+      ],
+      "role": "hazard_reference",
+      "used_by": [
+        "worker:kma_scenario.py",
+        "script:heat_korea.py (future heat_mortality layers)"
+      ],
+      "path": "external/kma/AR6_SSP*_5ENSMN_skorea_TA_gridraw_daily_*_asc.tar.gz",
+      "path_fn": "kma_dir",
+      "format": "tar.gz of ASCII grids, streamed by kma_scenario",
+      "spatial_resolution": "0.01 deg (601 x 751)",
+      "temporal": "daily, SSP245 and SSP585, 1 file per SSP: 2021-2030",
+      "coverage": "national: South Korea (남한상세)",
+      "source": "기상청 기후변화 상황지도 남한상세 (https://climate.go.kr/atlas/ana/cdd), login required",
+      "licence": "기상청 기후변화 시나리오 - 출처 표시, 재배포 전 확인 (data_sources.json kma_skorea_1km); cite KMA",
+      "storage_rule": "none recorded",
+      "data_sources_id": "kma_skorea_1km",
+      "notes": "Scenario grids feed the delta-change future of the heat layers; the HW main method (hw.open_field_utci) is present-climate (2000-2019) in the registry."
+    },
+    {
+      "id": "kma_mkprism_tamax_daily",
+      "label_ko": "기상청 MK-PRISM v3.1 일최고기온 TAMAX (관측 격자)",
+      "label_en": "KMA MK-PRISM v3.1 daily daily maximum temperature, observed grid (TAMAX)",
+      "perils": [
+        "HW"
+      ],
+      "role": "hazard_main",
+      "used_by": [
+        "hw.open_field_utci (grid daily-max shift)",
+        "hw.utci_vs_heat_days",
+        "worker:heat_utci.py",
+        "worker:heat_days.py",
+        "script:heat_days_board.py",
+        "script:heat_korea.py (heatwave layer)"
+      ],
+      "path": "external/kma/MKPRISM_MKPRISMv31_TAMAX_gridraw_daily_*.nc",
+      "path_fn": "kma_dir",
+      "format": "NetCDF, one file per year (also a 2000-2019 .nc.tar.gz archive)",
+      "spatial_resolution": "0.005 deg (1201 x 1501); block-averaged to 0.05 deg when layers are built (docs/KOREA_1KM_PHYSICAL_RISK_COVERAGE.md)",
+      "temporal": "daily, 2000-2019 (20 yearly files)",
+      "coverage": "national: South Korea (남한상세)",
+      "source": "기상청 기후변화 상황지도 남한상세 (https://climate.go.kr/atlas/ana/cdd), login required",
+      "licence": "기상청 기후변화 시나리오 - 출처 표시, 재배포 전 확인 (data_sources.json kma_skorea_1km); cite KMA",
+      "storage_rule": "none recorded",
+      "data_sources_id": "kma_skorea_1km",
+      "notes": "Missing value is -9990 (coverage doc). Used by the HW main method only to shift station air temperature to the asset."
+    },
+    {
+      "id": "kma_ar6_ssp_tamax_daily",
+      "label_ko": "기상청 AR6 SSP245/585 일최고기온 TAMAX (시나리오 격자)",
+      "label_en": "KMA AR6 SSP245/SSP585 5-ensemble-mean daily daily maximum temperature (TAMAX)",
+      "perils": [
+        "HW"
+      ],
+      "role": "hazard_reference",
+      "used_by": [
+        "worker:kma_scenario.py",
+        "script:heat_korea.py (future heatwave layers)",
+        "script:heat_days_board.py (future heat days)"
+      ],
+      "path": "external/kma/AR6_SSP*_5ENSMN_skorea_TAMAX_gridraw_daily_*_asc.tar.gz",
+      "path_fn": "kma_dir",
+      "format": "tar.gz of ASCII grids, streamed by kma_scenario",
+      "spatial_resolution": "0.01 deg (601 x 751)",
+      "temporal": "daily, SSP245 and SSP585, 4 files per SSP: 2021-2030, 2031-2040, 2041-2050, 2051-2060",
+      "coverage": "national: South Korea (남한상세)",
+      "source": "기상청 기후변화 상황지도 남한상세 (https://climate.go.kr/atlas/ana/cdd), login required",
+      "licence": "기상청 기후변화 시나리오 - 출처 표시, 재배포 전 확인 (data_sources.json kma_skorea_1km); cite KMA",
+      "storage_rule": "none recorded",
+      "data_sources_id": "kma_skorea_1km",
+      "notes": "Scenario grids feed the delta-change future of the heat layers; the HW main method (hw.open_field_utci) is present-climate (2000-2019) in the registry."
+    },
+    {
+      "id": "kma_asos_hourly",
+      "label_ko": "기상청 ASOS 시간자료",
+      "label_en": "KMA ASOS hourly observations",
+      "perils": [
+        "HW",
+        "PF"
+      ],
+      "role": "hazard_main",
+      "used_by": [
+        "hw.open_field_utci (air temperature, humidity, wind, radiation)",
+        "worker:heat_utci.py",
+        "script:synthetic_city.py (Seoul 108 rain ladder)",
+        "script:heat_utci_validate_kdca.py"
+      ],
+      "path": "external/kma/asos_hourly/*/*.csv",
+      "path_fn": "kma_dir",
+      "format": "CSV per station per year (<stn>/<year>_MJJAS.csv for May-September; some stations hold full-year <year>.csv)",
+      "spatial_resolution": "97 stations (point)",
+      "temporal": "97 stations, May-Sep, years 1961-2026 present in file names (listing 2026-11-20); span differs by station opening date",
+      "coverage": "partial: 97 ASOS stations",
+      "source": "기상청 지상(종관, ASOS) 시간자료 조회서비스, data.go.kr 15057210 (AsosHourlyInfoService)",
+      "licence": "공공누리 제1유형 (출처표시) — data.go.kr 15057210 이용허락범위, 확인 2026-11-20",
+      "storage_rule": "none recorded",
+      "data_sources_id": null,
+      "notes": "Licence not recorded in the repo. The service key lives in .env; never print it. Rain here also drives the Gangnam rain ladder (gangnam_rain_ladder)."
+    },
+    {
+      "id": "kma_asos_open_field_utci",
+      "label_ko": "개활지 UTCI 폭염일수 (ASOS + MK-PRISM)",
+      "label_en": "Open-field UTCI days at or above threshold (KMA ASOS + MK-PRISM)",
+      "perils": [
+        "HW"
+      ],
+      "role": "hazard_main",
+      "used_by": [
+        "hw.open_field_utci",
+        "hw.utci_vs_heat_days",
+        "worker:physical_risk/adapters.py (KoreaLocalHeatAdapter)",
+        "worker:heat_utci.py"
+      ],
+      "path": "external/kma/asos_hourly/*/*.csv",
+      "path_fn": "kma_dir",
+      "format": "computed at run time (pythermalcomfort UTCI) from kma_asos_hourly shifted by kma_mkprism_tamax_daily; nothing stored",
+      "spatial_resolution": "asset point at nearest ASOS station, air temperature shifted by a 0.05 deg grid difference",
+      "temporal": "mean days per year (May-Sep, 2000-2019) with daily-max UTCI >= 38 degC",
+      "coverage": "partial: asset points near the 97 ASOS stations",
+      "source": "KMA ASOS (data.go.kr 15057210) and MK-PRISM v3.1; method per worker/climaterisk_worker/heat_utci.py",
+      "licence": "inherits kma_asos_hourly (공공누리 제1유형) and kma_mkprism_tamax_daily",
+      "storage_rule": "none recorded",
+      "data_sources_id": null,
+      "notes": "The id names the hazard computed from kma_asos_hourly + kma_mkprism_tamax_daily. UTCI is the hazard; regional risk adds exposure and adaptation from literature (docs/METHODOLOGY.md)."
+    },
+    {
+      "id": "kma_asos_station_table",
+      "label_ko": "기상청 관측지점정보 이력",
+      "label_en": "KMA ASOS station metadata history",
+      "perils": [
+        "HW"
+      ],
+      "role": "other",
+      "used_by": [
+        "worker:heat_utci.py (read_station_table)",
+        "test:test_heat_utci.py"
+      ],
+      "path": "external/kma/asos_meta/kma_asos_stations_history.csv",
+      "path_fn": "kma_dir",
+      "format": "CSV, one row per station per site/period",
+      "spatial_resolution": "point stations",
+      "temporal": "history of station sites and periods",
+      "coverage": "partial: ASOS stations",
+      "source": "KMA 관측지점정보 history (heat_utci.py docstring); exact URL unknown",
+      "licence": "공공누리 제1유형 (출처표시) — 같은 기상청 ASOS 자료(data.go.kr 15057210) 기준; 지점정보 파일의 정확한 내려받기 URL은 기록 없음",
+      "storage_rule": "none recorded",
+      "data_sources_id": null,
+      "notes": "This KMA history table (148 rows) is the one heat_utci reads (tests/test_heat_utci.py); asos_meta also holds NOAA ISD and meteostat tables that are not used for stations."
+    },
+    {
+      "id": "heat_days_cache",
+      "label_ko": "폭염일수 블록 캐시 (0.05도)",
+      "label_en": "Heat-days 0.05 deg block cache",
+      "perils": [
+        "HW"
+      ],
+      "role": "other",
+      "used_by": [
+        "script:heat_days_board.py",
+        "worker:heat_utci.py",
+        "worker:heat_validation.py"
+      ],
+      "path": "cache/heat_days/*.npz",
+      "path_fn": "cache_dir",
+      "format": "npz, block-meaned daily TAMAX per window",
+      "spatial_resolution": "0.05 deg",
+      "temporal": "per window (observed and delta-change windows)",
+      "coverage": "national",
+      "source": "derived from kma_mkprism_tamax_daily and kma_ar6_ssp_tamax_daily",
+      "licence": "inherits KMA terms",
+      "storage_rule": "regenerable cache; do not modify by hand",
+      "data_sources_id": null,
+      "notes": ""
+    },
+    {
+      "id": "sgis_boundaries",
+      "label_ko": "SGIS 행정구역 경계 (시도·시군구)",
+      "label_en": "SGIS administrative boundaries (sido, sigungu)",
+      "perils": [],
+      "role": "boundary",
+      "used_by": [
+        "worker:physical_risk/adapters.py (SIDO_SHP, bnd_sido_00_2025_2Q.shp)",
+        "script:board_layer.py",
+        "script:build_korea_municipalities.py",
+        "script:heat_days_board.py",
+        "script:heat_health_board.py",
+        "script:drought_agri.py",
+        "script:build_pump_stations.py"
+      ],
+      "path": "external/municipality/sgis",
+      "path_fn": "municipality_sgis_dir",
+      "format": "shapefile package (zip + extracted), EPSG:5179",
+      "spatial_resolution": "polygons (administrative level)",
+      "temporal": "2025_2Q (BASE_DATE 20250630)",
+      "coverage": "national",
+      "source": "국가데이터처 SGIS 행정구역 통계 및 경계, data.go.kr 15129688",
+      "licence": "공공데이터포털 이용허락범위 제한 없음 (build_korea_municipalities.py)",
+      "storage_rule": "none recorded",
+      "data_sources_id": null,
+      "notes": "korea_municipalities.csv is rebuilt from this (269 rows, docs/DATA_LAYOUT.md)."
+    },
+    {
+      "id": "korea_municipalities",
+      "label_ko": "한국 시군구 목록 (대표점)",
+      "label_en": "Korea municipality list with representative points",
+      "perils": [],
+      "role": "boundary",
+      "used_by": [
+        "src:physical_risk/municipalities.py",
+        "script:municipality_physical_risk.py"
+      ],
+      "path": "repo:assets/libraries/korea_municipalities.csv",
+      "path_fn": null,
+      "format": "CSV (269 rows, BOUNDARY_INTERIOR_POINT per row)",
+      "spatial_resolution": "one point per municipality",
+      "temporal": "SGIS 2025_2Q",
+      "coverage": "national",
+      "source": "built by scripts/build_korea_municipalities.py from sgis_boundaries",
+      "licence": "공공데이터포털 이용허락범위 제한 없음 (source_licence column)",
+      "storage_rule": "none recorded",
+      "data_sources_id": null,
+      "notes": "Committed to git (80 KB)."
+    },
+    {
+      "id": "korea_pump_stations",
+      "label_ko": "배수·빗물펌프장 목록",
+      "label_en": "Drainage / stormwater pump station list",
+      "perils": [
+        "PF"
+      ],
+      "role": "exposure",
+      "used_by": [
+        "src:physical_risk/pump_stations.py",
+        "script:build_pump_stations.py"
+      ],
+      "path": "repo:assets/libraries/korea_pump_stations.csv",
+      "path_fn": null,
+      "format": "CSV (name, lat/lon where published, design frequency, source dataset id/licence/modified)",
+      "spatial_resolution": "point",
+      "temporal": "source modified dates per row",
+      "coverage": "partial: only datasets that published stations (many rows lack coordinates)",
+      "source": "data.go.kr file datasets (list in external/pumpstations/manifest_raw.json)",
+      "licence": "per row source_licence: 제한 없음 or 공공누리 제1유형 (pump_station_sources.json allowed_licences)",
+      "storage_rule": "none recorded",
+      "data_sources_id": null,
+      "notes": "A 공공누리 제4유형 dataset is excluded by build_pump_stations.py. Committed to git."
+    },
+    {
+      "id": "pumpstations_raw",
+      "label_ko": "배수·빗물펌프장 원자료",
+      "label_en": "Pump station raw downloads (data.go.kr)",
+      "perils": [
+        "PF"
+      ],
+      "role": "other",
+      "used_by": [
+        "script:fetch_pump_stations.py",
+        "script:build_pump_stations.py"
+      ],
+      "path": "external/pumpstations/raw",
+      "path_fn": "pumpstation_dir",
+      "format": "files as downloaded plus manifest_raw.json (page URL, licence, modified date, sha256)",
+      "spatial_resolution": "n/a",
+      "temporal": "per file modified dates",
+      "coverage": "partial: 73 files of 81 datasets",
+      "source": "data.go.kr file data",
+      "licence": "mixed: 75 제한 없음, 5 공공누리 제1유형, 1 공공누리 제4유형 (docs/DATA_LAYOUT.md); the 제4유형 one is excluded from the built list",
+      "storage_rule": "do not redistribute the 공공누리 제4유형 file",
+      "data_sources_id": null,
+      "notes": "Only needed to rebuild korea_pump_stations."
+    },
+    {
+      "id": "korea_official_offices",
+      "label_ko": "시군구청 공식 좌표 레이어",
+      "label_en": "Municipality office points (official coordinates only)",
+      "perils": [],
+      "role": "exposure",
+      "used_by": [
+        "src:physical_risk/official_offices.py",
+        "script:build_official_offices.py"
+      ],
+      "path": "repo:assets/libraries/korea_official_offices.csv",
+      "path_fn": null,
+      "format": "CSV (coordinate_method GOVERNMENT_PUBLISHED only)",
+      "spatial_resolution": "point",
+      "temporal": "source_last_modified per row",
+      "coverage": "partial: 1 of 7 metropolitan city halls has a coordinate (docs/DATA_LAYOUT.md); no national layer",
+      "source": "official_office_sources.json targets; raw files in external/municipality/source",
+      "licence": "per row source_licence",
+      "storage_rule": "none recorded",
+      "data_sources_id": null,
+      "notes": "Rows without an official coordinate stay without one (OFFICIAL_COORDINATE_NOT_AVAILABLE); never snapped or filled."
+    },
+    {
+      "id": "osm_south_korea",
+      "label_ko": "OpenStreetMap 대한민국 추출본",
+      "label_en": "OpenStreetMap South Korea extract",
+      "perils": [],
+      "role": "exposure",
+      "used_by": [
+        "worker:twin/site.py",
+        "worker:twin/runon.py",
+        "worker:twin/real_rebuild.py",
+        "worker:twin/case_pohang.py",
+        "script:build_sample_portfolio.py",
+        "script:case_yeongdeungpo.py",
+        "script:case_gangnam_card.py"
+      ],
+      "path": "external/osm/south-korea-261013.osm.pbf",
+      "path_fn": "osm_dir",
+      "format": "OSM PBF (+ .md5)",
+      "spatial_resolution": "building footprints and tags (vector)",
+      "temporal": "OSM data as of 2026-10-13",
+      "coverage": "national",
+      "source": "Geofabrik download server (https://download.geofabrik.de/)",
+      "licence": "ODbL 1.0, (c) OpenStreetMap contributors (docs/DATA_LAYOUT.md)",
+      "storage_rule": "share-alike: keep attribution; derived databases fall under ODbL",
+      "data_sources_id": "geofabrik",
+      "notes": "md5 08b0d3fd8b2fe3ee8e18be02522c88e6 matches Geofabrik (docs/DATA_LAYOUT.md). Twin asset values are assumptions on top of these footprints."
+    },
+    {
+      "id": "worldpop_age_2024_1km",
+      "label_ko": "WorldPop 2024 연령별 인구 (1 km)",
+      "label_en": "WorldPop 2024 age-band population (1 km)",
+      "perils": [
+        "HM"
+      ],
+      "role": "exposure",
+      "used_by": [
+        "script:heat_health_board.py"
+      ],
+      "path": "external/worldpop/age_2024_1km/*.tif",
+      "path_fn": "worldpop_dir",
+      "format": "GeoTIFF (20 age bands, both sexes: kor_t_NN_2024_CN_1km_R2025A_UA_v1.tif)",
+      "spatial_resolution": "1 km",
+      "temporal": "2024",
+      "coverage": "national: KOR",
+      "source": "WorldPop (https://hub.worldpop.org/geodata/listing?id=64), doi:10.5258/SOTON/WP00842",
+      "licence": "CC BY 4.0 (docs/DATA_LAYOUT.md)",
+      "storage_rule": "none recorded",
+      "data_sources_id": "worldpop",
+      "notes": "Constrained, UN-adjusted (docs/DATA_LAYOUT.md)."
+    },
+    {
+      "id": "worldpop_ppp_2020_1km",
+      "label_ko": "WorldPop 2020 총인구 (1 km, CLIMADA 폴더)",
+      "label_en": "WorldPop 2020 total population (1 km, CLIMADA folder)",
+      "perils": [],
+      "role": "exposure",
+      "used_by": [
+        "worker:exposures.py (_raster_exposure)"
+      ],
+      "path": "climada:*_ppp_2020_1km_Aggregated.tif",
+      "path_fn": null,
+      "format": "GeoTIFF (kor, esp, jpn on disk)",
+      "spatial_resolution": "1 km",
+      "temporal": "2020",
+      "coverage": "partial: KOR, ESP, JPN files on disk",
+      "source": "WorldPop (https://hub.worldpop.org/geodata/listing?id=64)",
+      "licence": "CC-BY 4.0 (data_sources.json)",
+      "storage_rule": "none recorded",
+      "data_sources_id": "worldpop",
+      "notes": ""
+    },
+    {
+      "id": "farmmap_2025",
+      "label_ko": "팜맵 2025 시도별 (농경지 필지)",
+      "label_en": "Farmmap 2025 province shapefiles (farmland parcels)",
+      "perils": [
+        "drought"
+      ],
+      "role": "exposure",
+      "used_by": [
+        "script:drought_agri.py"
+      ],
+      "path": "external/farmmap/2025/raw/*.zip",
+      "path_fn": "farmmap_dir",
+      "format": "zipped shapefiles per province (EPSG:5179, EUC-KR DBF)",
+      "spatial_resolution": "vector parcels",
+      "temporal": "2025",
+      "coverage": "national (province archives)",
+      "source": "농림축산식품부 / 농림식품기술기획평가원 팜맵, data.go.kr fileData 15104481-15104491",
+      "licence": "이용허락범위 제한 없음 (external/farmmap/2025/manifest.json via drought_agri.py)",
+      "storage_rule": "none recorded",
+      "data_sources_id": null,
+      "notes": "Agrivoltaic and paper-specific farmmap work lives outside this platform."
+    },
+    {
+      "id": "drought_mafra_crop_registration",
+      "label_ko": "농업경영체 등록현황 (지역별, 2024)",
+      "label_en": "MAFRA farm registration by region (2024)",
+      "perils": [
+        "drought"
+      ],
+      "role": "exposure",
+      "used_by": [],
+      "path": "external/drought/exposure/*.xlsx",
+      "path_fn": "external_drought_dir",
+      "format": "xlsx (+ kosis/ subfolder)",
+      "spatial_resolution": "시도 regional aggregates",
+      "temporal": "2024 basis",
+      "coverage": "national",
+      "source": "농림축산식품부 농식품 공공데이터포털 (data.go.kr 15102525)",
+      "licence": "이용허락범위 제한 없음 (manifest.json)",
+      "storage_rule": "none recorded",
+      "data_sources_id": null,
+      "notes": "No reader found by grep in scripts/src/worker; the drought exposure is the farmmap parcels (drought_agri.py)."
+    },
+    {
+      "id": "terraclimate_korea_monthly",
+      "label_ko": "TerraClimate 월자료 (한국 1981-2025)",
+      "label_en": "TerraClimate monthly (Korea, 1981-2025)",
+      "perils": [
+        "drought"
+      ],
+      "role": "hazard_reference",
+      "used_by": [
+        "script:drought_agri.py (SPEI)",
+        "script:drought_future.py"
+      ],
+      "path": "external/drought/terraclimate/*.nc",
+      "path_fn": "external_drought_dir",
+      "format": "NetCDF (ppt, pet, aet monthly)",
+      "spatial_resolution": "1/24 deg (about 4 km), 138 x 133 cells",
+      "temporal": "monthly 1981-01 to 2025-12",
+      "coverage": "partial: bbox 124.5-130.0E, 33.0-38.7N",
+      "source": "TerraClimate v1.1 (Abatzoglou et al., UC Merced), THREDDS NCSS",
+      "licence": "CC0 (퍼블릭 도메인) — Google Earth Engine 카탈로그 IDAHO_EPSCOR_TERRACLIMATE 기재; 인용 Abatzoglou et al. 2018 Sci Data 5:170191",
+      "storage_rule": "none recorded",
+      "data_sources_id": "spei",
+      "notes": "Licence not recorded in the manifest. Drought is out of scope in the method registry."
+    },
+    {
+      "id": "terraclimate_pseudo_warming",
+      "label_ko": "TerraClimate +2C/+4C 의사 온난화",
+      "label_en": "TerraClimate +2C / +4C pseudo-warming",
+      "perils": [
+        "drought"
+      ],
+      "role": "hazard_reference",
+      "used_by": [
+        "script:drought_future.py"
+      ],
+      "path": "external/drought/terraclimate_plus2C/raw/*.nc",
+      "path_fn": "external_drought_dir",
+      "format": "NetCDF per variable-year (a sibling terraclimate_plus4C folder holds +4C)",
+      "spatial_resolution": "1/24 deg (TerraClimate +2C/+4C use the TerraClimate grid)",
+      "temporal": "observed 1981-2025 months with CMIP6 ensemble-median monthly changes; not a dated projection year",
+      "coverage": "partial: bbox, as the base data",
+      "source": "TerraClimate +2C/+4C pseudo-climate-change files via THREDDS (thredds.northwestknowledge.net, scripts/drought_future.py _URL_TEMPLATE)",
+      "licence": "CC0 1.0 (NetCDF license attribute, scripts/drought_future.py)",
+      "storage_rule": "none recorded",
+      "data_sources_id": null,
+      "notes": "Reference period of the +2C/+4C offset is not stated in the files (drought_future.py)."
+    },
+    {
+      "id": "chirps_v2_korea_partial",
+      "label_ko": "CHIRPS v2.0 월강수 (한국, 일부)",
+      "label_en": "CHIRPS v2.0 monthly rainfall (Korea, partial)",
+      "perils": [
+        "drought"
+      ],
+      "role": "hazard_reference",
+      "used_by": [],
+      "path": "external/drought/chirps_v2/chirps_v2_monthly_korea_PARTIAL_*.nc",
+      "path_fn": "external_drought_dir",
+      "format": "NetCDF (monthly GeoTIFFs stacked)",
+      "spatial_resolution": "0.05 deg (114 x 110)",
+      "temporal": "PARTIAL: 1981-01 to 1992-02 (134 of 540 planned months)",
+      "coverage": "partial: bbox 124.5-130.0E, 33.0-38.7N",
+      "source": "CHIRPS v2.0, Climate Hazards Center UCSB",
+      "licence": "퍼블릭 도메인 (Creative Commons 권리포기) — https://chc.ucsb.edu/data/chirps; v2 생산은 2026-12 종료 예정",
+      "storage_rule": "none recorded",
+      "data_sources_id": null,
+      "notes": "Retrieval stopped by server throttling; docs/DROUGHT_AGRI_KO.md uses it only for comparison; no code reader found by grep."
+    },
+    {
+      "id": "krc_agri_drought_data",
+      "label_ko": "한국농어촌공사 저수지·가뭄 자료",
+      "label_en": "KRC reservoir and agricultural drought data",
+      "perils": [
+        "drought"
+      ],
+      "role": "validation",
+      "used_by": [],
+      "path": "external/drought/krc_reservoir/*.csv",
+      "path_fn": "external_drought_dir",
+      "format": "CSV (daily reservoir storage, facility specs, paddy drought map, drought map, warnings)",
+      "spatial_resolution": "시군 (167) / reservoir (3,402)",
+      "temporal": "2025 files (daily storage 2025; maps 2025-12-31)",
+      "coverage": "national, 시군 level",
+      "source": "한국농어촌공사 via data.go.kr (e.g. 15113475)",
+      "licence": "이용허락범위 제한 없음; daily storage is 공공누리 제1유형 (docs/DROUGHT_AGRI_KO.md)",
+      "storage_rule": "none recorded",
+      "data_sources_id": null,
+      "notes": "No reader found by grep in scripts/src/worker; docs/DROUGHT_AGRI_KO.md describes it as received."
+    },
+    {
+      "id": "krc_reclamation_districts",
+      "label_ko": "한국농어촌공사 간척농지 사업지구",
+      "label_en": "KRC reclaimed-land districts",
+      "perils": [
+        "CF"
+      ],
+      "role": "other",
+      "used_by": [],
+      "path": "external/krc_reclamation/*.csv",
+      "path_fn": null,
+      "format": "CSV (15133693_1.csv) and JSON (15152369_2.json) plus the data.go.kr pages",
+      "spatial_resolution": "district / station records",
+      "temporal": "20200402 (15133693) and 20261106 (15152369) per page titles",
+      "coverage": "national reclaimed-land districts",
+      "source": "한국농어촌공사 via data.go.kr 15133693 and 15152369",
+      "licence": "이용허락범위 제한 없음 (page JSON-LD in external/krc_reclamation/page_*.html)",
+      "storage_rule": "none recorded",
+      "data_sources_id": null,
+      "notes": "No reader found by grep in src/worker/scripts."
+    },
+    {
+      "id": "isimip3a_crop_yield",
+      "label_ko": "ISIMIP3a 작물수확 (전지구)",
+      "label_en": "ISIMIP3a crop yield (global)",
+      "perils": [],
+      "role": "other",
+      "used_by": [],
+      "path": "external/isimip/agriculture_3a/*.nc",
+      "path_fn": null,
+      "format": "NetCDF (annual yield, ri1-firr, 1901-2016, per crop model)",
+      "spatial_resolution": "0.5 deg global grid (ISIMIP3a crop output; file names …_global_annual-gs_1901_2016.nc)",
+      "temporal": "1901-2016 annual growing seasons (file names)",
+      "coverage": "global",
+      "source": "ISIMIP repository (https://data.isimip.org/)",
+      "licence": "CC-BY 4.0 / CC0 (data_sources.json isimip, generic)",
+      "storage_rule": "none recorded",
+      "data_sources_id": "isimip",
+      "notes": "No reader found by grep in src/worker/scripts (crop work is outside this platform)."
+    },
+    {
+      "id": "literature_crop_coefficients",
+      "label_ko": "작물계수 문헌 PDF·텍스트",
+      "label_en": "Crop coefficient literature (PDF and text)",
+      "perils": [],
+      "role": "other",
+      "used_by": [],
+      "path": "external/literature/crop_coeffs/*",
+      "path_fn": null,
+      "format": "PDF and txt",
+      "spatial_resolution": "n/a",
+      "temporal": "n/a",
+      "coverage": "n/a",
+      "source": "published papers (see files)",
+      "licence": "논문에서 인용한 수치(사실값)로 사용, 각 논문 출처 표시; 원문 PDF 재배포 안 함",
+      "storage_rule": "journal copyright: do not redistribute",
+      "data_sources_id": null,
+      "notes": "Reference reading, no code reader found."
+    },
+    {
+      "id": "climada_ibtracs_v04r01",
+      "label_ko": "IBTrACS v04r01 (전지구 태풍 트랙)",
+      "label_en": "IBTrACS v04r01 global tropical cyclone tracks",
+      "perils": [
+        "TC"
+      ],
+      "role": "other",
+      "used_by": [
+        "worker:ingest.py (TCTracks ingest)"
+      ],
+      "path": "climada:IBTrACS.ALL.v04r01.nc",
+      "path_fn": null,
+      "format": "NetCDF",
+      "spatial_resolution": "track points (about 3-hourly, not verified here)",
+      "temporal": "IBTrACS ALL v04r01 historical record as downloaded (file IBTrACS.ALL.v04r01.nc); end date not recorded",
+      "coverage": "global",
+      "source": "NOAA NCEI IBTrACS (https://www.ncei.noaa.gov/products/international-best-track-archive)",
+      "licence": "IBTrACS (US public domain) per worker/ingest.py",
+      "storage_rule": "none recorded",
+      "data_sources_id": null,
+      "notes": "CLIMADA downloads it on demand; the Data API TC hazards on disk are already built."
+    },
+    {
+      "id": "eobs_tg_ens_mean_025deg",
+      "label_ko": "E-OBS 일평균기온 (0.25도, 유럽)",
+      "label_en": "E-OBS daily mean temperature (0.25 deg, Europe)",
+      "perils": [
+        "heatwave"
+      ],
+      "role": "hazard_reference",
+      "used_by": [
+        "worker:eobs.py"
+      ],
+      "path": "climada:tg_ens_mean_0.25deg_reg_v31.0e.nc",
+      "path_fn": null,
+      "format": "NetCDF (about 0.8 GB)",
+      "spatial_resolution": "0.25 deg regular grid",
+      "temporal": "daily, E-OBS v31.0e (file tg_ens_mean_0.25deg_reg_v31.0e.nc); exact span not read",
+      "coverage": "Europe (E-OBS domain)",
+      "source": "ECA&D E-OBS ensemble mean (https://www.ecad.eu/download/ensembles/download.php)",
+      "licence": "ECA&D / Copernicus - cite E-OBS (data_sources.json)",
+      "storage_rule": "none recorded",
+      "data_sources_id": "eobs",
+      "notes": "European heatwave module only; not a Korean dataset."
+    },
+    {
+      "id": "climada_litpop_kor",
+      "label_ko": "LitPop 자산가치 노출 (한국 150 arcsec)",
+      "label_en": "LitPop asset-value exposure (KOR, 150 arcsec)",
+      "perils": [],
+      "role": "exposure",
+      "used_by": [
+        "worker:litpop.py",
+        "worker:exposures.py",
+        "worker:board.py"
+      ],
+      "path": "climada:exposures/litpop/LitPop_150arcsec_KOR",
+      "path_fn": null,
+      "format": "CLIMADA Data API HDF5 exposure",
+      "spatial_resolution": "150 arcsec (folder name)",
+      "temporal": "unknown",
+      "coverage": "country: KOR",
+      "source": "CLIMADA Data API LitPop (https://climada.ethz.ch/data-types/)",
+      "licence": "per CLIMADA Data API",
+      "storage_rule": "none recorded",
+      "data_sources_id": null,
+      "notes": "LitPop board layer is out of scope in the method registry. Inputs such as NatEarth centroids, GDP2Asset and WEALTH2GDP files sit beside it in the CLIMADA folder."
+    },
+    {
+      "id": "hazard_db_catalog",
+      "label_ko": "로컬 해저드 카탈로그 (HDF5)",
+      "label_en": "Local hazard catalogue (HDF5 layers)",
+      "perils": [
+        "HM",
+        "HW",
+        "RF",
+        "TC",
+        "earthquake",
+        "wildfire"
+      ],
+      "role": "hazard_reference",
+      "used_by": [
+        "src:data/hazard_catalog.py",
+        "worker:catalog.py",
+        "worker:hazard_convert.py",
+        "script:build_hazard.py",
+        "script:heat_korea.py",
+        "script:heat_health_board.py"
+      ],
+      "path": "derived/hazard_db/catalog.json",
+      "path_fn": "hazard_db_dir",
+      "format": "catalog.json plus HDF5 layers (heat_mortality, heatwave, river_flood, tropical_cyclone, earthquake, wildfire, dem)",
+      "spatial_resolution": "per layer (KMA layers 0.05 deg; Data API layers 150 arcsec)",
+      "temporal": "historical 2020 and scenario layers (e.g. HM/HW KOR rcp45/rcp85 2030, RF rcp45 KOR 2050)",
+      "coverage": "partial: KOR layers plus some European heat layers",
+      "source": "built by build_hazard.py, heat_korea.py from the Data API cache and KMA grids",
+      "licence": "inherits source terms (KMA, CLIMADA Data API)",
+      "storage_rule": "none recorded",
+      "data_sources_id": null,
+      "notes": "Served from paths.hazard_db_dir() (env CLIMATERISK_HAZARD_DB wins; a repo-local legacy catalogue is used until the canonical one exists). Not the registry main for any peril."
+    },
+    {
+      "id": "kma_tamax_heatwave_layer",
+      "label_ko": "폭염 레이어 (시즌 p95 일최고기온, 0.05도)",
+      "label_en": "Heatwave layer (season p95 daily-max temperature, 0.05 deg)",
+      "perils": [
+        "HW"
+      ],
+      "role": "hazard_reference",
+      "used_by": [
+        "src:physical_risk/coverage.py (SPATIAL_RESOLUTION HEAT)",
+        "script:heat_korea.py (register_window)"
+      ],
+      "path": "derived/hazard_db/heatwave/HW_*_KOR_*.hdf5",
+      "path_fn": "hazard_db_dir",
+      "format": "HDF5 CLIMADA hazard",
+      "spatial_resolution": "0.05 deg",
+      "temporal": "historical 2020 (2000-2019 seasons), rcp45 and rcp85 2030",
+      "coverage": "national: KOR (4,312 centroids per the coverage audit)",
+      "source": "built from kma_mkprism_tamax_daily and kma_ar6_ssp_tamax_daily by scripts/heat_korea.py",
+      "licence": "KMA 기후변화 시나리오 - cite KMA (heat_korea.py)",
+      "storage_rule": "none recorded",
+      "data_sources_id": null,
+      "notes": "Registry studio: heatwave = other method (reference). Uses TAMAX only; no layer is built if TAMAX is missing."
+    },
+    {
+      "id": "hazard_db_heat_mortality_kor",
+      "label_ko": "열 사망 노출 레이어 (초과도일, 0.05도)",
+      "label_en": "Heat-mortality exposure layer (excess degree-days, 0.05 deg)",
+      "perils": [
+        "HM"
+      ],
+      "role": "hazard_reference",
+      "used_by": [
+        "script:heat_health_board.py",
+        "script:heat_korea.py"
+      ],
+      "path": "derived/hazard_db/heat_mortality/HM_*_KOR_*.hdf5",
+      "path_fn": "hazard_db_dir",
+      "format": "HDF5 CLIMADA hazard",
+      "spatial_resolution": "0.05 deg",
+      "temporal": "historical (2000-2019 seasons), rcp45 and rcp85 2030",
+      "coverage": "national: KOR",
+      "source": "built from kma_mkprism_ta_daily and kma_ar6_ssp_ta_daily by scripts/heat_korea.py",
+      "licence": "KMA 기후변화 시나리오 - cite KMA (heat_korea.py)",
+      "storage_rule": "none recorded",
+      "data_sources_id": null,
+      "notes": "Registry hm.degree_days has dataset null; this layer feeds the heat-health board (HM)."
+    },
+    {
+      "id": "board_river_flood_layers",
+      "label_ko": "보드 하천홍수 레이어",
+      "label_en": "Visual-board river flood layers",
+      "perils": [
+        "RF"
+      ],
+      "role": "other",
+      "used_by": [
+        "src:board/store.py",
+        "script:board_layer.py"
+      ],
+      "path": "derived/board/river_flood_*",
+      "path_fn": "derived_board_dir",
+      "format": "<layer>.board.json (served), <layer>.geojson, <layer>.meta.json",
+      "spatial_resolution": "hazard grid cell x 시군구 piece (150 arcsec cells for Data API layers)",
+      "temporal": "per layer (see visual_board.json)",
+      "coverage": "national: KOR",
+      "source": "built by scripts from the sources named in notes",
+      "licence": "inherits source terms",
+      "storage_rule": "a null value means no hazard data; 0 is a computed zero (never fill nulls)",
+      "data_sources_id": null,
+      "notes": "ISIMIP-based board layers (hist, rcp26/60/85, 2010-2030 and 2030-2050) and change layers; each carries a mandatory sub check in meta.check."
+    },
+    {
+      "id": "board_tropical_cyclone_layers",
+      "label_ko": "보드 태풍 레이어",
+      "label_en": "Visual-board tropical cyclone layers",
+      "perils": [
+        "TC"
+      ],
+      "role": "other",
+      "used_by": [
+        "src:board/store.py",
+        "script:board_layer.py"
+      ],
+      "path": "derived/board/tropical_cyclone_*",
+      "path_fn": "derived_board_dir",
+      "format": "<layer>.board.json (served), <layer>.geojson, <layer>.meta.json",
+      "spatial_resolution": "hazard grid cell x 시군구 piece (150 arcsec cells for Data API layers)",
+      "temporal": "per layer (see visual_board.json)",
+      "coverage": "national: KOR",
+      "source": "built by scripts from the sources named in notes",
+      "licence": "inherits source terms",
+      "storage_rule": "a null value means no hazard data; 0 is a computed zero (never fill nulls)",
+      "data_sources_id": null,
+      "notes": "hist and rcp45/60/85 2040 layers plus change layers."
+    },
+    {
+      "id": "board_coastal_flood_layers",
+      "label_ko": "보드 해안침수 레이어",
+      "label_en": "Visual-board coastal flood layers",
+      "perils": [
+        "CF"
+      ],
+      "role": "other",
+      "used_by": [
+        "src:board/store.py",
+        "script:board_layer.py"
+      ],
+      "path": "derived/board/coastal_flood_*",
+      "path_fn": "derived_board_dir",
+      "format": "<layer>.board.json (served), <layer>.geojson, <layer>.meta.json",
+      "spatial_resolution": "hazard grid cell x 시군구 piece (150 arcsec cells for Data API layers)",
+      "temporal": "per layer (see visual_board.json)",
+      "coverage": "national: KOR",
+      "source": "built by scripts from the sources named in notes",
+      "licence": "inherits source terms",
+      "storage_rule": "a null value means no hazard data; 0 is a computed zero (never fill nulls)",
+      "data_sources_id": null,
+      "notes": "From aqueduct_inuncoast (hist, rcp85 2030) and a change layer."
+    },
+    {
+      "id": "board_heat_days_layers",
+      "label_ko": "보드 폭염일수 레이어",
+      "label_en": "Visual-board heat-days layers",
+      "perils": [
+        "HW"
+      ],
+      "role": "other",
+      "used_by": [
+        "src:board/store.py",
+        "script:heat_days_board.py"
+      ],
+      "path": "derived/board/heat_days_*",
+      "path_fn": "derived_board_dir",
+      "format": "<layer>.board.json (served), <layer>.geojson, <layer>.meta.json",
+      "spatial_resolution": "hazard grid cell x 시군구 piece (150 arcsec cells for Data API layers)",
+      "temporal": "per layer (see visual_board.json)",
+      "coverage": "national: KOR",
+      "source": "built by scripts from the sources named in notes",
+      "licence": "inherits source terms",
+      "storage_rule": "a null value means no hazard data; 0 is a computed zero (never fill nulls)",
+      "data_sources_id": null,
+      "notes": "Days at or above the KMA heat-wave threshold in May-Sep, observed 2000-2019 plus delta-change future."
+    },
+    {
+      "id": "board_heat_health_layers",
+      "label_ko": "보드 열 건강 레이어",
+      "label_en": "Visual-board heat-health layers",
+      "perils": [
+        "HM"
+      ],
+      "role": "other",
+      "used_by": [
+        "src:board/store.py",
+        "script:heat_health_board.py"
+      ],
+      "path": "derived/board/heat_health_*",
+      "path_fn": "derived_board_dir",
+      "format": "<layer>.board.json (served), <layer>.geojson, <layer>.meta.json",
+      "spatial_resolution": "hazard grid cell x 시군구 piece (150 arcsec cells for Data API layers)",
+      "temporal": "per layer (see visual_board.json)",
+      "coverage": "national: KOR",
+      "source": "built by scripts from the sources named in notes",
+      "licence": "inherits source terms",
+      "storage_rule": "a null value means no hazard data; 0 is a computed zero (never fill nulls)",
+      "data_sources_id": null,
+      "notes": "Heat-attributable mortality rates: hazard_db heat-mortality layer x WorldPop age structure. Use tier S/I only (see docs/SCOPE.md)."
+    },
+    {
+      "id": "board_drought_layers",
+      "label_ko": "보드 농업가뭄 레이어",
+      "label_en": "Visual-board agricultural drought layers",
+      "perils": [
+        "drought"
+      ],
+      "role": "other",
+      "used_by": [
+        "src:board/store.py",
+        "script:drought_agri.py"
+      ],
+      "path": "derived/board/drought_*",
+      "path_fn": "derived_board_dir",
+      "format": "<layer>.board.json (served), <layer>.geojson, <layer>.meta.json",
+      "spatial_resolution": "hazard grid cell x 시군구 piece (150 arcsec cells for Data API layers)",
+      "temporal": "per layer (see visual_board.json)",
+      "coverage": "national: KOR",
+      "source": "built by scripts from the sources named in notes",
+      "licence": "inherits source terms",
+      "storage_rule": "a null value means no hazard data; 0 is a computed zero (never fill nulls)",
+      "data_sources_id": null,
+      "notes": "SPEI-3 stage layers (historical and +2C/+4C pseudo-warming); drought is out of scope in the method registry."
+    },
+    {
+      "id": "board_wildfire_layers",
+      "label_ko": "보드 산불 레이어",
+      "label_en": "Visual-board wildfire layers",
+      "perils": [
+        "wildfire"
+      ],
+      "role": "other",
+      "used_by": [
+        "src:board/store.py",
+        "script:board_layer.py"
+      ],
+      "path": "derived/board/wildfire_*",
+      "path_fn": "derived_board_dir",
+      "format": "<layer>.board.json (served), <layer>.geojson, <layer>.meta.json",
+      "spatial_resolution": "hazard grid cell x 시군구 piece (150 arcsec cells for Data API layers)",
+      "temporal": "per layer (see visual_board.json)",
+      "coverage": "national: KOR",
+      "source": "built by scripts from the sources named in notes",
+      "licence": "inherits source terms",
+      "storage_rule": "a null value means no hazard data; 0 is a computed zero (never fill nulls)",
+      "data_sources_id": null,
+      "notes": "wildfire_hist_kor from climada_wildfire_kor_historical."
+    },
+    {
+      "id": "case_twin_summaries",
+      "label_ko": "사례 트윈 요약 (강남·포항·영등포)",
+      "label_en": "Case-twin summaries (Gangnam, Pohang, Yeongdeungpo)",
+      "perils": [
+        "PF"
+      ],
+      "role": "other",
+      "used_by": [
+        "src:board/cases.py",
+        "script:case_gangnam_figures.py",
+        "script:case_pohang.py",
+        "script:case_yeongdeungpo.py"
+      ],
+      "path": "derived/case_twins/*/summary.json",
+      "path_fn": "derived_case_twins_dir",
+      "format": "summary.json plus PNG figures per case",
+      "spatial_resolution": "site scale",
+      "temporal": "per case",
+      "coverage": "partial: 3 case sites",
+      "source": "built from the twin worktree runs (OSM, GLO-30, ASOS, observations)",
+      "licence": "inherits source terms",
+      "storage_rule": "case-twin figures are read-only on the board; case assumptions are listed in each summary",
+      "data_sources_id": null,
+      "notes": "Out of scope in the method registry (digital twin, case studies)."
+    },
+    {
+      "id": "synthetic_city",
+      "label_ko": "합성 가상도시 (해저드·노출 스펙)",
+      "label_en": "Synthetic virtual city (hazard and exposure spec)",
+      "perils": [
+        "CF",
+        "TC",
+        "HW"
+      ],
+      "role": "other",
+      "used_by": [
+        "worker:twin/coastal.py",
+        "worker:twin/pricing.py",
+        "worker:twin/typhoon.py",
+        "script:synthetic_city.py"
+      ],
+      "path": "repo:assets/libraries/synthetic_city_spec.json",
+      "path_fn": null,
+      "format": "JSON spec (seed, site, heat, coast, typhoon, grid, terrain, flood, ...)",
+      "spatial_resolution": "site scale (about 1.1 km, cell_m in spec)",
+      "temporal": "synthetic",
+      "coverage": "n/a (synthetic site)",
+      "source": "this repository (every number is an assumption)",
+      "licence": "not applicable (project spec)",
+      "storage_rule": "none recorded",
+      "data_sources_id": null,
+      "notes": "Synthetic hazard, not real data. Results go to derived/synthetic_city."
+    },
+    {
+      "id": "gangnam_design_storm",
+      "label_ko": "강남 설계강우 (2D 도시침수)",
+      "label_en": "Gangnam design storm (2D pluvial)",
+      "perils": [
+        "PF"
+      ],
+      "role": "other",
+      "used_by": [
+        "worker:twin/site_loss.py"
+      ],
+      "path": "repo:assets/libraries/synthetic_city_spec.json",
+      "path_fn": null,
+      "format": "JSON block `rain` in the synthetic city spec",
+      "spatial_resolution": "site scale",
+      "temporal": "single design storm",
+      "coverage": "n/a (one site)",
+      "source": "this repository (twin/pluvial.py; every number an assumption)",
+      "licence": "not applicable (project spec)",
+      "storage_rule": "none recorded",
+      "data_sources_id": null,
+      "notes": "Spec note: assumption, not a calibration or a reconstruction of an observed event."
+    },
+    {
+      "id": "gangnam_rain_ladder",
+      "label_ko": "강남 빈도별 강우 (ASOS 서울 108)",
+      "label_en": "Gangnam rain ladder (ASOS Seoul 108, GEV)",
+      "perils": [
+        "PF"
+      ],
+      "role": "other",
+      "used_by": [
+        "worker:twin/rain_eal.py",
+        "script:synthetic_city.py",
+        "script:case_gangnam_figures.py"
+      ],
+      "path": "derived/synthetic_city/rain_frequency.json",
+      "path_fn": "derived_dir",
+      "format": "JSON (return-period ladder of 2-hour storms)",
+      "spatial_resolution": "one station (ASOS 108), about 7 km from the site",
+      "temporal": "annual maxima of hourly record 1961 onward, GEV central estimate",
+      "coverage": "n/a (one site)",
+      "source": "built by scripts/synthetic_city.py from kma_asos_hourly (station 108)",
+      "licence": "inherits kma_asos_hourly (공공누리 제1유형)",
+      "storage_rule": "none recorded",
+      "data_sources_id": null,
+      "notes": "Written by scripts/synthetic_city.py."
+    },
+    {
+      "id": "drought_derived_products",
+      "label_ko": "농업가뭄 파생 산출물",
+      "label_en": "Agricultural drought derived products",
+      "perils": [
+        "drought"
+      ],
+      "role": "other",
+      "used_by": [
+        "script:drought_agri.py",
+        "script:drought_future.py"
+      ],
+      "path": "derived/drought/*",
+      "path_fn": "derived_drought_dir",
+      "format": "CSV (pieces, per-year stage, 시군구 summaries), GeoJSON pieces, meta JSON",
+      "spatial_resolution": "farmland piece x 시군",
+      "temporal": "1981-2025 seasons",
+      "coverage": "national",
+      "source": "built by scripts/drought_agri.py from terraclimate_korea_monthly and farmmap_2025",
+      "licence": "inherits source terms",
+      "storage_rule": "none recorded",
+      "data_sources_id": null,
+      "notes": "Out of scope in the method registry (drought board layer)."
+    },
+    {
+      "id": "river_headline_outputs",
+      "label_ko": "하천홍수 헤드라인 산출물",
+      "label_en": "River flood headline outputs (official map x ISIMIP factor)",
+      "perils": [
+        "RF"
+      ],
+      "role": "other",
+      "used_by": [],
+      "path": "derived/river_headline/*",
+      "path_fn": "derived_dir",
+      "format": "JSON raw results, SUMMARY.json, xlsx, logs",
+      "spatial_resolution": "asset level (no asset data stored in the catalog)",
+      "temporal": "historical and rcp85 2050",
+      "coverage": "partial: the run portfolio",
+      "source": "produced by a headline run (docs/METHODOLOGY.md river flood headline section)",
+      "licence": "inherits floodmap_rfm_depth_class terms",
+      "storage_rule": "none recorded",
+      "data_sources_id": null,
+      "notes": "No reader found by grep in src/worker/scripts; compared in docs/evidence/river_headline_comparison_2026-11-15.json. If any file carries per-asset classes of the licensed map, keep them out of git."
+    },
+    {
+      "id": "heat_kdca_check_results",
+      "label_ko": "UTCI x KDCA 온열질환 대조 결과",
+      "label_en": "UTCI vs KDCA heat-illness check results",
+      "perils": [
+        "HW"
+      ],
+      "role": "validation",
+      "used_by": [
+        "script:heat_utci_validate_kdca.py (writer)"
+      ],
+      "path": "derived/heat_validation/kdca_check_*.json",
+      "path_fn": "derived_dir",
+      "format": "JSON (aggregates, per-시도) plus PNG",
+      "spatial_resolution": "시도",
+      "temporal": "May-Sep 2011-2019",
+      "coverage": "national",
+      "source": "scripts/heat_utci_validate_kdca.py from kdca_heat_illness_cases and kma_asos_open_field_utci",
+      "licence": "자체 집계 산출물; 입력은 kdca_heat_illness_cases (제한 없음) + kma_asos_hourly (공공누리 제1유형)",
+      "storage_rule": "aggregates only; no case rows",
+      "data_sources_id": null,
+      "notes": "Supplementary comparison, not a validation (registry hw.kdca_heat_illness). kdca_check_run1_gwangju_mapping_bug.* is a superseded run kept for the record."
+    },
+    {
+      "id": "no_damage_threshold_runs",
+      "label_ko": "무피해 임계 민감도 실행 결과",
+      "label_en": "Zero-damage threshold sensitivity runs",
+      "perils": [
+        "RF",
+        "CF"
+      ],
+      "role": "other",
+      "used_by": [],
+      "path": "derived/no_damage_threshold/*/run.json",
+      "path_fn": "derived_dir",
+      "format": "run.json and spots.csv per run (historical, rcp85_2050, coastal_historical, v2)",
+      "spatial_resolution": "spot sites",
+      "temporal": "historical and rcp85 2050",
+      "coverage": "partial: spot sites",
+      "source": "not recorded in the repo (no writer found by grep)",
+      "licence": "자체 산출물 (이 저장소 실행 결과)",
+      "storage_rule": "none recorded",
+      "data_sources_id": null,
+      "notes": "No reader or writer found by grep in src/worker/scripts."
+    },
+    {
+      "id": "floodmap_file_indexes",
+      "label_ko": "홍수위험지도 파일 색인 캐시",
+      "label_en": "Flood-map file index caches",
+      "perils": [
+        "RF",
+        "PF"
+      ],
+      "role": "other",
+      "used_by": [
+        "worker:floodmap_depth.py (map_index)",
+        "worker:physical_risk/adapters.py",
+        "worker:sheet_builder.py"
+      ],
+      "path": "cache/floodmap/*.json",
+      "path_fn": "cache_dir",
+      "format": "JSON (rfm_index, cfm_index, delta_*)",
+      "spatial_resolution": "n/a",
+      "temporal": "built per scan",
+      "coverage": "same as the maps",
+      "source": "built from floodmap_rfm_depth_class and floodmap_cfm_depth_class files",
+      "licence": "공공누리 제4유형 (출처표시, 상업적 이용금지, 변경금지)",
+      "storage_rule": "contents not inspected; derived from KOGL type 4 maps, so keep out of git and out of deliverables unless checked",
+      "data_sources_id": null,
+      "notes": "regenerable cache. The delta_* file is the ISIMIP national change factor."
+    },
+    {
+      "id": "dataapi_index_cache",
+      "label_ko": "Data API 데이터셋 색인 캐시",
+      "label_en": "CLIMADA Data API dataset index cache",
+      "perils": [],
+      "role": "other",
+      "used_by": [
+        "worker:dataapi_index.py",
+        "src:data/offline_status.py"
+      ],
+      "path": "cache/dataapi_index.json",
+      "path_fn": "cache_dir",
+      "format": "JSON listing of Data API datasets",
+      "spatial_resolution": "n/a",
+      "temporal": "snapshot",
+      "coverage": "global listing",
+      "source": "CLIMADA Data API",
+      "licence": "per CLIMADA Data API",
+      "storage_rule": "none recorded",
+      "data_sources_id": null,
+      "notes": "Created by the dataapi_index worker job; absent until it runs."
+    },
+    {
+      "id": "sheets_generated",
+      "label_ko": "단면 시트 (생성본)",
+      "label_en": "Generated asset sheets (danmyeon)",
+      "perils": [],
+      "role": "other",
+      "used_by": [
+        "src:sheets.py",
+        "script:build_sheet.py",
+        "worker:sheet_builder.py"
+      ],
+      "path": "derived/sheets/*.json",
+      "path_fn": "derived_dir",
+      "format": "JSON (danmyeon.sheet/1)",
+      "spatial_resolution": "asset",
+      "temporal": "per sheet",
+      "coverage": "n/a",
+      "source": "built from the hazard adapters at asset points",
+      "licence": "inherits source terms (floodmap overlay rules apply)",
+      "storage_rule": "sheets may hold per-asset classes from licensed maps; the maps themselves are never stored",
+      "data_sources_id": null,
+      "notes": "Bundled sheets live in repo assets/libraries/sheets and win over generated ones with the same id. The generated folder was empty on 2026-11-20."
+    },
+    {
+      "id": "impact_functions",
+      "label_ko": "취약성 클래스 (TC·홍수·지진)",
+      "label_en": "Vulnerability classes (TC wind, flood depth, earthquake)",
+      "perils": [
+        "TC",
+        "RF",
+        "PF",
+        "CF",
+        "earthquake"
+      ],
+      "role": "vulnerability",
+      "used_by": [
+        "src:data/libraries.py",
+        "src:engines/base.py",
+        "script:build_impf_presets.py"
+      ],
+      "path": "repo:assets/libraries/impact_functions.json",
+      "path_fn": null,
+      "format": "JSON (classes with tc_v_half, flood depth-damage ratios, eq_mmi)",
+      "spatial_resolution": "n/a",
+      "temporal": "static",
+      "coverage": "n/a",
+      "source": "TC Emanuel (2011) form with indicative v_half; flood depth-damage ratios per file provenance (see file _meta.provenance)",
+      "licence": "n/a (project data; underlying curves are cited in _meta.provenance)",
+      "storage_rule": "none recorded",
+      "data_sources_id": null,
+      "notes": "Class values are indicative per the file's own provenance text."
+    },
+    {
+      "id": "impact_function_presets",
+      "label_ko": "취약성 프리셋 (Eberenz·JRC)",
+      "label_en": "Impact-function presets (Eberenz regional TC, JRC flood)",
+      "perils": [
+        "TC",
+        "RF",
+        "PF",
+        "CF",
+        "earthquake"
+      ],
+      "role": "vulnerability",
+      "used_by": [
+        "src:data/libraries.py",
+        "worker:vulnerability.py"
+      ],
+      "path": "repo:assets/libraries/impact_function_presets.json",
+      "path_fn": null,
+      "format": "JSON baked from CLIMADA by scripts/build_impf_presets.py",
+      "spatial_resolution": "n/a",
+      "temporal": "static",
+      "coverage": "n/a",
+      "source": "CLIMADA regional presets (Eberenz 2021 TC; Huizinga JRC flood); earthquake curves indicative",
+      "licence": "CLIMADA 코드 GPL-3.0 (github.com/CLIMADA-project/climada_python LICENSE); 곡선 값은 논문 인용 수치 (Eberenz et al. 2021 TC, Huizinga et al. 2017 JRC 홍수), 지진 곡선은 지시적(자체)",
+      "storage_rule": "none recorded",
+      "data_sources_id": null,
+      "notes": "CLIMADA ships no earthquake impact function; the eq_mdr preset is indicative (file _meta)."
+    },
+    {
+      "id": "flood_threshold_defaults",
+      "label_ko": "무피해 침수심 임계 기본값",
+      "label_en": "Zero-damage flood depth threshold defaults",
+      "perils": [
+        "RF",
+        "PF"
+      ],
+      "role": "vulnerability",
+      "used_by": [
+        "src:physical_risk/flood_threshold.py"
+      ],
+      "path": "repo:assets/libraries/flood_threshold_defaults.json",
+      "path_fn": null,
+      "format": "JSON (values with source ids)",
+      "spatial_resolution": "n/a",
+      "temporal": "static",
+      "coverage": "n/a",
+      "source": "per-value sources listed in the file's `sources` block",
+      "licence": "n/a",
+      "storage_rule": "none recorded",
+      "data_sources_id": null,
+      "notes": "Applies only when the site survey has no measured value."
+    },
+    {
+      "id": "ngfs_carbon_prices",
+      "label_ko": "NGFS 탄소가격 시나리오",
+      "label_en": "NGFS shadow carbon-price scenarios",
+      "perils": [],
+      "role": "other",
+      "used_by": [
+        "src:data/libraries.py (carbon_prices)",
+        "script:fetch_ngfs.py"
+      ],
+      "path": "repo:assets/libraries/ngfs_carbon_prices.json",
+      "path_fn": null,
+      "format": "JSON snapshot (US$2010/t CO2)",
+      "spatial_resolution": "world region",
+      "temporal": "scenarios by year",
+      "coverage": "global",
+      "source": "NGFS Phase 5 (Nov 2024) via IIASA NGFS Scenario Explorer (https://data.ene.iiasa.ac.at/ngfs/)",
+      "licence": "NGFS Scenarios Data Set V.5 라이선스: 연구·상업적 이용 허용, 상당 부분 재배포 제한 (https://pure.iiasa.ac.at/20281)",
+      "storage_rule": "none recorded",
+      "data_sources_id": null,
+      "notes": "Transition-risk input, not physical."
+    },
+    {
+      "id": "case_pohang_observations",
+      "label_ko": "포항 냉천 침수 관측 (문헌)",
+      "label_en": "Pohang Naengcheon 2022 flood observations (literature)",
+      "perils": [
+        "PF"
+      ],
+      "role": "validation",
+      "used_by": [
+        "worker:twin/case_pohang_figures.py"
+      ],
+      "path": "repo:assets/libraries/case_pohang_observations.json",
+      "path_fn": null,
+      "format": "JSON (values copied from an open paper)",
+      "spatial_resolution": "event scale",
+      "temporal": "2022-09-06 event",
+      "coverage": "n/a (one site)",
+      "source": "JKWRA 57(7), doi:10.3741/JKWRA.2024.57.7.451 (worker/twin/case_pohang_figures.py)",
+      "licence": "CC BY (case_pohang_figures.py)",
+      "storage_rule": "none recorded",
+      "data_sources_id": null,
+      "notes": "Diagnostic only; nothing is tuned to it."
+    },
+    {
+      "id": "case_gangnam_literature",
+      "label_ko": "강남역 침수 문헌 대조",
+      "label_en": "Gangnam station flood literature check",
+      "perils": [
+        "PF"
+      ],
+      "role": "validation",
+      "used_by": [
+        "worker:twin/case_gangnam_figures.py"
+      ],
+      "path": "repo:assets/libraries/case_gangnam_literature.json",
+      "path_fn": null,
+      "format": "JSON (values from a paper's tables)",
+      "spatial_resolution": "event scale",
+      "temporal": "not applicable: values copied from one paper's Tables 1-2",
+      "coverage": "n/a (one site)",
+      "source": "paper cited in the file (see its _note)",
+      "licence": "논문에서 인용한 수치(사실값)로 사용, 파일 _note의 논문 출처 표시",
+      "storage_rule": "none recorded",
+      "data_sources_id": null,
+      "notes": "Diagnostic only. Paper identity and licence are inside the file; not restated here."
+    },
+    {
+      "id": "sample_portfolio_1000",
+      "label_ko": "1,000건 OSM 건물 시험 포트폴리오",
+      "label_en": "1,000-building OSM test portfolio",
+      "perils": [],
+      "role": "exposure",
+      "used_by": [
+        "test:test_sample_portfolio.py",
+        "script:build_sample_portfolio.py"
+      ],
+      "path": "repo:tests/fixtures/sample_portfolio_1000/portfolio.csv",
+      "path_fn": null,
+      "format": "CSV",
+      "spatial_resolution": "building point",
+      "temporal": "OSM as of 2026-10-13; value basis 2026 건물신축가격기준액",
+      "coverage": "partial: 1,000 selected buildings",
+      "source": "OpenStreetMap via osm_south_korea; values from 행정안전부 건물신축가격기준액 (README)",
+      "licence": "ODbL 1.0 for OSM-derived fields",
+      "storage_rule": "asset_value_usd is a replacement-cost proxy, not a valuation",
+      "data_sources_id": null,
+      "notes": "Committed fixture; byte-reproducible only on the recorded GDAL/GEOS/PROJ build."
+    },
+    {
+      "id": "municipality_office_sources",
+      "label_ko": "시군구청 공식 주소 원자료",
+      "label_en": "Official office-address source files",
+      "perils": [],
+      "role": "other",
+      "used_by": [
+        "script:build_official_offices.py"
+      ],
+      "path": "external/municipality/source/*",
+      "path_fn": "municipality_source_dir",
+      "format": "raw CSV as downloaded (sha256 in official_office_sources.json)",
+      "spatial_resolution": "n/a",
+      "temporal": "per file",
+      "coverage": "partial: Busan Yeonje-gu public-institution list so far",
+      "source": "data.go.kr (e.g. 15025212)",
+      "licence": "per file, recorded in official_office_sources.json",
+      "storage_rule": "none recorded",
+      "data_sources_id": null,
+      "notes": "Raw inputs for korea_official_offices."
+    }
+  ]
+}
