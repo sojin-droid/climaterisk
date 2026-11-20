@@ -699,8 +699,8 @@ def run(layer: str, out_dir: Path | None) -> dict[str, Any]:
     if aq is not None:
         # Outside the layer's own cache box there is no data: null, not the 0 the hazard
         # object needed to be built.
-        result["intensity"][:, aq["null_centroid"]] = np.nan
-        check["intensity"][:, aq["null_centroid"]] = np.nan
+        result["intensity"] = board.null_outside_box(result["intensity"], aq["depth"])
+        check["intensity"] = board.null_outside_box(check["intensity"], aq["depth"])
     rp_cfg = cfg["rp_check"]
     shares = board.rp_disagreement(result, check, float(rp_cfg["rel_tol"]))
     check_block = {

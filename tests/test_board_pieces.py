@@ -146,3 +146,36 @@ def test_lookup_matches_nearest_centroid() -> None:
         hit = board.lookup(pieces, float(x), float(y))
         if hit is not None:
             assert hit["centroid"] == int(n)
+
+
+def test_coastal_cells_outside_a_layers_box_are_null_not_zero() -> None:
+    """Aqueduct layers with different boxes: outside a layer's box the board reads NaN, not 0 m."""
+    rps = [2, 10, 100]
+    step = 0.5
+    # layer "a" covers columns 0-1, layer "b" covers columns 1-2 (one row, shared column 1)
+    a = {
+        "lat": np.array([37.0, 36.5]),
+        "lon": np.array([126.0, 126.5]),
+        "rps": rps,
+        "depth": np.stack([np.full((2, 2), d) for d in (0.2, 0.5, 1.0)]),
+    }
+    b = {
+        "lat": np.array([37.0, 36.5]),
+        "lon": np.array([126.5, 127.0]),
+        "rps": rps,
+        "depth": np.stack([np.full((2, 2), d) for d in (0.1, 0.3, 0.8)]),
+    }
+    union = board.aqueduct_union({"a": a, "b": b})
+    assert union["res_deg"] == pytest.approx(step)
+    depth_b = union["depth"]["b"]
+    outside_b = np.isclose(union["lon"], 126.0)
+    assert outside_b.sum() == 2 and np.isnan(depth_b[:, outside_b]).all()
+
+    haz = board.aqueduct_hazard(union["lat"], union["lon"], union["rps"], depth_b)
+    read = board.rp_intensity(haz, [10])
+    assert read["periods"] == [10]
+    raw = read["intensity"]
+    np.testing.assert_allclose(raw[:, outside_b], 0.0)  # the hazard object cannot hold NaN
+    out = board.null_outside_box(raw, depth_b)
+    assert np.isnan(out[:, outside_b]).all()
+    np.testing.assert_allclose(out[:, ~outside_b], [[0.3] * 4], rtol=1e-6)  # float32 union grid
