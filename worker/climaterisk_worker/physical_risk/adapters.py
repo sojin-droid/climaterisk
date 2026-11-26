@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import math
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -1022,8 +1023,12 @@ class KoreaLocalCoastalFloodAdapter:
         :func:`climaterisk_worker.coastal_connectivity.tidal_mask` on GLO-30 reduced to 3 arcsec
         by the block minimum (structures narrower than ~90 m are removed).
 
-    The hazard is one event ("ahhw", present sea level) at the asset points; the +0.5 / +1.0 m
-    increments are reported in ``diagnostics`` only. No surge, no waves, no loss computed. The
+    The hazard is one event at the asset points: the sea-level increment ``slr_m`` (default
+    0 = present sea level, event "ahhw"; otherwise "ahhw+<s>m"). An increment is a fixed
+    offset on the present tidal datum, not a dated scenario: it carries no year and no SSP.
+    Every configured increment (``coastal_local.slr_increments_m``) is reported per asset in
+    ``diagnostics`` (depth and connectivity), so one load answers all of them; build one
+    adapter per increment to get each as a hazard. No surge, no waves, no loss computed. The
     sub check re-tests slr 0 on the block *maximum* (narrow structures kept) and flags assets
     that are connected only because those structures are assumed to fail.
     """
@@ -1032,16 +1037,32 @@ class KoreaLocalCoastalFloodAdapter:
     status = HAZARD_ONLY
     hazard_type = "CF"
     dataset = "khoa_ahhw_connected_bathtub"
-    _KEYS = ("slr0", "slr0.5", "slr1")
 
-    def __init__(self, scenario: str, year: int, iso3: str | None = "KOR") -> None:
+    def __init__(
+        self, scenario: str, year: int, iso3: str | None = "KOR", slr_m: float = 0.0
+    ) -> None:
         from climaterisk.physical_risk.metrics import load_config
 
         cfg = load_config().get("coastal_local", {})
         self.scenario, self.year, self.iso3 = scenario, int(year), iso3
         self.pad_km = float(cfg.get("pad_km", 20.0))
-        self.slr = [float(v) for v in cfg.get("slr_increments_m", [0.0, 0.5, 1.0])]
+        self.slr_m = float(slr_m)
+        if not math.isfinite(self.slr_m) or self.slr_m < 0.0:
+            raise ValueError(f"slr_m must be a finite increment >= 0 m, got {slr_m!r}")
+        configured = {float(v) for v in cfg.get("slr_increments_m", [0.0, 0.5, 1.0])}
+        # slr 0 is always computed: the sub check and ``connected`` are defined on it
+        self.slr = sorted(configured | {0.0, self.slr_m})
         self.diagnostics: dict[str, Any] = {}
+
+    @staticmethod
+    def slr_key(inc: float) -> str:
+        """Diagnostics key of an increment: ``slr0``, ``slr0.5``, ``slr1``."""
+        return f"slr{float(inc):g}"
+
+    @property
+    def event_name(self) -> str:
+        """``ahhw`` at present sea level, ``ahhw+<s>m`` at an increment."""
+        return "ahhw" if self.slr_m == 0.0 else f"ahhw+{self.slr_m:g}m"
 
     def describe(self) -> HazardDescription:
         return HazardDescription(
@@ -1058,12 +1079,18 @@ class KoreaLocalCoastalFloodAdapter:
             hazard_country=self.iso3,
             requested_scenario=self.scenario,
             served_scenario="historical",
-            time_horizon="present",
+            time_horizon=(
+                "present"
+                if self.slr_m == 0.0
+                else f"present tidal datum + {self.slr_m:g} m (increment, no year)"
+            ),
             detail=(
-                "method tier T2, hazard only. Depth = max(0, AHHW - ground) where the asset's "
-                "90 m cell is sea-connected. Assumptions: coastal structures narrower than "
-                "~90 m (seawalls, levees) are removed; nearest-station AHHW; present-day tidal "
-                "datum; no storm surge and no waves; ground = Copernicus GLO-30 (surface "
+                f"method tier T2, hazard only. Depth = max(0, AHHW + {self.slr_m:g} - ground) "
+                "where the asset's 90 m cell is sea-connected at that level. Assumptions: "
+                "coastal structures narrower than ~90 m (seawalls, levees) are removed; "
+                "nearest-station AHHW; present-day tidal datum"
+                + ("" if self.slr_m == 0.0 else f" raised by a fixed {self.slr_m:g} m")
+                + "; no storm surge and no waves; ground = Copernicus GLO-30 (surface "
                 "model, one national ground); "
                 "no loss computed"
             ),
@@ -1074,8 +1101,6 @@ class KoreaLocalCoastalFloodAdapter:
         bbox: tuple[float, float, float, float] | None = None,
         points: list[tuple[float, float]] | None = None,
     ) -> Any:
-        import math
-
         import numpy as np
         from climada.hazard import Hazard
         from scipy import sparse
@@ -1112,7 +1137,8 @@ class KoreaLocalCoastalFloodAdapter:
         sea = ~cc.land_mask(mos, shp) | np.isnan(mos.zmin)
         base = cc.station_threshold_grid(mos, stations)
         tidal = {
-            f"slr{inc:g}": cc.tidal_mask(mos.zmin, base + np.float32(inc), sea) for inc in self.slr
+            self.slr_key(inc): cc.tidal_mask(mos.zmin, base + np.float32(inc), sea)
+            for inc in self.slr
         }
         tidal_max = cc.tidal_mask(mos.zmax, base, sea)  # sub check: structures kept
         ground, source = self._ground(lat, lon, paths, offline)
@@ -1122,15 +1148,23 @@ class KoreaLocalCoastalFloodAdapter:
             cell = mos.cell(float(lat[i]), float(lon[i]))
             g = ground[i]
             depth: dict[str, float | None] = {}
+            # the 90 m cell's state per increment; it does not depend on the point ground,
+            # so it is None only outside the mosaic (``connected`` stays the slr 0 value
+            # and is None when the ground is unknown, as before)
+            by_slr: dict[str, bool | None] = {}
             connected: bool | None = None
-            for key in self._KEYS:
-                inc = float(key[3:])
-                if np.isnan(g) or cell is None or key not in tidal:
-                    depth[key] = None
+            for inc in self.slr:
+                key = self.slr_key(inc)
+                if cell is None:
+                    by_slr[key], depth[key] = None, None
                     continue
                 is_sea = bool(sea[cell])  # an asset on a sea cell is already at the water
                 tid = bool(tidal[key][cell]) or is_sea
-                if key == "slr0":
+                by_slr[key] = tid
+                if np.isnan(g):
+                    depth[key] = None
+                    continue
+                if inc == 0.0:
                     connected = tid
                 depth[key] = max(0.0, st["ahhw_m"] + inc - float(g)) if tid else 0.0
             rows.append(
@@ -1140,22 +1174,24 @@ class KoreaLocalCoastalFloodAdapter:
                     "ground_m": None if np.isnan(g) else float(g),
                     "ground_source": source[i],
                     "connected": connected,
+                    "connected_by_slr": by_slr,
                     "depth_m": depth,
                 }
             )
         self.diagnostics = {
             "assets": rows,
+            "slr_m": self.slr_m,
+            "slr_increments_m": list(self.slr),
             "sub_check": self._sub_check(rows, points, mos, tidal["slr0"], tidal_max, sea),
         }
-        d0 = np.array(
-            [[np.nan if r["depth_m"]["slr0"] is None else r["depth_m"]["slr0"] for r in rows]]
-        )
+        key = self.slr_key(self.slr_m)
+        d0 = np.array([[np.nan if r["depth_m"][key] is None else r["depth_m"][key] for r in rows]])
         hazard = Hazard(
             haz_type="CF",
             units="m",
             centroids=_centroids(lat, lon),
             event_id=np.array([1]),
-            event_name=["ahhw"],
+            event_name=[self.event_name],
             date=np.zeros(1, dtype=int),
             frequency=np.array([1.0]),
             frequency_unit="1/year",

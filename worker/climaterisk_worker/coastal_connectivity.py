@@ -34,6 +34,10 @@ FACTOR = 3
 CELLS_PER_DEG = 3600 // FACTOR
 #: Nearest-station threshold is evaluated on blocks of this many 90 m cells (~1.8 km).
 THRESHOLD_BLOCK_CELLS = 20
+#: Half a 1 arcsec pixel (deg). GLO-30 is registered on pixel centres (AREA_OR_POINT=Point):
+#: a tile's first pixel is *centred* on its integer corner, so the grid edge lies this far
+#: further west and north (tile N34_E126: transform origin 125.999861, 35.000139).
+PIXEL_HALF_DEG = 0.5 / 3600
 #: Amplitude columns of the KHOA harmonic-constant file (cm).
 AMPLITUDE_COLUMNS = ("M2 진폭", "S2 진폭", "K1 진폭", "O1 진폭")
 
@@ -253,7 +257,13 @@ def load_tile(la: int, lo: int, *, allow_download: bool) -> tuple[np.ndarray, np
 
 
 def build_mosaic(bbox: tuple[float, float, float, float], *, allow_download: bool) -> Mosaic:
-    """Block-min / block-max mosaic of the whole tiles covering ``(lon0, lat0, lon1, lat1)``."""
+    """Block-min / block-max mosaic of the whole tiles covering ``(lon0, lat0, lon1, lat1)``.
+
+    The mosaic edge is the pixel edge, half a 1 arcsec pixel west and north of the tile's
+    integer corner (:data:`PIXEL_HALF_DEG`). Before 2026-11-26 the edge sat on the corner,
+    which put every cell ~12 m east and ~15 m south of the ground it describes (the same
+    fix the agrivoltaic analysis made on 2026-11-18).
+    """
     minlon, minlat, maxlon, maxlat = bbox
     la0, la1 = math.floor(minlat), math.floor(maxlat)
     lo0, lo1 = math.floor(minlon), math.floor(maxlon)
@@ -267,7 +277,12 @@ def build_mosaic(bbox: tuple[float, float, float, float], *, allow_download: boo
             zmin[r0 : r0 + n, c0 : c0 + n] = a[:n, :n]
             zmax[r0 : r0 + n, c0 : c0 + n] = b[:n, :n]
     log.debug("coastal mosaic shape=%s dtype=%s", zmin.shape, zmin.dtype)
-    return Mosaic(west=float(lo0), north=float(la1 + 1), zmin=zmin, zmax=zmax)
+    return Mosaic(
+        west=float(lo0) - PIXEL_HALF_DEG,
+        north=float(la1 + 1) + PIXEL_HALF_DEG,
+        zmin=zmin,
+        zmax=zmax,
+    )
 
 
 def land_mask(mosaic: Mosaic, shp: Path) -> np.ndarray:
