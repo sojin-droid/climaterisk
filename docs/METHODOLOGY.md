@@ -269,6 +269,9 @@ the asset's 90 m cell is sea-connected, else 0. $A_c$ = KHOA 조화상수 amplit
 
 1. Terrain: Copernicus GLO-30 reduced to 3 arcsec (~90 m) by the block minimum, which removes
    barriers narrower than ~90 m. Cache: `cache/glo30_blockmin/*_min3.npy` / `_max3.npy`.
+   GLO-30 pixels are centred on the tile's integer corner (`AREA_OR_POINT=Point`), so the mosaic
+   edge lies half a 1 arcsec pixel west and north of it (fixed 2026-11-26; before, cells sat
+   ~12 m east and ~15 m south of their ground).
 2. Sea = outside the SGIS 시도 land polygons, or no elevation.
 3. Tidal = cell below the station's AHHW (+ increment) whose 8-connected component of
    low-or-sea cells contains sea (`scipy.ndimage.label`). The threshold is the nearest station's
@@ -277,6 +280,13 @@ the asset's 90 m cell is sea-connected, else 0. $A_c$ = KHOA 조화상수 amplit
    main value (spec rule 5, 사용자 결정 2026-11-16); the NGII bare-earth DEM is not used here, so
    the ground never switches source at an NGII tile edge. Unknown ground gives unknown
    connectivity and depth (null), never 0.
+
+Increments: the hazard is one event at `slr_m` (adapter argument, default 0 = event `ahhw`;
+`ahhw+0.5m`, `ahhw+1m` otherwise). Build one adapter per increment to get each as its own CLIMADA
+hazard — never as events of one hazard, whose frequencies would be summed into an expected
+value. An increment is a fixed offset on today's datum and carries no year or SSP. Every
+configured increment is also reported per asset in the diagnostics (`depth_m`, and
+`connected_by_slr`: the 90 m cell's state, known even when the asset ground is not).
 
 Assumptions (stated on the row): structures narrower than ~90 m (seawalls, levees) are removed;
 nearest-station AHHW; present-day tidal datum; no storm surge, no waves; no loss computed.
