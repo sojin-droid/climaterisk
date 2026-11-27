@@ -969,7 +969,16 @@ def edge_depth(
     dem: Callable[[np.ndarray], np.ndarray],
     params: DepthParams = DEFAULT_PARAMS,
 ) -> float:
-    """FwDET depth at a map-CRS point inside one map file's extent; NaN if not computable."""
+    """FwDET depth at a map-CRS point inside one map file's extent; NaN if not computable.
+
+    A DEM with no value at the asset itself gives NaN at once: :func:`depth_at_point` needs
+    the asset's ground (``z_pt``), which no window changes, so the window doublings (each a
+    clip and union of the class polygons, up to 64 km wide) could only end in NaN. The
+    bare-earth DEM covers a few tiles, so most assets used to pay six doublings before the
+    GLO-30 fallback.
+    """
+    if not np.isfinite(dem(np.array([[x, y]], dtype=float))[0]):
+        return float("nan")
     half = 4 * params.radius_m
     while half <= 64_000:
         parts, border = local_extent(classes, x, y, half)

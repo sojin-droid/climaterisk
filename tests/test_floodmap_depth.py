@@ -119,6 +119,32 @@ def test_clip_window_border_is_not_a_flood_edge() -> None:
     np.testing.assert_allclose(h, 4.0, atol=1e-9)
 
 
+def test_edge_depth_without_ground_at_the_asset_skips_the_windows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A wide extent (side edges 20 km away, ends 60 km): windows double until they reach an edge.
+    classes = [("N331", box(-20_000, -60_000, 20_000, 60_000))]
+    windows: list[float] = []
+    real = fd.local_extent
+
+    def counting(cls, x, y, half):  # type: ignore[no-untyped-def]
+        windows.append(half)
+        return real(cls, x, y, half)
+
+    monkeypatch.setattr(fd, "local_extent", counting)
+
+    def gap_at_asset(xy):  # type: ignore[no-untyped-def]
+        xy = np.asarray(xy, dtype=float)
+        return np.where(np.hypot(xy[:, 0], xy[:, 1]) < 1, np.nan, 1.0)
+
+    assert np.isnan(fd.edge_depth(0.0, 0.0, classes, gap_at_asset))
+    assert windows == []  # no window: the asset's own ground decides
+    # with ground at the asset the windows run as before and find the edge
+    h = fd.edge_depth(0.0, 0.0, classes, v_valley())
+    np.testing.assert_allclose(h, 200.0, atol=1e-9)  # edge at |x| = 20 km, z = 0.01·20,000
+    assert windows == [2000.0, 4000.0, 8000.0, 16000.0, 32000.0]
+
+
 # --------------------------------------------------------------------------- #
 # Main method: official class band                                              #
 # --------------------------------------------------------------------------- #
