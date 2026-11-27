@@ -210,6 +210,32 @@ def test_classes_at_points_on_synthetic_maps(tmp_path: Path) -> None:
     )
 
 
+def test_class_index_prepares_parts_and_keeps_the_codes(tmp_path: Path) -> None:
+    """Prepared parts answer exactly as the unprepared predicate, holes and edges included."""
+    import shapely
+    from shapely.geometry import Point
+
+    # a 20,000-vertex ring with a hole (river polygons have many vertices); a box in the hole
+    t = np.linspace(0, 2 * np.pi, 20_000, endpoint=False)
+    ring = Polygon(
+        np.c_[1000 + 900 * np.cos(t), 1000 + 900 * np.sin(t)],
+        [np.c_[1000 + 300 * np.cos(t), 1000 + 300 * np.sin(t)]],
+    )
+    zp = _zip_map(tmp_path, "N_100", {"N331": ring, "N333": box(900, 900, 1100, 1100)})
+    cidx = fd.ClassIndex()
+    _tree, parts, codes = cidx.tree(str(zp))
+    assert shapely.is_prepared(parts).all()
+
+    xy = [(1000, 1000), (1000, 1500), (1000, 1250), (1100, 1000), (3000, 3000), (1000, 150)]
+    got = [cidx.code_at(str(zp), x, y) for x, y in xy]
+    raw = shapely.from_wkb(shapely.to_wkb(parts))  # the same parts, not prepared
+    pairs = list(zip(raw, codes, strict=True))
+    want = [max([str(c) for g, c in pairs if g.intersects(Point(x, y))], default="") for x, y in xy]
+    assert got == want
+    # box in hole, ring body, hole (dry), box edge (boundary counts), far away, ring body
+    assert got == ["N333", "N331", "", "N333", "", "N331"]
+
+
 class _FakeCidx:
     """``code_at(path, x, y)`` driven by a dict ``{path: code}`` (no real maps)."""
 

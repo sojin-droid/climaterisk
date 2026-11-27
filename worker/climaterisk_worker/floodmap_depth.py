@@ -638,6 +638,13 @@ class ClassIndex:
     repaired or prepared as a whole; parts are queried by bounding box and tested one by
     one. Nothing is written to disk.
 
+    Each part is prepared (``shapely.prepare``) when its file is read. An unprepared
+    polygon has GEOS build a point-in-area index over all its edges on every
+    ``intersects`` call and throw it away, so on a river polygon with many vertices
+    each point test cost as much as building the index (a run over ~276,000 points had
+    not finished after 78 minutes). A prepared part builds the index once, on its first
+    test, and reuses it. The predicate is the same, so the codes are the same.
+
     A ``.shp`` member shorter (or longer) than its header's file length raises
     :class:`MapUnreadable` before it is read (:func:`shp_member_complete`): a cut in the middle
     of the records would otherwise read the lost polygons as dry.
@@ -670,6 +677,7 @@ class ClassIndex:
             arr = np.concatenate(parts) if parts else np.array([], dtype=object)
             if len(arr) == 0:
                 raise MapUnreadable(f"no polygon in {Path(path).name}")
+            shapely.prepare(arr)  # point-in-area index built once per part, not per test
             self._trees[path] = (shapely.STRtree(arr), arr, np.array(codes, dtype=object))
         return self._trees[path]
 
